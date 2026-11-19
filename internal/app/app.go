@@ -17,7 +17,9 @@ import (
 	authcore "iape-ui/internal/core/auth"
 	"iape-ui/internal/core/chat"
 	"iape-ui/internal/core/conversation"
+	"iape-ui/internal/core/port/resource"
 	"iape-ui/internal/infrastructure/agent/adkrest"
+	"iape-ui/internal/infrastructure/agent/aguibff"
 	"iape-ui/internal/infrastructure/api/web"
 	authinfra "iape-ui/internal/infrastructure/auth"
 	"iape-ui/internal/infrastructure/config"
@@ -91,7 +93,7 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 		}
 	}
 
-	agent := adkrest.NewClient(cfg.Agent, nil)
+	agent := newAgent(cfg.Agent)
 	chatSvc := chat.NewService(chat.Dependencies{
 		Conversations:   conversations,
 		Messages:        messages,
@@ -146,4 +148,13 @@ func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.List
 	}
 	defer application.Close()
 	return web.NewServer(cfg, log, application.Handler, application.EndStreams).Serve(ctx, ln)
+}
+
+// newAgent is the adapter for how the agent is reached: the AG-UI BFF, as a Yape account whose token comes from a program, or
+// an ADK REST server (the default).
+func newAgent(cfg config.Agent) resource.AgentGateway {
+	if cfg.Protocol == config.ProtocolAGUIBFF {
+		return aguibff.NewClient(cfg, aguibff.CommandToken{Bin: cfg.BearerBin, AccountID: cfg.AccountID}, nil)
+	}
+	return adkrest.NewClient(cfg, nil)
 }
