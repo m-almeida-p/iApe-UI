@@ -7,7 +7,7 @@ import (
 	"context"
 	"iter"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // AgentGateway talks to the AI agent.

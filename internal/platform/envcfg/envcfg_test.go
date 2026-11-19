@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
+	"iape-ui/internal/platform/envcfg"
 )
 
 func TestSecret_NeverPrintsItself(t *testing.T) {

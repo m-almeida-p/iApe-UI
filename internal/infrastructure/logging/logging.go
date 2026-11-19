@@ -5,7 +5,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/config"
 )
 
 // New returns a logger writing JSON or text records to w at the configured

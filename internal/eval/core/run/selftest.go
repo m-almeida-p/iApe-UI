@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // ExpectedVersion is the version of the golden file format.

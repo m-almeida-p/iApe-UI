@@ -13,7 +13,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/config"
 )
 
 // Middleware wraps a handler.

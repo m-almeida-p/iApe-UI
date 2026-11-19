@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
+	"iape-ui/internal/platform/envcfg"
 )
 
 // ErrNoToken is returned when asked to download without a Hugging Face token.

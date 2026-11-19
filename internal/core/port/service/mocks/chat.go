@@ -6,11 +6,11 @@ import (
 	context "context"
 	iter "iter"
 
-	domain "github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	domain "iape-ui/internal/core/domain"
 
 	mock "github.com/stretchr/testify/mock"
 
-	service "github.com/v8tix/inside-agent-web-ui/internal/core/port/service"
+	service "iape-ui/internal/core/port/service"
 
 	uuid "uuid"
 )

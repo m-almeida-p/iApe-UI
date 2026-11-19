@@ -15,11 +15,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/report"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/score"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/port/service"
+	"iape-ui/internal/eval/core/report"
+	"iape-ui/internal/eval/core/score"
 )
 
 // ClassDriverDied marks a row for an attempt during which the browser session

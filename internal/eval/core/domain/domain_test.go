@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 func TestParseAttachmentsMode(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // Input is everything the passive checks look at for one attempt.

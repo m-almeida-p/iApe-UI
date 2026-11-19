@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/service"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/service"
 )
 
 // runUntilEnded is a reply being written: it shows "Hel", then waits until the

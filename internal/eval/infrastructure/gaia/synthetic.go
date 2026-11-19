@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"iter"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // Synthetic reads problems from JSONL: one JSON object per line with task_id,

@@ -18,10 +18,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/report"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/store"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/report"
+	"iape-ui/internal/eval/infrastructure/store"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")

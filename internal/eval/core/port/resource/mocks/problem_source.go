@@ -6,7 +6,7 @@ import (
 	context "context"
 	iter "iter"
 
-	domain "github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	domain "iape-ui/internal/eval/core/domain"
 
 	mock "github.com/stretchr/testify/mock"
 )

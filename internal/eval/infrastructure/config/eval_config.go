@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/redact"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/platform/envcfg"
+	"iape-ui/internal/platform/redact"
 )
 
 // Secret and LookupFunc are shared with the Web UI's configuration.

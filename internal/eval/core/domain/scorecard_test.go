@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 func TestUIScorecard_Clean(t *testing.T) {

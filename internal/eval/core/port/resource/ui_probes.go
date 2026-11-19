@@ -3,7 +3,7 @@ package resource
 import (
 	"context"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // UIProbes runs the checks that are not a passive reading of one attempt: they

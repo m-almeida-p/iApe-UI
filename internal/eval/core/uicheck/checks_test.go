@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/uicheck"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/uicheck"
 )
 
 // healthy is an attempt on which every check passes. Times are on the page's

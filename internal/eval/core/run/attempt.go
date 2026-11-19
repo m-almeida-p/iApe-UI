@@ -11,10 +11,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/score"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/uicheck"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/score"
+	"iape-ui/internal/eval/core/uicheck"
 )
 
 // Error classes a row can carry, naming the step that went wrong. They are

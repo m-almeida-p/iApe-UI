@@ -25,9 +25,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/pgenv"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/pgenv"
+	"iape-ui/it/internal/stack"
 )
 
 const (

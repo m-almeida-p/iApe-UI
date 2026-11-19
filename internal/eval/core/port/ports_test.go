@@ -3,10 +3,10 @@ package port_test
 import (
 	"testing"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	resmocks "github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource/mocks"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
-	svcmocks "github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service/mocks"
+	"iape-ui/internal/eval/core/port/resource"
+	resmocks "iape-ui/internal/eval/core/port/resource/mocks"
+	"iape-ui/internal/eval/core/port/service"
+	svcmocks "iape-ui/internal/eval/core/port/service/mocks"
 )
 
 // The mocks are generated. These assertions fail the build when an interface

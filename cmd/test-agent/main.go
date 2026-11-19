@@ -39,8 +39,8 @@ import (
 	"google.golang.org/adk/v2/cmd/launcher/web/api"
 	"google.golang.org/adk/v2/cmd/launcher/web/webui"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
+	"iape-ui/internal/platform/envcfg"
+	"iape-ui/internal/testagent"
 )
 
 const defaultHealthURL = "http://127.0.0.1:9093/api/list-apps"

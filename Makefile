@@ -135,6 +135,31 @@ full/up:
 full/down:
 	docker compose --profile full down ${ARGS}
 
+## yape-agent/check: ask for a gateway token and list the MCP tools, without starting anything (scripts/yape-agent.sh check)
+.PHONY: yape-agent/check
+yape-agent/check:
+	scripts/yape-agent.sh check
+
+## yape-agent/up: start the Yape agent - gateway models and the history's MCP tools - on this computer (scripts/yape-agent.sh)
+.PHONY: yape-agent/up
+yape-agent/up:
+	scripts/yape-agent.sh
+
+## yape-agent/down: stop the Yape agent
+.PHONY: yape-agent/down
+yape-agent/down:
+	scripts/yape-agent.sh stop
+
+## cluster/up: start the web server in Docker on the Yape cluster, with its database in yape-postgres (scripts/cluster.sh)
+.PHONY: cluster/up
+cluster/up:
+	scripts/cluster.sh
+
+## cluster/down: stop the web server started with `make cluster/up`; its database stays in the cluster
+.PHONY: cluster/down
+cluster/down:
+	scripts/cluster.sh down
+
 # ==================================================================================== #
 #
 # OPERATIONS

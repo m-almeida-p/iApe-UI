@@ -143,7 +143,7 @@ func (r *gateRig) cover(files ...gateCover) {
 	var profile strings.Builder
 	profile.WriteString("mode: atomic\n")
 	for _, f := range files {
-		name := "github.com/v8tix/inside-agent-web-ui/" + f.file
+		name := "iape-ui/" + f.file
 		fmt.Fprintf(&profile, "%s:1.1,2.2 %d 1\n", name, f.covered)
 		fmt.Fprintf(&profile, "%s:3.1,4.2 %d 0\n", name, f.statements-f.covered)
 	}
@@ -433,7 +433,7 @@ const (
 	gateScriptsPassed = `=== RUN   TestGitignore
 --- PASS: TestGitignore (0.01s)
 PASS
-ok  	github.com/v8tix/inside-agent-web-ui/it/scripts	38.112s
+ok  	iape-ui/it/scripts	38.112s
 `
 	gateScriptsSkipped = `=== RUN   TestCheck_TheCoverageReadsTheSameInEveryLocale
     check_test.go:403: this machine has no locale with a decimal comma
@@ -444,7 +444,7 @@ ok  	github.com/v8tix/inside-agent-web-ui/it/scripts	38.112s
 --- PASS: TestRealAgent_BuildsAgainstTheADKItIsToldTo (0.00s)
     --- SKIP: TestRealAgent_BuildsAgainstTheADKItIsToldTo/the_sample's_own_pin_when_told_so (0.00s)
 PASS
-ok  	github.com/v8tix/inside-agent-web-ui/it/scripts	12.004s
+ok  	iape-ui/it/scripts	12.004s
 `
 	gateScriptsFailed = `=== RUN   TestGitignore
     repo_test.go:61: .env is not ignored: the settings of this machine would be committed
@@ -452,13 +452,13 @@ ok  	github.com/v8tix/inside-agent-web-ui/it/scripts	12.004s
 === RUN   TestLoadEnv
 --- PASS: TestLoadEnv (0.02s)
 FAIL
-FAIL	github.com/v8tix/inside-agent-web-ui/it/scripts	0.512s
+FAIL	iape-ui/it/scripts	0.512s
 FAIL
 `
 	gateRoutesPassed = `=== RUN   TestRoutes_TheTableIsComplete
 --- PASS: TestRoutes_TheTableIsComplete (0.00s)
 PASS
-ok  	github.com/v8tix/inside-agent-web-ui/it/security	0.402s
+ok  	iape-ui/it/security	0.402s
 `
 )
 
@@ -474,7 +474,7 @@ func TestCheck_TestsThatNeedNoDocker(t *testing.T) {
 		out, exit := r.run()
 
 		require.Zero(t, exit, out)
-		assert.Contains(t, out, "\n== tests that need no Docker\nok  \tgithub.com/v8tix/inside-agent-web-ui/it/scripts\t38.112s\nok  \tgithub.com/v8tix/inside-agent-web-ui/it/security\t0.402s\n\nAll checks passed.\n")
+		assert.Contains(t, out, "\n== tests that need no Docker\nok  \tiape-ui/it/scripts\t38.112s\nok  \tiape-ui/it/security\t0.402s\n\nAll checks passed.\n")
 		assert.NotContains(t, out, "were skipped")
 		assert.Empty(t, r.leftBehind(), "their output is gone when the gate ends")
 	})
@@ -486,7 +486,7 @@ func TestCheck_TestsThatNeedNoDocker(t *testing.T) {
 		out, exit := r.run()
 
 		require.Zero(t, exit, out)
-		assert.Contains(t, out, "\n== tests that need no Docker\nok  \tgithub.com/v8tix/inside-agent-web-ui/it/scripts\t12.004s\nok  \tgithub.com/v8tix/inside-agent-web-ui/it/security\t0.402s\n"+
+		assert.Contains(t, out, "\n== tests that need no Docker\nok  \tiape-ui/it/scripts\t12.004s\nok  \tiape-ui/it/security\t0.402s\n"+
 			"2 tests that need no Docker were skipped:\n  --- SKIP: TestCheck_TheCoverageReadsTheSameInEveryLocale (0.00s)\n"+
 			"  --- SKIP: TestRealAgent_BuildsAgainstTheADKItIsToldTo/the_sample's_own_pin_when_told_so (0.00s)\n\nAll checks passed.\n")
 		assert.Empty(t, r.leftBehind())
@@ -513,8 +513,8 @@ const (
 --- PASS: TestAppSuite (1.20s)
     --- PASS: TestAppSuite/TestFirstUser (0.31s)
 PASS
-ok  	github.com/v8tix/inside-agent-web-ui/it/app	1.532s
-?   	github.com/v8tix/inside-agent-web-ui/it/internal/stack	[no test files]
+ok  	iape-ui/it/app	1.532s
+?   	iape-ui/it/internal/stack	[no test files]
 `
 	gateITSkipped = `=== RUN   TestLiveSuite
     live_test.go:31: AGENT_LIVE is not 1 in .env
@@ -525,7 +525,7 @@ ok  	github.com/v8tix/inside-agent-web-ui/it/app	1.532s
 --- PASS: TestMeasureUIOverhead (0.00s)
     --- SKIP: TestMeasureUIOverhead/attempts (0.00s)
 PASS
-ok  	github.com/v8tix/inside-agent-web-ui/it/live	0.211s
+ok  	iape-ui/it/live	0.211s
 `
 	gateITFailed = `=== RUN   TestChatSuite
 === RUN   TestChatSuite/TestStop
@@ -533,11 +533,11 @@ ok  	github.com/v8tix/inside-agent-web-ui/it/live	0.211s
 --- FAIL: TestChatSuite (2.10s)
     --- FAIL: TestChatSuite/TestStop (0.40s)
 FAIL
-FAIL	github.com/v8tix/inside-agent-web-ui/it/chat	2.412s
+FAIL	iape-ui/it/chat	2.412s
 === RUN   TestAppSuite
 --- PASS: TestAppSuite (1.20s)
 PASS
-ok  	github.com/v8tix/inside-agent-web-ui/it/app	1.532s
+ok  	iape-ui/it/app	1.532s
 FAIL
 `
 )
@@ -553,7 +553,7 @@ func TestCheck_IntegrationTests(t *testing.T) {
 		assert.Equal(t, slices.Concat(gateCalls, []string{"go test -count=1 -v ./it/..."}), r.calls(),
 			"the tests that need no Docker are among them, so they are not run a second time")
 		assert.NotContains(t, gateHeadings(out), "tests that need no Docker")
-		assert.Contains(t, out, "\n== integration tests\nok  \tgithub.com/v8tix/inside-agent-web-ui/it/app\t1.532s\n?   \tgithub.com/v8tix/inside-agent-web-ui/it/internal/stack\t[no test files]\n\nAll checks passed.\n")
+		assert.Contains(t, out, "\n== integration tests\nok  \tiape-ui/it/app\t1.532s\n?   \tiape-ui/it/internal/stack\t[no test files]\n\nAll checks passed.\n")
 		assert.NotContains(t, out, "were skipped")
 		assert.Empty(t, r.leftBehind(), "their output is gone when they passed")
 	})
@@ -573,7 +573,7 @@ func TestCheck_IntegrationTests(t *testing.T) {
 		out, exit := r.run("--it")
 
 		assert.Equal(t, 1, exit, out)
-		assert.Contains(t, out, "\n== integration tests\n--- FAIL: TestChatSuite (2.10s)\n    --- FAIL: TestChatSuite/TestStop (0.40s)\nFAIL\nFAIL\tgithub.com/v8tix/inside-agent-web-ui/it/chat\t2.412s\nFAIL\ncheck.sh: the integration tests failed")
+		assert.Contains(t, out, "\n== integration tests\n--- FAIL: TestChatSuite (2.10s)\n    --- FAIL: TestChatSuite/TestStop (0.40s)\nFAIL\nFAIL\tiape-ui/it/chat\t2.412s\nFAIL\ncheck.sh: the integration tests failed")
 		assert.NotContains(t, out, "checks passed")
 	})
 }

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // stopMessage ends a reply that is being written and answers with the reply as

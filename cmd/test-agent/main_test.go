@@ -16,7 +16,7 @@ import (
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
+	"iape-ui/internal/testagent"
 )
 
 func env(pairs map[string]string) func(string) (string, bool) {

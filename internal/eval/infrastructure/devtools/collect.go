@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // observerScript is the observer, as the init script that puts it in each new page.

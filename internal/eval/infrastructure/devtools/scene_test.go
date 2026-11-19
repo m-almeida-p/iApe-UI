@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/infrastructure/devtools"
 )
 
 // A scene is a pretend Web UI behind the tools of a browser: the server's

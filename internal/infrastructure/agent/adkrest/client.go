@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
+	"iape-ui/internal/infrastructure/config"
 )
 
 var _ resource.AgentGateway = (*Client)(nil)

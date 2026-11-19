@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // ErrRunNotFound is returned when asked for a run that has no files.

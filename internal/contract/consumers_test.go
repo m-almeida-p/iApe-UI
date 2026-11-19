@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/contract"
+	"iape-ui/internal/contract"
 )
 
 // The contract exists so that a template change cannot silently break what reads

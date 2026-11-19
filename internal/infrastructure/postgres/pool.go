@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/config"
 )
 
 const (

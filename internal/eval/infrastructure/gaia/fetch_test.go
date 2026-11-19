@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/gaia"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
+	"iape-ui/internal/eval/infrastructure/gaia"
+	"iape-ui/internal/platform/envcfg"
 )
 
 const canary = "hf_CANARY_0123456789abcdef"

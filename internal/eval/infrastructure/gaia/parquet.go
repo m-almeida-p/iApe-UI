@@ -16,7 +16,7 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // Column names in GAIA's parquet files. Other columns (the nested annotator

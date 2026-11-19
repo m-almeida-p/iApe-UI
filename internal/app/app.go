@@ -13,15 +13,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/v8tix/inside-agent-web-ui/assets"
-	authcore "github.com/v8tix/inside-agent-web-ui/internal/core/auth"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/chat"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/conversation"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/agent/adkrest"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/api/web"
-	authinfra "github.com/v8tix/inside-agent-web-ui/internal/infrastructure/auth"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/postgres"
+	"iape-ui/assets"
+	authcore "iape-ui/internal/core/auth"
+	"iape-ui/internal/core/chat"
+	"iape-ui/internal/core/conversation"
+	"iape-ui/internal/infrastructure/agent/adkrest"
+	"iape-ui/internal/infrastructure/api/web"
+	authinfra "iape-ui/internal/infrastructure/auth"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/postgres"
 )
 
 // App is the assembled application.
@@ -55,13 +55,6 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, erro
 }
 
 func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, sql postgres.Statements) (*App, error) {
-	if cfg.DB.MigrateOnStart {
-		if err := postgres.Migrate(pool); err != nil {
-			return nil, err
-		}
-		log.InfoContext(ctx, "database migrations are up to date")
-	}
-
 	conversations := postgres.NewConversationStore(pool, sql)
 	messages := postgres.NewMessageStore(pool, sql)
 	users := postgres.NewUserStore(pool, sql)

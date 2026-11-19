@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/it/internal/stack"
 )
 
 // ids are a conversation and its reply, which the routes with {id} and {mid}

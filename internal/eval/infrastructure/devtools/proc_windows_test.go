@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/eval/infrastructure/devtools"
 )
 
 // A server starts Chrome, and ending it must end the process, the same way

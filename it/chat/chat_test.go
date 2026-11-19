@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/leak"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/leak"
+	"iape-ui/it/internal/stack"
 )
 
 // ticks is what the #slow script says: numbered chunks, each followed by a space.

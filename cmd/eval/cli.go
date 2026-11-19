@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
+	"iape-ui/internal/eval/core/port/service"
+	"iape-ui/internal/eval/infrastructure/config"
+	"iape-ui/internal/platform/envcfg"
 )
 
 // Exit codes.

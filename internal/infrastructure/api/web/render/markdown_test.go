@@ -16,8 +16,8 @@ import (
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/chat"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/api/web/render"
+	"iape-ui/internal/core/chat"
+	"iape-ui/internal/infrastructure/api/web/render"
 )
 
 // parse turns rendered HTML into a DOM, so tests assert on structure rather

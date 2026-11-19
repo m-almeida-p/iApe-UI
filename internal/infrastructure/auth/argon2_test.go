@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/auth"
+	"iape-ui/internal/infrastructure/auth"
 )
 
 // verify asks the hasher and takes an error as a failure of the test: these tests

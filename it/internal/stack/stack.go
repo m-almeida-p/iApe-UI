@@ -26,13 +26,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/app"
-	authinfra "github.com/v8tix/inside-agent-web-ui/internal/infrastructure/auth"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/logging"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/postgres"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/pgenv"
+	"iape-ui/internal/app"
+	authinfra "iape-ui/internal/infrastructure/auth"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/logging"
+	"iape-ui/internal/infrastructure/postgres"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/pgenv"
 )
 
 // The first user of every stack.

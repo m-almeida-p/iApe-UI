@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // maxFrameBytes caps one SSE frame so a misbehaving agent cannot make us buffer

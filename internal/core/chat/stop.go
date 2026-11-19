@@ -7,8 +7,8 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/resource"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
 )
 
 // stopWait is how long Stop waits for a canceled run to save its reply. A

@@ -11,9 +11,9 @@ package synthetic
 import (
 	_ "embed"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/run"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/gaia"
+	"iape-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/run"
+	"iape-ui/internal/eval/infrastructure/gaia"
 )
 
 //go:embed data/synthetic_gaia.jsonl

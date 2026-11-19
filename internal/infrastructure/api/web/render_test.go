@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/assets"
+	"iape-ui/assets"
 )
 
 func testRenderer(t *testing.T) *Renderer {

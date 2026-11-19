@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/html"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // viewing is the header htmx sends: the address of the page the request comes from.

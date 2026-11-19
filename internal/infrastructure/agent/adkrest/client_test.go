@@ -19,9 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/testagent"
 )
 
 // counting wraps a handler and counts session creations and runs.

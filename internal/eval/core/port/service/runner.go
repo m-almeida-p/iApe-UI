@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // Filter picks which problems to ask.

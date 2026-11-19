@@ -9,8 +9,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/infrastructure/devtools"
 )
 
 // The scene as a browser sees it: the scripts and tools the page answers, and the

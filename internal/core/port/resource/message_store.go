@@ -5,7 +5,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // Claimed is a reply that was just moved to streaming, together with the user

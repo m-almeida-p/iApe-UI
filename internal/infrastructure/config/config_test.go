@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/platform/envcfg"
 )
 
 const (
@@ -66,7 +66,6 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 30*time.Second, c.HTTP.BodyTimeout)
 				assert.Equal(t, 2*time.Minute, c.HTTP.ResponseTimeout)
 				assert.Equal(t, 10, c.DB.MaxConns)
-				assert.True(t, c.DB.MigrateOnStart)
 				assert.Equal(t, "ui_agent", c.Agent.AppName)
 				assert.Equal(t, 120*time.Second, c.Agent.RequestTimeout)
 				assert.Equal(t, 8000, c.Chat.MaxMessageChars)
@@ -101,7 +100,6 @@ func TestLoad_Valid(t *testing.T) {
 				"HTTP_BODY_TIMEOUT":          "5s",
 				"HTTP_RESPONSE_TIMEOUT":      "45s",
 				"DB_MAX_CONNS":               "25",
-				"DB_MIGRATE_ON_START":        "false",
 				"AGENT_REQUEST_TIMEOUT":      "600s",
 				"CHAT_MAX_MESSAGE_CHARS":     "500",
 				"CHAT_STREAM_FLUSH_INTERVAL": "100ms",
@@ -122,7 +120,6 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 5*time.Second, c.HTTP.BodyTimeout)
 				assert.Equal(t, 45*time.Second, c.HTTP.ResponseTimeout)
 				assert.Equal(t, 25, c.DB.MaxConns)
-				assert.False(t, c.DB.MigrateOnStart)
 				assert.Equal(t, 600*time.Second, c.Agent.RequestTimeout)
 				assert.Equal(t, 500, c.Chat.MaxMessageChars)
 				assert.Equal(t, 100*time.Millisecond, c.Chat.StreamFlushInterval)
@@ -176,15 +173,13 @@ func TestLoad_Invalid(t *testing.T) {
 		{
 			name: "bad scalar values name the key and the value",
 			env: with(requiredEnv(), map[string]string{
-				"APP_SHUTDOWN_GRACE":  "soon",
-				"DB_MAX_CONNS":        "ten",
-				"DB_MIGRATE_ON_START": "maybe",
-				"RATE_LIMIT_RPS":      "fast",
+				"APP_SHUTDOWN_GRACE": "soon",
+				"DB_MAX_CONNS":       "ten",
+				"RATE_LIMIT_RPS":     "fast",
 			}),
 			wantInErr: []string{
 				"APP_SHUTDOWN_GRACE", `"soon"`,
 				"DB_MAX_CONNS", `"ten"`,
-				"DB_MIGRATE_ON_START", `"maybe"`,
 				"RATE_LIMIT_RPS", `"fast"`,
 			},
 		},
@@ -384,7 +379,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			" config.App.Env=development config.App.BaseURL=http://localhost:8300 config.App.LogLevel=info"+
 			" config.App.LogFormat=json config.App.ShutdownGrace=10s"+
 			" config.HTTP.Addr=:8300 config.HTTP.MaxBodyBytes=131072 config.HTTP.BodyTimeout=30s config.HTTP.ResponseTimeout=2m0s"+
-			" config.DB.URL=[redacted] config.DB.MaxConns=10 config.DB.MigrateOnStart=true"+
+			" config.DB.URL=[redacted] config.DB.MaxConns=10"+
 			" config.Agent.BaseURL=http://localhost:9093/api config.Agent.AppName=ui_agent config.Agent.RequestTimeout=2m0s"+
 			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms config.Chat.ListLimit=100"+
 			" config.RateLimit.RPS=2 config.RateLimit.Burst=10 config.Session.TTL=24h0m0s"+
@@ -400,7 +395,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 		assert.JSONEq(t, `{"level":"INFO","msg":"starting","config":{
 			"App":{"Env":"development","BaseURL":"http://localhost:8300","LogLevel":"info","LogFormat":"json","ShutdownGrace":10000000000},
 			"HTTP":{"Addr":":8300","MaxBodyBytes":131072,"BodyTimeout":30000000000,"ResponseTimeout":120000000000},
-			"DB":{"URL":"[redacted]","MaxConns":10,"MigrateOnStart":true},
+			"DB":{"URL":"[redacted]","MaxConns":10},
 			"Agent":{"BaseURL":"http://localhost:9093/api","AppName":"ui_agent","RequestTimeout":120000000000},
 			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000,"ListLimit":100},
 			"RateLimit":{"RPS":2,"Burst":10},

@@ -9,9 +9,9 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/api/web/render"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/service"
+	"iape-ui/internal/infrastructure/api/web/render"
 )
 
 // Services are the use cases the handlers call.

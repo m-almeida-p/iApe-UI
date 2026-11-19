@@ -20,14 +20,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/run"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/store"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/synthetic"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/evalenv"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/service"
+	"iape-ui/internal/eval/core/run"
+	"iape-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/eval/infrastructure/store"
+	"iape-ui/internal/eval/infrastructure/synthetic"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/evalenv"
 )
 
 // selftestEnv is the Web UI in front of the scripted agent that plays the

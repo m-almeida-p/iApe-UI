@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/stack"
 )
 
 // What people write, what the agent answers, and the passwords they type are not

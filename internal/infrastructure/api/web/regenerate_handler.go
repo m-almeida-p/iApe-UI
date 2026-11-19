@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // cannotRegenerate is shown when the reply is not the latest or is still being

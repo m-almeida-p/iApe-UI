@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/tmplcache"
+	"iape-ui/internal/platform/tmplcache"
 )
 
 // files is a file system with one file for each name.

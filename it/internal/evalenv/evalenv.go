@@ -16,10 +16,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/internal/eval/infrastructure/config"
+	"iape-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/stack"
 )
 
 // The first user of every environment.

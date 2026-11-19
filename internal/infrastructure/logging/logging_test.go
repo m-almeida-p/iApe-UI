@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/logging"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/logging"
 )
 
 func TestNew(t *testing.T) {

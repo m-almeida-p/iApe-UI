@@ -6,9 +6,9 @@ import (
 	context "context"
 
 	mock "github.com/stretchr/testify/mock"
-	domain "github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	domain "iape-ui/internal/core/domain"
 
-	resource "github.com/v8tix/inside-agent-web-ui/internal/core/port/resource"
+	resource "iape-ui/internal/core/port/resource"
 
 	time "time"
 

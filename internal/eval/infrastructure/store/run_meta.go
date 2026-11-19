@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/resource"
 )
 
 // secretKey matches setting names that hold secrets. run.json is meant to be

@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	resmocks "github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource/mocks"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/run"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/score"
+	"iape-ui/internal/eval/core/domain"
+	resmocks "iape-ui/internal/eval/core/port/resource/mocks"
+	"iape-ui/internal/eval/core/run"
+	"iape-ui/internal/eval/core/score"
 )
 
 const timeout = 3 * time.Minute

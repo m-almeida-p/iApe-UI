@@ -23,7 +23,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/port/resource"
 )
 
 // File and directory names inside a run's directory.

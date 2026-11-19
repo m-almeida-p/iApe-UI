@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/html"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/contract"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/service/mocks"
+	"iape-ui/internal/contract"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/service"
+	"iape-ui/internal/core/port/service/mocks"
 )
 
 const contractTitle = "Quarterly plan"

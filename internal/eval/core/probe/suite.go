@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/port/service"
 )
 
 // closeWait is how long the browser gets to close at the end.

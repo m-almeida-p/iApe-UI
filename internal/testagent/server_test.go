@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
+	"iape-ui/internal/testagent"
 )
 
 // These tests talk to the real ADK REST server over HTTP. They pin the wire

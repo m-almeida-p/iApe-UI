@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/service"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
+	"iape-ui/internal/core/port/service"
 )
 
 // Dependencies are what the conversation service needs.

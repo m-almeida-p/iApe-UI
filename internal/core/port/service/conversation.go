@@ -4,7 +4,7 @@ import (
 	"context"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // ConversationView is a conversation with its messages in order.

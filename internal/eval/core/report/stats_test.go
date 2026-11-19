@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/report"
+	"iape-ui/internal/eval/core/report"
 )
 
 func TestWilson(t *testing.T) {

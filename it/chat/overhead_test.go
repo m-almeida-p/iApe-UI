@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/it/internal/leak"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/it/internal/leak"
+	"iape-ui/it/internal/stack"
 )
 
 // SC-13: what the Web UI adds between the agent's first word and the reader's

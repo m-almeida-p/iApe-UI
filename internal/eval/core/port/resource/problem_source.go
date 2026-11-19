@@ -6,7 +6,7 @@ import (
 	"context"
 	"iter"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // ProblemSource provides the problems to ask.

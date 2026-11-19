@@ -17,9 +17,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/redact"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/platform/envcfg"
+	"iape-ui/internal/platform/redact"
 )
 
 // Config is the complete, validated Web UI configuration.
@@ -57,9 +57,8 @@ type HTTP struct {
 
 // DB holds database settings.
 type DB struct {
-	URL            envcfg.Secret
-	MaxConns       int
-	MigrateOnStart bool
+	URL      envcfg.Secret
+	MaxConns int
 }
 
 // Agent holds the upstream agent settings.
@@ -169,8 +168,7 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 			ResponseTimeout: r.positive("HTTP_RESPONSE_TIMEOUT", 2*time.Minute, time.ParseDuration),
 		},
 		DB: DB{
-			MaxConns:       r.positive("DB_MAX_CONNS", 10, strconv.Atoi),
-			MigrateOnStart: r.parse("DB_MIGRATE_ON_START", true, strconv.ParseBool),
+			MaxConns: r.positive("DB_MAX_CONNS", 10, strconv.Atoi),
 		},
 		Agent: Agent{
 			AppName:        r.required("AGENT_APP_NAME"),

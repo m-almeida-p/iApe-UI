@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/resource"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
 )
 
 var _ resource.UserStore = (*UserStore)(nil)

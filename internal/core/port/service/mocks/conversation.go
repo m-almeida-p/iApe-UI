@@ -6,9 +6,9 @@ import (
 	context "context"
 
 	mock "github.com/stretchr/testify/mock"
-	domain "github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	domain "iape-ui/internal/core/domain"
 
-	service "github.com/v8tix/inside-agent-web-ui/internal/core/port/service"
+	service "iape-ui/internal/core/port/service"
 
 	uuid "uuid"
 )

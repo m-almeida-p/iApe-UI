@@ -6,10 +6,17 @@
 #                                                    plays the evaluator's self-test script
 #                                                    (then: scripts/eval.sh selftest)
 #
-# The full and selftest profiles each publish the web server on the same port, so
+#   docker compose --profile cluster up -d --wait web-cluster
+#                                                    the web server on the Yape cluster: its database is in
+#                                                    yape-postgres, it joins the yape-local network, and it talks to
+#                                                    the Yape agent that scripts/yape-agent.sh runs on this computer
+#                                                    (scripts/cluster.sh does the steps in order; name the service,
+#                                                    or compose also starts the PostgreSQL of this file)
+#
+# The full, selftest and cluster profiles each publish the web server on the same port, so
 # use one at a time. Settings come from .env; create it with scripts/init-env.sh.
 # Everything listens on 127.0.0.1 only.
-name: inside-agent-web-ui
+name: iape-ui
 
 # What the two test agents and the two web servers have in common.
 x-agent: &agent
@@ -48,9 +55,8 @@ x-web-environment: &web-environment
   HTTP_MAX_BODY_BYTES: ${HTTP_MAX_BODY_BYTES:-131072}
   HTTP_BODY_TIMEOUT: ${HTTP_BODY_TIMEOUT:-30s}
   HTTP_RESPONSE_TIMEOUT: ${HTTP_RESPONSE_TIMEOUT:-2m}
-  DB_URL: postgres://${POSTGRES_USER:-agentwebui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentwebui}?sslmode=disable
+  DB_URL: postgres://${POSTGRES_USER:-agentwebui}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentwebui}?sslmode=disable&search_path=web_ui
   DB_MAX_CONNS: ${DB_MAX_CONNS:-10}
-  DB_MIGRATE_ON_START: "true"
   AGENT_APP_NAME: ${AGENT_APP_NAME:-ui_agent}
   AGENT_REQUEST_TIMEOUT: ${AGENT_REQUEST_TIMEOUT:-120s}
   CHAT_MAX_MESSAGE_CHARS: ${CHAT_MAX_MESSAGE_CHARS:-8000}
@@ -125,6 +131,30 @@ services:
     environment:
       <<: *web-environment
       AGENT_BASE_URL: http://agent-selftest:9093/api
+
+  # The Web UI on the Yape cluster (cluster/docker-compose.yml of the Yape repositories). It
+  # has no PostgreSQL of its own: its database is in the cluster's yape-postgres, which allows
+  # every connection of its network without a password (POSTGRES_HOST_AUTH_METHOD=trust), so
+  # the URL has none and nothing here is a secret. The agent is not in Docker: it runs on this
+  # computer with the Yape agent service's credentials (scripts/yape-agent.sh), and the
+  # container reaches it as host.docker.internal.
+  web-cluster:
+    <<: *web
+    profiles: ["cluster"]
+    networks: [yape-local]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *web-environment
+      DB_URL: postgres://postgres@yape-postgres:5432/${CLUSTER_DB_NAME:-agentwebui}?sslmode=disable&search_path=web_ui
+      AGENT_BASE_URL: http://host.docker.internal:${YAPE_AGENT_PORT:-9095}/api
+      AGENT_APP_NAME: ${YAPE_AGENT_APP:-yape_agent}
+
+networks:
+  # Created by the cluster's compose file under this fixed name, so each repository joins it.
+  yape-local:
+    external: true
+    name: yape-local
 
 volumes:
   pgdata:

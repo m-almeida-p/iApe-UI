@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/report"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/report"
 )
 
 // WriteSummary writes summary.json and summary.md.

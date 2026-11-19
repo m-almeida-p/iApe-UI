@@ -134,7 +134,8 @@ low="$(LC_ALL=C awk -F'[: ]' -v min="$COVER_PKG_MIN" -v exempt="$COVER_EXEMPT" '
   BEGIN { n = split(exempt, e, " "); for (i = 1; i <= n; i++) skip[e[i]] = 1 }
   NR == 1 || $1 ~ /\/mocks\// { next }
   {
-    pkg = $1; sub(/^.*agent-web-ui\//, "", pkg); sub(/\/[^\/]*$/, "", pkg)
+    # The package from internal/ or cmd/ on: the module path before it is whatever the module is called.
+    pkg = $1; if (match(pkg, /\/(internal|cmd)\//)) pkg = substr(pkg, RSTART + 1); sub(/\/[^\/]*$/, "", pkg)
     total[pkg] += $3; if ($4 > 0) hit[pkg] += $3
   }
   END {

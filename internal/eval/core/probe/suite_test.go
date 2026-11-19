@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	resmocks "github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource/mocks"
-	svcmocks "github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service/mocks"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/probe"
+	"iape-ui/internal/eval/core/domain"
+	resmocks "iape-ui/internal/eval/core/port/resource/mocks"
+	svcmocks "iape-ui/internal/eval/core/port/service/mocks"
+	"iape-ui/internal/eval/core/probe"
 )
 
 // scripted is a set of probes whose outcomes are given, which records the order

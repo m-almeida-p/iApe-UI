@@ -350,7 +350,7 @@ func TestInitEnv_ThePasswordsAreLettersAndDigits(t *testing.T) {
 	written, err := os.ReadFile(filepath.Join(repo, ".env"))
 	require.NoError(t, err)
 	lettersAndDigits := regexp.MustCompile(`^[A-Za-z0-9]{20,}$`)
-	for _, password := range []string{`^DB_URL=postgres://agentwebui:(.*)@localhost:`, `^POSTGRES_PASSWORD=(.*)$`, `^ADMIN_PASSWORD=(.*)$`} {
+	for _, password := range []string{`^DB_URL="?postgres://agentwebui:(.*)@localhost:`, `^POSTGRES_PASSWORD=(.*)$`, `^ADMIN_PASSWORD=(.*)$`} {
 		m := regexp.MustCompile(`(?m)` + password).FindSubmatch(written)
 		require.NotNil(t, m, "the file has a line like %s", password)
 		// As a truth value: a password is not for the output of a test.

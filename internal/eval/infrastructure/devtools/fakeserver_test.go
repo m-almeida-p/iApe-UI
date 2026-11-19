@@ -20,7 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/eval/infrastructure/devtools"
 )
 
 // toolFunc is a pretend tool of Chrome DevTools MCP.

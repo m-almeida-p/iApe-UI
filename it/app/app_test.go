@@ -18,12 +18,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/app"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/postgres"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/pgenv"
+	"iape-ui/internal/app"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/postgres"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/pgenv"
 )
 
 const (

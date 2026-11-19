@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/evalenv"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/evalenv"
 )
 
 // longReply is a fixture with one reply that is taller than the window and takes

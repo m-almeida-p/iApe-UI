@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // AuthSession is what a successful login hands to the HTTP adapter: the cookie

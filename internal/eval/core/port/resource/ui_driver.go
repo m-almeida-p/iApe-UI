@@ -3,7 +3,7 @@ package resource
 import (
 	"context"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // UIDriver uses the Web UI the way a person does: it speaks in intentions, not

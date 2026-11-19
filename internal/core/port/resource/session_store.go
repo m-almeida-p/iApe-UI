@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // SessionStore persists login sessions, keyed by the digest of the cookie token.

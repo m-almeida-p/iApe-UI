@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/run"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/service"
+	"iape-ui/internal/eval/core/run"
 )
 
 // --- select ------------------------------------------------------------------------

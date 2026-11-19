@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/config"
 )
 
 // Starting means recovering the replies a crash left streaming, which marks every

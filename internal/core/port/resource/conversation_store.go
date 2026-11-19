@@ -4,7 +4,7 @@ import (
 	"context"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // ConversationStore persists conversations. Every method that reads or changes a

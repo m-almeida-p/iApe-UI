@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/safety"
+	"iape-ui/internal/eval/infrastructure/safety"
 )
 
 func git(t *testing.T, dir string, args ...string) {

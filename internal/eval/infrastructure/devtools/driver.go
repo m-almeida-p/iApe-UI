@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/redact"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/platform/redact"
 )
 
 // DefaultViewport is the window the driver works in unless told otherwise.

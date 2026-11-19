@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/api/web/render"
+	"iape-ui/internal/infrastructure/api/web/render"
 )
 
 func main() {

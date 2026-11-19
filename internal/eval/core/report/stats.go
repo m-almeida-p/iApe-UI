@@ -5,7 +5,7 @@ import (
 	"math"
 	"slices"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // z95 is the normal quantile for a two-sided 95% interval.

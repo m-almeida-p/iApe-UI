@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/resource"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
 )
 
 // Default cost: the OWASP-recommended argon2id setting (19 MiB, 2 iterations,

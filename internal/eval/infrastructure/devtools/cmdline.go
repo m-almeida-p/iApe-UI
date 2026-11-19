@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/config"
+	"iape-ui/internal/eval/infrastructure/config"
 )
 
 // BuildCommand returns the process that runs Chrome DevTools MCP, or says why it

@@ -1,32 +1,13 @@
-# inside-agent-web-ui
+# iApe-UI
 
-[![CI](https://github.com/v8tix/inside-agent-web-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/v8tix/inside-agent-web-ui/actions/workflows/ci.yml)
+[![CI](https://github.com/v8tix/iApe-UI/actions/workflows/ci.yml/badge.svg)](https://github.com/v8tix/iApe-UI/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-<table>
-<tr>
-<td valign="top">
-
-This repository is the companion code for **Inside the Agent Web UI: Patterns
-for AI Agent Web Applications in Go**, by Marco Almeida — the hexagonal
-architecture, the streaming chat flow and the GAIA-driven evaluator below are
-walked through chapter by chapter. Grab a copy: [Kindle](https://www.amazon.com/dp/B0HP772X19) ·
-[Paperback](https://www.amazon.com/dp/B0HP7BPX7Y).
-
-</td>
-<td width="180" valign="top">
-
-<a href="https://www.amazon.com/dp/B0HP7BPX7Y"><img src=".github/assets/cover.jpg" alt="Inside the Agent Web UI — Patterns for AI Agent Web Applications in Go, by Marco Almeida" width="160"></a>
-
-</td>
-</tr>
-</table>
-
-A web UI for any agent that speaks the ADK REST API, plus
+**iApe-UI** is a web UI for any agent that speaks the ADK REST API, plus
 **agent-eval** — a second program that drives that UI in a real browser just like
 a person would, asks it GAIA problems, and scores both the agent's answers and the
-UI itself. The binaries keep their original names, `agent-web-ui` and `agent-eval`.
+UI itself. The two programs are `agent-web-ui` and `agent-eval`.
 
 - **Web UI** (`cmd/web`): built in Go, with server-rendered HTML, HTMX and
   Server-Sent Events, Bootstrap 5, and PostgreSQL. You get sign-in, conversations,
@@ -36,7 +17,7 @@ UI itself. The binaries keep their original names, `agent-web-ui` and `agent-eva
   scripted model, so you can run and test the UI with no LLM and no cost.
 - **agent-eval** (`cmd/eval`): the evaluator — see [Evaluating an agent](#evaluating-an-agent).
 
-Both programs live in one Go module, `github.com/v8tix/inside-agent-web-ui` (Go
+Both programs live in one Go module, `iape-ui` (Go
 1.27), built as hexagonal services: `internal/core` doesn't know anything about
 HTTP, SQL or browsers, and the adapters under `internal/infrastructure` and
 `internal/eval/infrastructure` plug into its ports.
@@ -65,13 +46,24 @@ they go.
 
 ```sh
 scripts/init-env.sh                   # writes .env with fresh random passwords
+docker compose up -d --wait postgres  # PostgreSQL first: the web server creates no table
+scripts/schema.sh                     # its tables, from ms-ml-conv-history-migrations (see below)
 docker compose --profile full up -d --wait   # PostgreSQL, the test agent, the web server
 open http://localhost:8300            # sign in with ADMIN_EMAIL / ADMIN_PASSWORD from .env
 docker compose --profile full down    # stop it (add -v to delete the database)
 ```
 
 Or `make full/up` and `make full/down` (`make full/down ARGS=-v` to also delete
-the database) — see [Makefile](#makefile).
+the database) — see [Makefile](#makefile); the tables must be in place first
+(`scripts/schema.sh`, after `docker compose up -d --wait postgres`).
+
+**The tables are not created by this program.** They are defined in the repository
+`ms-ml-conv-history-migrations` (`migrations/web_ui/chat`: schema `web_ui` with
+`users`, `sessions`, `conversations` and `messages`), which must be checked out beside this
+one (`MIGRATIONS_REPO` says where it is) with the `migrate` CLI installed (`make install`
+there). `scripts/schema.sh` applies them to the database `DB_URL` points at, and applying
+them again changes nothing. `DB_URL` carries `search_path=web_ui`, which is how the program
+finds them; a database without them stops the program at start.
 
 Want to run the web server from source instead of Docker? Start just the other
 two services (`docker compose up -d --wait`, or `make up`) and run
@@ -97,7 +89,8 @@ Run `make help` any time to see every target. They're grouped the same way this
 project's scripts are: setup (`install`, `install/env`, `install/tools`,
 `install/tools/global`), quality control (`audit`, `audit/it`, `test`,
 `test/cover`), development (`build`, `up`, `down`, `run`, `stop`, `full/up`,
-`full/down`, `tidy`) and operations (`push`, which runs the gate and refuses to
+`full/down`, `yape-agent/check`, `yape-agent/up`, `yape-agent/down`, `cluster/up`,
+`cluster/down`, `tidy`) and operations (`push`, which runs the gate and refuses to
 push a dirty tree). Each target just calls the matching `scripts/*.sh` file, so there's one
 place to go read (or change) what it actually does.
 
@@ -170,6 +163,71 @@ Want to switch back to the scripted agent? Set `AGENT_BASE_URL` to
 `http://localhost:9093/api` and the timeout to `120s` (that's the agent
 `docker compose up` starts, on port 9093).
 
+## Chat with the Yape gateway models and the history's MCP tools
+
+A second real agent, `cmd/yape-agent`, answers with the models of the Yape AI gateway
+(the ones the Yape agent service uses) and reads the conversation history through
+the history service's MCP server. It is meant for the Yape cluster: the Web UI runs
+in Docker next to it, with its database in the cluster's PostgreSQL.
+
+| Piece | Where it comes from |
+|-------|---------------------|
+| The cluster (`yape-postgres`, the `yape-local` network) | `cluster/scripts/up.sh` in the Yape repositories; this repository only joins it |
+| The MCP server (`:3200/mcp`, six read-only tools) | the history service: `scripts/run_mcp.sh` there |
+| The models | the gateway, `YAPETECH_AI_GATEWAY`, through the OpenAI Responses API |
+| The credentials | the Yape agent service's `.env` (`YAPE_AGENT_BS_ENV` in `.env`), read every time the script runs |
+
+The credentials are never copied here. `scripts/yape-agent.sh` reads the gateway, its
+headers and the anonymous-token credentials from that service's `.env` and hands them
+to the agent in its environment only (not its arguments, which `ps` shows), so nothing
+is written to a file in this repository and nothing is printed. The agent fetches its
+own bearer token with them, keeps it until 80% of its life has passed, and asks again
+for every request after that. It refuses a gateway or token endpoint that is not https,
+and an MCP server that is not on this computer (it has no authentication).
+
+1. **Cluster and MCP.** From the Yape repositories: `cluster/scripts/up.sh`, then the
+   history service's `scripts/run_consumer.sh` and `scripts/run_mcp.sh`.
+2. **Check.** Without starting anything or sending a word to a model:
+
+   ```sh
+   make yape-agent/check      # scripts/yape-agent.sh check
+   ```
+
+   It asks for a token and lists the MCP tools: `token: ok` and `mcp: ok, 6 tools`.
+3. **Agent.**
+
+   ```sh
+   make yape-agent/up         # scripts/yape-agent.sh
+   ```
+
+   It builds `bin/yape-agent`, listens on `127.0.0.1:9095` (`YAPE_AGENT_PORT`) and stops
+   itself if it ends up listening on the network.
+4. **Web UI on the cluster.**
+
+   ```sh
+   make cluster/up            # scripts/cluster.sh
+   ```
+
+   It checks the cluster, creates the database `agentwebui` in `yape-postgres` if it is
+   missing (`CLUSTER_DB_NAME`), puts its tables in place (`scripts/schema.sh`), and starts the `web-cluster` service of
+   `docker-compose.yml`: the Web UI on `http://localhost:8300`, on the `yape-local`
+   network, talking to the agent as `host.docker.internal:9095`. Sign in with
+   `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env` and ask, for example, *which accounts
+   have data in the history?* The model calls `list_accounts` and the other tools, and
+   answers only with what they return.
+5. **Stop.**
+
+   ```sh
+   make cluster/down          # the database stays in the cluster
+   make yape-agent/down
+   ```
+
+`scripts/cluster.sh status` says what is up. The Web UI can also run from source against
+this agent: set `AGENT_BASE_URL=http://localhost:9095/api`, `AGENT_APP_NAME=yape_agent` and
+`AGENT_REQUEST_TIMEOUT=600s` in `.env`, and use `DB_URL` for `yape-postgres` on `localhost:5432`.
+`YAPE_AGENT_MODEL` changes the gateway model (default `gpt-5.4-mini-priority`) and
+`YAPE_MCP_URL` the MCP address.
+
 ## Configuration
 
 **Every setting lives in `.env`** — for the programs, the scripts, Docker Compose
@@ -196,7 +254,7 @@ command. Here's who actually reads it:
   anything already set; `real-agent.sh` only passes the agent — someone else's
   program — its model settings.
 - Docker Compose reads `.env` on its own and forwards every Web UI setting into
-  its container; it decides `APP_HTTP_ADDR`, `DB_URL`, `DB_MIGRATE_ON_START` and
+  its container; it decides `APP_HTTP_ADDR`, `DB_URL` and
   `AGENT_BASE_URL` itself.
 - An empty value counts as unset.
 
@@ -263,11 +321,10 @@ first:
   docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backup.sql      # restore, into an empty database
   ```
 
-- **Upgrade and roll back** (single instance). The schema is applied at startup
-  (`DB_MIGRATE_ON_START`), so take a backup before shipping a release with a
-  migration: an older program talking to a newer schema stops with
-  `no migration found for version N`. Setting `DB_MIGRATE_ON_START=false` lets it
-  start anyway, which is only safe if the newer schema is backward compatible
+- **Upgrade and roll back** (single instance). The schema is changed by
+  `ms-ml-conv-history-migrations`, not by the program: apply a release's migration
+  (`scripts/schema.sh`) before starting the new program, and take a backup first. An
+  older program works against a newer schema only if the change is backward compatible
   (add columns first, remove them in a later release).
 
   ```sh
@@ -495,7 +552,7 @@ application's goroutines are still running afterward.
 | `it/security` | Security headers on every route (the table follows every route pattern the web package names, in any file); anonymous visitors, other origins and other users get nowhere; hostile replies and user text stay inert; passwords and sessions are stored safely; cookies; size and rate limits; https; the server's log never holds what people write or the passwords they type |
 | `it/container` | The images build from their Dockerfiles, run as an ordinary user, answer their health checks, carry a chat between them, and stop at once on `docker stop` |
 | `it/evaldriver`, `it/evalselftest` | The evaluator against the real Web UI in headless Chrome: the driver, the observer, a reader who scrolls up, sending brings the view back, only browser-like requests, the self-test three times over, the probes, Ctrl-C and `--resume`, and browsers killed in the middle of a run |
-| `it/app` | The assembled application: migrations, first user, restart recovery, and `/readyz` following the agent down and up |
+| `it/app` | The assembled application: the schema, first user, restart recovery, and `/readyz` following the agent down and up |
 | `it/scripts` | The shell scripts, run for real, with no Docker: the pid-file helpers, `.env` loading and its file mode, how settings are read (and what a broken or missing file does), that `run.sh` passes `--env` on, durations and how long `stop.sh` waits, the real-agent script's network and timeout handling, the pull-request check, the gate itself against stand-in tools, the settings Compose passes on, what `.gitignore` and `.dockerignore` keep out, and that the CI workflow runs the scripts |
 | `it/live` | A real agent answers and can be stopped (`AGENT_LIVE=1` in `.env`) |
 
@@ -515,8 +572,7 @@ assets               templates, static files (HTMX, Bootstrap vendored)
 it                   integration tests
 scripts              init-env, run, stop, eval, check, real-agent, build-tools, pr-check
 sketches             small, standard-library-only reference implementations (see sketches/README.md)
-docs                 anki/review.csv (the companion book's recall deck)
-.github              CI workflow, pull request form, assets/cover.jpg (the book cover)
+.github              CI workflow and pull request form
 ```
 
 Which package can import which is tested too (`internal/architecture`): a Web UI

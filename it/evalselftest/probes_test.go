@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/synthetic"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/evalenv"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/eval/infrastructure/synthetic"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/evalenv"
 )
 
 // scriptedPrompts are what the probes say to the scripted agent: ids that its

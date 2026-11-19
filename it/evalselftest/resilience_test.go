@@ -19,11 +19,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/run"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/store"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/synthetic"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/evalenv"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/run"
+	"iape-ui/internal/eval/infrastructure/store"
+	"iape-ui/internal/eval/infrastructure/synthetic"
+	"iape-ui/it/internal/evalenv"
 )
 
 // EC-6, with a real browser: Ctrl-C leaves a valid results file, and running the

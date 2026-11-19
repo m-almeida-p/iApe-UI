@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 func outcome(id domain.CheckID, result domain.CheckResult, detail string, measures map[string]float64) domain.ProbeOutcome {

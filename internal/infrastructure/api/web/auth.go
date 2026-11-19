@@ -9,8 +9,8 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/service"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/service"
 )
 
 // sessionCookie is the cookie that carries the login token.

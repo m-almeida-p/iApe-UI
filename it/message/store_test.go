@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/postgres"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/dbtest"
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
+	"iape-ui/internal/infrastructure/postgres"
+	"iape-ui/it/internal/dbtest"
 )
 
 type fixture struct {

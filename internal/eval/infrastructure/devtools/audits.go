@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/probe"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/probe"
 )
 
 // auditWait is how long a Lighthouse audit may take.

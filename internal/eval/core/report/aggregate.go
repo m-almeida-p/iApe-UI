@@ -5,7 +5,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/domain"
 )
 
 // MinOverheadSamples is how many attempts U-05 needs to be judged on the 95th

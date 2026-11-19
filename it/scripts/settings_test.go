@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/config"
 )
 
 // Every setting has one home: .env, written down with its default in
@@ -114,10 +114,9 @@ func TestSettings_ComposePassesEveryWebSettingOn(t *testing.T) {
 	require.Greater(t, len(asked), 15, "the loader asked for its settings")
 	// Where the value in .env is not the container's, with what Compose gives it.
 	composeDecides := map[string]string{
-		"APP_HTTP_ADDR":       "every interface of the container, on port 8300",
-		"DB_URL":              "the postgres service, put together from the POSTGRES_ settings",
-		"DB_MIGRATE_ON_START": "true",
-		"AGENT_BASE_URL":      "the agent service of the profile",
+		"APP_HTTP_ADDR":  "every interface of the container, on port 8300",
+		"DB_URL":         "the postgres service, put together from the POSTGRES_ settings",
+		"AGENT_BASE_URL": "the agent service of the profile",
 	}
 
 	shared := gateYAMLBlock(t, string(src), "x-web-environment")

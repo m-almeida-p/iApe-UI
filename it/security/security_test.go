@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/html"
 
-	"github.com/v8tix/inside-agent-web-ui/it/internal/leak"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/it/internal/leak"
+	"iape-ui/it/internal/stack"
 )
 
 const (

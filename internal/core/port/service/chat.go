@@ -7,7 +7,7 @@ import (
 	"iter"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // Turn is what sending a message produces: the user's message and the empty

@@ -7,6 +7,7 @@ package pgenv
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"net/url"
 	"strings"
@@ -21,6 +22,11 @@ import (
 
 // Image is the pinned PostgreSQL image. Keep it in step with docker-compose.yml.
 const Image = "postgres:18.6"
+
+// schema creates the schema web_ui and its tables, as the migrations of ms-ml-conv-history-migrations do.
+//
+//go:embed schema.sql
+var schema string
 
 var (
 	once     sync.Once
@@ -45,8 +51,9 @@ func start() {
 	adminURL, startErr = ctr.ConnectionString(ctx, "sslmode=disable")
 }
 
-// NewDatabase creates an empty database in the shared container and returns its
-// connection URL. The database is dropped when the test ends.
+// NewDatabase creates a database in the shared container with the web UI's schema
+// (web_ui) in place, and returns its connection URL, which sets search_path=web_ui as
+// the application's does. The database is dropped when the test ends.
 func NewDatabase(t testing.TB) string {
 	t.Helper()
 	once.Do(start)
@@ -81,7 +88,26 @@ func NewDatabase(t testing.TB) string {
 		t.Fatalf("parsing the test container URL: %v", err)
 	}
 	u.Path = "/" + name
+	createSchema(t, u.String())
+	q := u.Query()
+	q.Set("search_path", "web_ui")
+	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// createSchema applies the web UI's schema to the database at dbURL.
+func createSchema(t testing.TB, dbURL string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connecting to the new database: %v", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if _, err := conn.Exec(ctx, schema); err != nil {
+		t.Fatalf("creating the web UI's schema: %v", err)
+	}
 }
 
 // WithPassword returns dbURL with a different password, for failure tests.

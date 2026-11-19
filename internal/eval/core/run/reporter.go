@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/resource"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/report"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/resource"
+	"iape-ui/internal/eval/core/port/service"
+	"iape-ui/internal/eval/core/report"
 )
 
 var _ service.Reporter = (*Reporter)(nil)

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/devtools"
+	"iape-ui/internal/eval/infrastructure/devtools"
 )
 
 var privacyFlags = []string{"--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"}

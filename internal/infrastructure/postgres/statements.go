@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/tmplcache"
+	"iape-ui/internal/platform/tmplcache"
 )
 
 // sqlFiles holds the SQL of the stores: a template for each statement, in a

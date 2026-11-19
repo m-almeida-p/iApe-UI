@@ -13,8 +13,8 @@ import (
 // libraries it starts goroutines in, in a stack dump (which names the function
 // that started each goroutine too).
 var ours = []string{
-	"github.com/v8tix/inside-agent-web-ui/internal/",
-	"github.com/v8tix/inside-agent-web-ui/cmd/",
+	"iape-ui/internal/",
+	"iape-ui/cmd/",
 	"google.golang.org/adk/",
 	"github.com/jackc/pgx/",
 }

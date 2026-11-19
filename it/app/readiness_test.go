@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/it/internal/stack"
+	"iape-ui/it/internal/stack"
 )
 
 // /readyz is what a load balancer or a container runtime asks before sending

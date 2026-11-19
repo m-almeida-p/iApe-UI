@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/gaia"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/infrastructure/gaia"
 )
 
 // --- test files: tiny parquet files shaped like GAIA's, with made-up content ----

@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/report"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/run"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/score"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/synthetic"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/report"
+	"iape-ui/internal/eval/core/run"
+	"iape-ui/internal/eval/core/score"
+	"iape-ui/internal/eval/infrastructure/synthetic"
+	"iape-ui/internal/testagent"
 )
 
 func problems(t *testing.T) []domain.Problem {

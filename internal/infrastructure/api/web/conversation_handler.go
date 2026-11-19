@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"uuid"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/core/domain"
+	"iape-ui/internal/core/domain"
 )
 
 // renameView is what the inline rename form draws.

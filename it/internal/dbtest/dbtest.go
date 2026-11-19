@@ -1,4 +1,4 @@
-// Package dbtest builds on pgenv: a migrated database and seeded users for the
+// Package dbtest builds on pgenv: a database with the web UI's schema and seeded users for the
 // integration suites of the PostgreSQL stores. Group A: needs Docker.
 package dbtest
 
@@ -8,10 +8,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/postgres"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/pgenv"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/postgres"
+	"iape-ui/internal/platform/envcfg"
+	"iape-ui/it/internal/pgenv"
 )
 
 // Statements loads the stores' SQL, as the composition root does at startup.
@@ -24,7 +24,7 @@ func Statements(t testing.TB) postgres.Statements {
 	return sql
 }
 
-// Pool returns a pool on a fresh, fully migrated database.
+// Pool returns a pool on a fresh database with the web UI's schema in place.
 func Pool(t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	pool, err := postgres.NewPool(t.Context(), config.DB{URL: envcfg.Secret(pgenv.NewDatabase(t)), MaxConns: 8})
@@ -32,9 +32,6 @@ func Pool(t testing.TB) *pgxpool.Pool {
 		t.Fatalf("opening pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if err := postgres.Migrate(pool); err != nil {
-		t.Fatalf("migrating: %v", err)
-	}
 	return pool
 }
 

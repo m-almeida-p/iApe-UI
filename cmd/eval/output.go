@@ -7,11 +7,11 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/port/service"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/gaia"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/infrastructure/store"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/port/service"
+	"iape-ui/internal/eval/infrastructure/config"
+	"iape-ui/internal/eval/infrastructure/gaia"
+	"iape-ui/internal/eval/infrastructure/store"
 )
 
 func percent(p domain.Proportion) string {

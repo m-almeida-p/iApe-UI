@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/domain"
-	"github.com/v8tix/inside-agent-web-ui/internal/eval/core/report"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
-	"github.com/v8tix/inside-agent-web-ui/internal/testagent"
-	"github.com/v8tix/inside-agent-web-ui/it/internal/evalenv"
+	"iape-ui/internal/eval/core/domain"
+	"iape-ui/internal/eval/core/report"
+	"iape-ui/internal/platform/envcfg"
+	"iape-ui/internal/testagent"
+	"iape-ui/it/internal/evalenv"
 )
 
 // TestMeasureUIOverhead is not a check: it measures where the time between the

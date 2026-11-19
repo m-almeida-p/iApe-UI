@@ -25,10 +25,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/v8tix/inside-agent-web-ui/internal/app"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/config"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/logging"
-	"github.com/v8tix/inside-agent-web-ui/internal/platform/envcfg"
+	"iape-ui/internal/app"
+	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/logging"
+	"iape-ui/internal/platform/envcfg"
 )
 
 func main() {

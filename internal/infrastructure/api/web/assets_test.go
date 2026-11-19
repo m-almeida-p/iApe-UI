@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/v8tix/inside-agent-web-ui/assets"
-	"github.com/v8tix/inside-agent-web-ui/internal/infrastructure/api/web"
+	"iape-ui/assets"
+	"iape-ui/internal/infrastructure/api/web"
 )
 
 // ownFiles are the files we author (everything except vendored libraries).
