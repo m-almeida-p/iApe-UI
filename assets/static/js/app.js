@@ -399,6 +399,124 @@
     autosize();
   }
 
+  // --- Contact picker (@) -------------------------------------------------------
+  //
+  // Typing @ and a few letters offers the people they may mean (the server draws the
+  // list, so every text in it is escaped). Choosing one confirms it with the agent's
+  // service and puts @(Name) in the message, as the agent's own page does.
+
+  const MENTION = /(?:^|\s)@([^\s@()]*)$/;
+  const PICKER_DELAY_MS = 120;
+  let pickerSeq = 0; // an answer that comes after a newer question is dropped
+  let pickerTimer = 0;
+
+  const picker = () => $('#contact-picker');
+  const options = () => [...document.querySelectorAll('#contact-picker .contact-option')];
+
+  // mentionBeforeCursor is the @word the cursor is at the end of, or null.
+  function mentionBeforeCursor(box) {
+    const before = box.value.slice(0, box.selectionStart);
+    const match = MENTION.exec(before);
+    return match ? { query: match[1], start: before.length - match[1].length - 1 } : null;
+  }
+
+  function hidePicker() {
+    pickerSeq += 1;
+    const box = picker();
+    if (box) {
+      box.hidden = true;
+      box.replaceChildren();
+    }
+  }
+
+  async function showPicker() {
+    const box = input();
+    const list = picker();
+    const mention = box && mentionBeforeCursor(box);
+    if (!list || !mention || inFlight()) {
+      hidePicker();
+      return;
+    }
+    const seq = ++pickerSeq;
+    try {
+      const res = await fetch('/contacts?q=' + encodeURIComponent(mention.query), { headers: { 'HX-Request': 'true' } });
+      if (!res.ok || seq !== pickerSeq) return;
+      list.innerHTML = await res.text();
+      list.hidden = false;
+      options()[0]?.classList.add('active');
+    } catch {
+      hidePicker();
+    }
+  }
+
+  async function pickContact(option) {
+    const box = input();
+    const mention = box && mentionBeforeCursor(box);
+    if (!mention) {
+      hidePicker();
+      return;
+    }
+    option.disabled = true;
+    try {
+      const res = await fetch('/contacts/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ q: mention.query, choice: option.dataset.choice }),
+      });
+      const text = (await res.text()).trim();
+      if (!res.ok) {
+        option.disabled = false;
+        say(text || 'The contact could not be confirmed.');
+        return;
+      }
+      const end = box.selectionStart;
+      box.value = box.value.slice(0, mention.start) + text + ' ' + box.value.slice(end);
+      const caret = mention.start + text.length + 1;
+      box.setSelectionRange(caret, caret);
+      hidePicker();
+      autosize();
+      box.focus();
+    } catch {
+      option.disabled = false;
+      say('The contact could not be confirmed.');
+    }
+  }
+
+  document.addEventListener('input', (event) => {
+    if (event.target !== input()) return;
+    clearTimeout(pickerTimer);
+    pickerTimer = setTimeout(showPicker, PICKER_DELAY_MS);
+  });
+
+  document.addEventListener('click', (event) => {
+    const option = event.target instanceof Element && event.target.closest('#contact-picker .contact-option');
+    if (option) pickContact(option);
+  });
+
+  // While the picker is open, the arrows move through it, Enter or Tab choose and Escape closes it. It runs before the
+  // composer's own Enter, which would send the message.
+  document.addEventListener('keydown', (event) => {
+    const list = picker();
+    if (!list || list.hidden || event.target !== input()) return;
+    const items = options();
+    const at = items.findIndex((el) => el.classList.contains('active'));
+    const move = (to) => {
+      event.preventDefault();
+      items.forEach((el) => el.classList.remove('active'));
+      items[(to + items.length) % items.length]?.classList.add('active');
+    };
+    if (event.key === 'ArrowDown') move(at + 1);
+    else if (event.key === 'ArrowUp') move(at - 1);
+    else if (event.key === 'Escape') {
+      event.preventDefault();
+      hidePicker();
+    } else if ((event.key === 'Enter' || event.key === 'Tab') && !event.isComposing && items[Math.max(at, 0)]) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      pickContact(items[Math.max(at, 0)]);
+    }
+  }, true);
+
   document.body.addEventListener('htmx:afterSettle', bind);
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bind);

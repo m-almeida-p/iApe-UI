@@ -10,8 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/html"
+	"uuid"
 
 	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/service"
 )
 
 func cardPath(action string) string {
@@ -206,5 +209,139 @@ func TestApproveRejectAndConfirmCode(t *testing.T) {
 		rec := h.do(http.MethodGet, cardPath("approve"), nil, htmx)
 
 		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	})
+}
+
+func contactReplyMsg(state domain.InteractionState) domain.Message {
+	m := reply(domain.StatusComplete, "Confirma que sea la persona correcta antes de yapearle.")
+	m.Meta.Interaction = &domain.Interaction{Kind: domain.InteractionContact, State: state, RequestID: "req-1", RunID: "run-1", Query: "Maria", Prompt: "Confirma que sea la persona correcta antes de yapearle."}
+	if state == domain.InteractionConfirmed {
+		m.Meta.Interaction.Contact = domain.Contact{Name: "Maria <b>Torres</b>", Phone: "912345678"}
+	}
+	return m
+}
+
+func TestContactCardIsDrawnFromTheMessage(t *testing.T) {
+	t.Run("a pending card offers each candidate as a button, in order", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(contactReplyMsg(domain.InteractionPending), nil)
+
+		root := parseHTML(t, h.do(http.MethodPost, stopPath(), nil, htmx).Body.String())
+
+		card := byTestID(root, "card")
+		require.Len(t, card, 1)
+		assert.Equal(t, "pending", attrOf(card[0], "data-state"))
+		assert.Equal(t, "contact", attrOf(card[0], "data-kind"))
+		options := byTestID(root, "card-contact")
+		want := domain.Candidates("Maria")
+		require.Len(t, options, len(want))
+		for i, c := range want {
+			assert.Contains(t, textContent(options[i]), c.Name)
+			assert.Contains(t, textContent(options[i]), c.Phone)
+			assert.Equal(t, cardPath("contact"), attrOf(options[i], "hx-post"))
+			assert.Equal(t, `{"choice":"`+string(rune('0'+i))+`"}`, attrOf(options[i], "hx-vals"))
+			assert.Equal(t, "closest .reply", attrOf(options[i], "hx-target"))
+		}
+		assert.Empty(t, byTestID(root, "card-pay"), "it is not a transfer")
+		assert.Empty(t, byTestID(root, "card-amount"))
+	})
+
+	t.Run("a confirmed card says whom, as text, and offers nothing", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(contactReplyMsg(domain.InteractionConfirmed), nil)
+
+		root := parseHTML(t, h.do(http.MethodPost, stopPath(), nil, htmx).Body.String())
+
+		assert.Equal(t, "confirmed", attrOf(byTestID(root, "card")[0], "data-state"))
+		assert.Contains(t, textContent(byTestID(root, "card-chosen")[0]), "Maria <b>Torres</b>")
+		assert.Empty(t, byTestID(root, "card-contact"))
+	})
+}
+
+func TestChooseContact(t *testing.T) {
+	resumed := func() service.Turn {
+		user := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Seq: 3, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "usuario confirmado"}
+		next := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Seq: 4, Role: domain.RoleAssistant, Status: domain.StatusPending}
+		return service.Turn{User: user, Reply: next}
+	}
+	form := url.Values{"choice": {"1"}}
+
+	t.Run("the choice closes the card and the agent is asked to go on, as 'usuario confirmado'", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ChooseContact", mock.Anything, alice.ID, convID, streamMsgID, 1).Return(contactReplyMsg(domain.InteractionConfirmed), nil)
+		turn := resumed()
+		h.chat.On("Send", mock.Anything, alice.ID, convID, "usuario confirmado").Return(turn, nil)
+
+		rec := h.do(http.MethodPost, cardPath("contact"), form, htmx)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		root := parseHTML(t, rec.Body.String())
+		assert.Equal(t, "confirmed", attrOf(byTestID(root, "card")[0], "data-state"))
+		var oob *html.Node
+		for _, d := range elementsOf(root, "div") {
+			if hasAttr(d, "hx-swap-oob") {
+				oob = d
+			}
+		}
+		require.NotNil(t, oob, "the next turn is added to the conversation out of band")
+		assert.Equal(t, "beforeend:#messages", attrOf(oob, "hx-swap-oob"))
+		assert.Contains(t, textContent(oob), "usuario confirmado")
+		assert.Contains(t, rec.Body.String(), "/c/"+convID.String()+"/m/"+turn.Reply.ID.String()+"/stream", "the new reply opens its stream")
+	})
+
+	t.Run("when the agent cannot go on yet the card is still answered", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ChooseContact", mock.Anything, alice.ID, convID, streamMsgID, 1).Return(contactReplyMsg(domain.InteractionConfirmed), nil)
+		h.chat.On("Send", mock.Anything, alice.ID, convID, "usuario confirmado").Return(service.Turn{}, domain.ErrInvalidState)
+
+		rec := h.do(http.MethodPost, cardPath("contact"), form, htmx)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		root := parseHTML(t, rec.Body.String())
+		assert.Equal(t, "confirmed", attrOf(byTestID(root, "card")[0], "data-state"))
+		assert.NotContains(t, rec.Body.String(), "hx-swap-oob")
+	})
+
+	t.Run("a refusal shows the card again with the reason and does not go on", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ChooseContact", mock.Anything, alice.ID, convID, streamMsgID, 1).
+			Return(contactReplyMsg(domain.InteractionPending), &domain.ActionError{Message: "no such contact"})
+
+		rec := h.do(http.MethodPost, cardPath("contact"), form, htmx)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		root := parseHTML(t, rec.Body.String())
+		assert.Equal(t, "pending", attrOf(byTestID(root, "card")[0], "data-state"))
+		assert.Equal(t, "no such contact", strings.TrimSpace(textContent(byTestID(root, "card-error")[0])))
+	})
+
+	t.Run("a choice that is not a number is not asked", func(t *testing.T) {
+		for _, bad := range []string{"", "x", "1.5", "-1x"} {
+			h := newChatHarness(t)
+
+			rec := h.do(http.MethodPost, cardPath("contact"), url.Values{"choice": {bad}}, htmx)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code, bad)
+		}
+	})
+
+	t.Run("a card answered already is a conflict", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ChooseContact", mock.Anything, alice.ID, convID, streamMsgID, 1).Return(domain.Message{}, domain.ErrInvalidState)
+
+		rec := h.do(http.MethodPost, cardPath("contact"), form, htmx)
+
+		assert.Equal(t, http.StatusConflict, rec.Code)
+	})
+
+	t.Run("without htmx it goes back to the conversation", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ChooseContact", mock.Anything, alice.ID, convID, streamMsgID, 1).Return(contactReplyMsg(domain.InteractionConfirmed), nil)
+		h.chat.On("Send", mock.Anything, alice.ID, convID, "usuario confirmado").Return(resumed(), nil)
+
+		rec := h.do(http.MethodPost, cardPath("contact"), form, nil)
+
+		assert.Equal(t, http.StatusSeeOther, rec.Code)
+		assert.Equal(t, "/c/"+convID.String(), rec.Header().Get("Location"))
 	})
 }

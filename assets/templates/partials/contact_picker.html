@@ -1,0 +1,4 @@
+{{/* The people a query after @ may mean, under the composer. app.js puts the choice in the message. Every text is escaped. */}}
+{{define "partial:contact_picker"}}<div class="contact-picker-list" role="listbox" aria-label="Contacts" data-testid="contact-picker" data-query="{{.Query}}">
+  {{range .Candidates}}<button type="button" class="contact-option" role="option" data-testid="contact-option" data-choice="{{.Choice}}" data-name="{{.Name}}">{{.Name}} <span class="text-body-secondary">· {{.Phone}}</span></button>{{end}}
+</div>{{end}}

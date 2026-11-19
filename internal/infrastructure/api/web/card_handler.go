@@ -3,7 +3,9 @@ package web
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"iape-ui/internal/core/domain"
@@ -23,15 +25,33 @@ type cardView struct {
 	ApproveURL  string
 	RejectURL   string
 	CodeURL     string
+	// A contact card: what the agent says, who the user may choose (each button posts its index) and whom they chose.
+	IsContact  bool
+	Prompt     string
+	Candidates []candidateView
+	ContactURL string
+	Chosen     string
+}
+
+// candidateView is a person to choose, with the index its button posts.
+type candidateView struct {
+	Name, Phone string
+	Choice      string
 }
 
 // newCardView draws the card of m, or none when the reply has no approval card.
 func newCardView(m domain.Message) *cardView {
 	card := m.Meta.Interaction
-	if card == nil || card.Kind != domain.InteractionApproval {
+	if card == nil {
 		return nil
 	}
 	base := "/c/" + m.ConversationID.String() + "/m/" + m.ID.String() + "/card/"
+	if card.Kind == domain.InteractionContact {
+		return newContactView(card, base)
+	}
+	if card.Kind != domain.InteractionApproval {
+		return nil
+	}
 	return &cardView{
 		State:       string(card.State),
 		Open:        card.Open(),
@@ -46,6 +66,20 @@ func newCardView(m domain.Message) *cardView {
 		RejectURL:   base + "reject",
 		CodeURL:     base + "otp",
 	}
+}
+
+// newContactView draws a contact card: the candidates while it is pending, whom the user chose once it is confirmed.
+func newContactView(card *domain.Interaction, base string) *cardView {
+	v := &cardView{State: string(card.State), Open: card.Open(), IsContact: true, Prompt: card.Prompt, ContactURL: base + "contact"}
+	if card.State == domain.InteractionPending {
+		for i, c := range domain.Candidates(card.Query) {
+			v.Candidates = append(v.Candidates, candidateView{Name: c.Name, Phone: c.Phone, Choice: strconv.Itoa(i)})
+		}
+	}
+	if card.State == domain.InteractionConfirmed {
+		v.Chosen = card.Contact.Name + " · " + card.Contact.Phone
+	}
+	return v
 }
 
 // amountText is the amount as a person reads it: soles with their sign, any other currency after the number.
@@ -86,10 +120,20 @@ func (a *App) answerCard(w http.ResponseWriter, r *http.Request, answer func(mes
 		return
 	}
 	msg, err := answer(ref)
-	switch refused, isRefusal := errors.AsType[*domain.ActionError](err); {
-	case err == nil:
+	if err == nil {
 		a.answerWithReply(w, r, ref.convID, msg)
-	case errors.Is(err, domain.ErrInvalidState): // answered already, perhaps from another tab
+		return
+	}
+	a.cardFailed(w, r, ref, msg, err)
+}
+
+// cardFailed answers a request whose answer to a card did not go through: the reply comes back with the card as it was, and the
+// reason on it, with a 200 (htmx swaps only successful responses and the card has to show why). A card answered already, perhaps
+// from another tab, is a 409.
+func (a *App) cardFailed(w http.ResponseWriter, r *http.Request, ref messageRef, msg domain.Message, err error) {
+	refused, isRefusal := errors.AsType[*domain.ActionError](err)
+	switch {
+	case errors.Is(err, domain.ErrInvalidState):
 		http.Error(w, "That card was answered already.", http.StatusConflict)
 	case isRefusal || errors.Is(err, domain.ErrAgentUnavailable):
 		view := a.messageView(msg)
@@ -104,6 +148,55 @@ func (a *App) answerCard(w http.ResponseWriter, r *http.Request, answer func(mes
 	default:
 		a.fail(w, r, err)
 	}
+}
+
+// resumeText is what the user's choice of a contact says to the agent, so that it goes on. The BFF's own page sends the same.
+const resumeText = "usuario confirmado"
+
+// chooseContact confirms the contact the user chose and asks the agent to go on, as the BFF's own page does: the choice is a
+// message of the conversation, "usuario confirmado". The answer is the card as it is now, and the next turn added to the
+// conversation out of band.
+func (a *App) chooseContact(w http.ResponseWriter, r *http.Request) {
+	ref, ok := messageRefOf(w, r)
+	if !ok {
+		return
+	}
+	choice, err := strconv.Atoi(r.PostFormValue("choice"))
+	if err != nil {
+		http.Error(w, "Choose one of the contacts.", http.StatusBadRequest)
+		return
+	}
+	msg, err := a.svc.Interactions.ChooseContact(r.Context(), ref.userID, ref.convID, ref.msgID, choice)
+	if err != nil {
+		a.cardFailed(w, r, ref, msg, err)
+		return
+	}
+	turn, sendErr := a.svc.Chat.Send(r.Context(), ref.userID, ref.convID, resumeText)
+	if sendErr != nil { // the card is answered; the user can write to the agent themselves
+		a.log.WarnContext(r.Context(), "the agent was not asked to go on after a contact was chosen", "error", sendErr)
+		a.answerWithReply(w, r, ref.convID, msg)
+		return
+	}
+	if !fromHTMX(r) {
+		redirect(w, r, "/c/"+ref.convID.String())
+		return
+	}
+	card, err := a.renderer.Block("partial:reply", a.messageView(msg))
+	if err != nil {
+		a.serverError(w, r, err)
+		return
+	}
+	var next strings.Builder
+	for _, m := range []domain.Message{turn.User, turn.Reply} {
+		html, err := a.renderer.Block("partial:message", a.messageView(m))
+		if err != nil {
+			a.serverError(w, r, err)
+			return
+		}
+		next.WriteString(html)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, card+`<div hx-swap-oob="beforeend:#messages">`+next.String()+`</div>`)
 }
 
 // cardErrorText is what the card says when its answer did not go through: the service's own words when it refused, else a plain

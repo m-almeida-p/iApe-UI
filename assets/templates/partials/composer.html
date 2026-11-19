@@ -2,6 +2,7 @@
 <form id="composer" class="composer" method="post"
       {{if .Active}}action="/c/{{.Active.ID}}/messages" hx-post="/c/{{.Active.ID}}/messages" hx-target="#messages" hx-swap="beforeend" hx-sync="this:drop"{{else}}action="/c" hx-boost="true"{{end}}>
   <div id="composer-error" class="text-danger-emphasis small mb-1" role="alert" data-testid="composer-error">{{.Error}}</div>
+  <div id="contact-picker" class="contact-picker" hidden></div>
   <div class="composer-row">
     <label for="composer-input" class="visually-hidden">Message</label>
     <textarea id="composer-input" name="content" class="form-control" rows="1"
