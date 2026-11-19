@@ -85,6 +85,15 @@ var routes = []route{
 	{"POST /c/{id}/m/{mid}/regenerate", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
 		return c.Post("/c/"+x.conv+"/m/"+x.reply+"/regenerate", nil, h...)
 	}},
+	{"POST /c/{id}/m/{mid}/card/approve", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
+		return c.Post("/c/"+x.conv+"/m/"+x.reply+"/card/approve", nil, h...)
+	}},
+	{"POST /c/{id}/m/{mid}/card/reject", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
+		return c.Post("/c/"+x.conv+"/m/"+x.reply+"/card/reject", nil, h...)
+	}},
+	{"POST /c/{id}/m/{mid}/card/otp", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
+		return c.Post("/c/"+x.conv+"/m/"+x.reply+"/card/otp", url.Values{"code": {"123456"}}, h...)
+	}},
 }
 
 // registered reads the patterns the Web UI registers from the code of its HTTP
