@@ -23,7 +23,7 @@ import (
 // Image is the pinned PostgreSQL image. Keep it in step with docker-compose.yml.
 const Image = "postgres:18.6"
 
-// schema creates the schema web_ui and its tables, as the migrations of ms-ml-conv-history-migrations do.
+// schema creates the schema web_ui and the tables the program expects in it.
 //
 //go:embed schema.sql
 var schema string

@@ -1,5 +1,5 @@
-// Package postgres is the PostgreSQL driven adapter: connection pool,
-// migrations and the stores that implement the core's resource ports.
+// Package postgres is the PostgreSQL driven adapter: connection pool
+// and the stores that implement the core's resource ports.
 package postgres
 
 import (

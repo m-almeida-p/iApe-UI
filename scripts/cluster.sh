@@ -4,19 +4,16 @@
 #
 # Usage: scripts/cluster.sh [--env <file>] [up|down|status]     (default: up)
 #
-#   up      checks the cluster, creates the database if it is missing, puts its tables in
-#           place (from ms-ml-conv-history-migrations), and starts the web server (the
-#           web-cluster service of docker-compose.yml)
+#   up      checks the cluster and the database (with its tables), and starts the web
+#           server (the web-cluster service of docker-compose.yml)
 #   down    stops that web server; the database stays in the cluster
 #   status  says whether the cluster, the Yape agent and the web server are up
 #
 # The cluster is the one in the Yape repositories (cluster/scripts/up.sh). This script
-# starts nothing of it and changes nothing in it, but one database: CLUSTER_DB_NAME
-# (default agentwebui), created in yape-postgres when it is not there, with the tables the
-# repository ms-ml-conv-history-migrations defines (migrations/web_ui/chat, schema web_ui;
-# MIGRATIONS_REPO says where it is checked out, ../ms-ml-conv-history-migrations by
-# default; it needs the migrate CLI, `make install` there). That PostgreSQL
-# lets every connection of its network in without a password, so nothing here is a secret.
+# starts nothing of it and changes nothing in it. The database is CLUSTER_DB_NAME (default
+# agentwebui) in yape-postgres, and it must have the tables of the web UI in the schema
+# web_ui: the program creates none. That PostgreSQL lets every connection of its network
+# in without a password, so nothing here is a secret.
 #
 # The web server reaches the Yape agent on this computer, so start that first
 # (scripts/yape-agent.sh); the agent needs the history service's MCP server for its tools
@@ -84,10 +81,16 @@ if ! agent_up; then
   echo "Start it with scripts/yape-agent.sh (and the history service's MCP server for its tools)." >&2
 fi
 
-# The database and its tables are not made here: ms-ml-conv-history-migrations creates the database when it is missing
-# (database/create) and defines the tables (migrations/web_ui/chat); scripts/schema.sh --create runs both, and running it again
-# changes nothing. The cluster trusts local connections, so the URL needs no password.
-scripts/schema.sh --env "$ENV_FILE" --create --db-url "postgres://postgres@localhost:5432/$DB_NAME?sslmode=disable"
+# The program creates no table: the database and its tables must be there before the web server starts.
+if [ -z "$(docker exec "$PG" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'")" ]; then
+  echo "The database $DB_NAME is not in $PG. It must exist, with the tables of the web UI in the schema web_ui." >&2
+  exit 1
+fi
+if [ -z "$(docker exec "$PG" psql -U postgres -d "$DB_NAME" -tAc "SELECT to_regclass('web_ui.users')")" ]; then
+  echo "The database $DB_NAME has no tables in the schema web_ui (the program creates none)." >&2
+  exit 1
+fi
+echo "The database $DB_NAME is in $PG, with its tables."
 
 # Named, so compose does not also start the PostgreSQL of this repository's file.
 compose up -d --build --wait web-cluster

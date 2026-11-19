@@ -45,47 +45,30 @@ they go.
 ## Quick start
 
 ```sh
-scripts/init-env.sh                   # writes .env with fresh random passwords
-docker compose up -d --wait postgres  # PostgreSQL first: the web server creates no table
-scripts/schema.sh                     # its tables, from ms-ml-conv-history-migrations (see below)
-docker compose --profile full up -d --wait   # PostgreSQL, the test agent, the web server
+scripts/init-env.sh                   # writes .env with fresh random passwords (set DB_URL as in Database, below)
+docker compose up -d --wait agent     # the scripted test agent: no model, no cost
+scripts/run.sh                        # the web server from source
 open http://localhost:8300            # sign in with ADMIN_EMAIL / ADMIN_PASSWORD from .env
-docker compose --profile full down    # stop it (add -v to delete the database)
 ```
 
-Or `make full/up` and `make full/down` (`make full/down ARGS=-v` to also delete
-the database) — see [Makefile](#makefile); the tables must be in place first
-(`scripts/schema.sh`, after `docker compose up -d --wait postgres`).
+`scripts/stop.sh` (`make stop`) stops the server; `docker compose down` (`make down`) stops the test agent. The `full` profile of
+`docker-compose.yml` also starts a PostgreSQL of its own, which has no tables: use the PostgreSQL that `DB_URL` points to.
 
-**The tables are not created by this program.** They are defined in the repository
-`ms-ml-conv-history-migrations` (`migrations/web_ui/chat`: schema `web_ui` with
-`users`, `sessions`, `conversations` and `messages`), which must be checked out beside this
-one (`MIGRATIONS_REPO` says where it is) with the `migrate` CLI installed (`make install`
-there). `scripts/schema.sh` applies them to the database `DB_URL` points at, and applying
-them again changes nothing. `DB_URL` carries `search_path=web_ui`, which is how the program
-finds them; a database without them stops the program at start.
+## Database
 
-**On the PostgreSQL of the Yape cluster** (`yape-postgres`, the network `yape-local`; no PostgreSQL of this repository's file is
-needed): `scripts/schema.sh --create` makes the database when it is missing and puts the tables in it, through
-`ms-ml-conv-history-migrations` (`make database/create` and `migrations/up` there). Point `DB_URL` at it in `.env`; the cluster
-trusts local connections, so there is no password:
+**This program creates no table.** `DB_URL` must reach a PostgreSQL that has the tables `users`, `sessions`, `conversations` and
+`messages` in the schema `web_ui`, and it carries `search_path=web_ui`, which is how the program finds them. A database without them
+stops the program at start.
+
+On the Yape cluster (`yape-postgres`, the network `yape-local`) the database is `agentwebui`, and the cluster trusts local
+connections, so there is no password:
 
 ```sh
 DB_URL="postgres://postgres@localhost:5432/agentwebui?sslmode=disable&search_path=web_ui"
 ```
 
-```sh
-docker compose up -d --wait agent     # the scripted test agent only (no PostgreSQL)
-scripts/schema.sh --create            # the database agentwebui and its tables, in yape-postgres
-scripts/run.sh                        # the web server from source, on http://localhost:8300
-```
+`scripts/cluster.sh` runs the web server in Docker on the `yape-local` network, against that database.
 
-`scripts/cluster.sh` does the same for the web server in Docker on the `yape-local` network.
-
-Want to run the web server from source instead of Docker? Start just the other
-two services (`docker compose up -d --wait`, or `make up`) and run
-`scripts/run.sh` (or `make run`). `scripts/stop.sh` (`make stop`) stops the
-server; `docker compose down` (`make down`) stops the other two services.
 
 To point this at your own agent, set `AGENT_BASE_URL` and `AGENT_APP_NAME` in
 `.env`. Every setting is explained in `.env.example`, and a real environment
@@ -225,8 +208,8 @@ and an MCP server that is not on this computer (it has no authentication).
    make cluster/up            # scripts/cluster.sh
    ```
 
-   It checks the cluster, creates the database `agentwebui` in `yape-postgres` if it is
-   missing (`CLUSTER_DB_NAME`), puts its tables in place (`scripts/schema.sh`), and starts the `web-cluster` service of
+   It checks the cluster and the database `agentwebui` in `yape-postgres` (`CLUSTER_DB_NAME`), which must exist with its tables,
+   and starts the `web-cluster` service of
    `docker-compose.yml`: the Web UI on `http://localhost:8300`, on the `yape-local`
    network, talking to the agent as `host.docker.internal:9095`. Sign in with
    `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env` and ask, for example, *which accounts
@@ -338,11 +321,10 @@ first:
   docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backup.sql      # restore, into an empty database
   ```
 
-- **Upgrade and roll back** (single instance). The schema is changed by
-  `ms-ml-conv-history-migrations`, not by the program: apply a release's migration
-  (`scripts/schema.sh`) before starting the new program, and take a backup first. An
-  older program works against a newer schema only if the change is backward compatible
-  (add columns first, remove them in a later release).
+- **Upgrade and roll back** (single instance). The program creates and changes no table,
+  so a release that needs a different schema needs it in place before the new program
+  starts: take a backup first. An older program works against a newer schema only if the
+  change is backward compatible (add columns first, remove them in a later release).
 
   ```sh
   docker tag agent-web-ui:latest agent-web-ui:previous          # tag the running image first

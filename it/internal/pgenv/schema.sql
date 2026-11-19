@@ -1,22 +1,11 @@
--- The schema the integration tests build: a verbatim copy of the two up migrations of ms-ml-conv-history-migrations
--- (migrations/web_ui/chat, 000001 and 000002), in order. That repository owns the tables and is the source of truth;
--- this copy only lets the tests run with no other repository. To refresh it: cat <that folder>/*.up.sql, keeping this header.
-
--- ==== 000001_create_schema.up.sql ====
--- Agent Web UI, part 1: the schema.
--- The tables of this flow (web_ui/chat) live in the schema `web_ui`, not in `public`. Every name in the later migrations is
--- qualified with it, because migrate runs with the default search_path. The web UI connects with search_path=web_ui.
--- The version table of this folder (web_ui_chat_schema_migrations) stays in public: migrate creates it before the first
--- migration runs, when this schema does not exist yet.
+-- The schema the integration tests build: the tables the program expects in the schema web_ui of its database, which it
+-- finds through search_path=web_ui. The program creates none of them.
 CREATE SCHEMA IF NOT EXISTS web_ui;
 
 COMMENT ON SCHEMA web_ui IS
-    'iApe-UI (the Agent Web UI): its users, sessions and chat conversations with the messages of each.';
+    'iApe-UI: its users, sessions and chat conversations with the messages of each.';
 
--- ==== 000002_create_tables.up.sql ====
--- Agent Web UI, part 2: users, sessions, conversations and messages.
--- Every name is qualified with the schema web_ui (created by 000001). Every statement is IF NOT EXISTS, so running it over
--- existing tables is safe.
+-- The tables, in the schema web_ui.
 
 CREATE TABLE IF NOT EXISTS web_ui.users (
     id            uuid PRIMARY KEY,

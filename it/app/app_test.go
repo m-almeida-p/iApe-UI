@@ -101,7 +101,7 @@ func TestAppSuite(t *testing.T) {
 	srv := httptest.NewServer(application.Handler)
 	t.Cleanup(srv.Close)
 
-	t.Run("the schema is migrated and the first user can sign in", func(t *testing.T) {
+	t.Run("the first user can sign in", func(t *testing.T) {
 		b := browser(t, srv.URL)
 
 		login := do(t, b, http.MethodPost, srv.URL+"/login", url.Values{"email": {adminEmail}, "password": {adminPassword}})

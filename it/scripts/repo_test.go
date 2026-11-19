@@ -141,7 +141,6 @@ func TestDockerignore(t *testing.T) {
 		{"cmd/web/main.go", false, "the web server"},
 		{"cmd/test-agent/main.go", false, "the test agent"},
 		{"internal/platform/envcfg/envcfg.go", false, "code that reads the settings is code"},
-		{"internal/infrastructure/postgres/migrations/0001_init.up.sql", false, "the migrations, which the program carries"},
 		{"assets/templates/base.html", false, "the page, which the program carries"},
 	}
 	for _, tc := range tests {
