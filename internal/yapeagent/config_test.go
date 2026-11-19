@@ -2,6 +2,7 @@ package yapeagent_test
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 	"time"
 
@@ -21,9 +22,7 @@ func settings(extra map[string]string) envcfg.LookupFunc {
 		"YAPETECH_ANONYMOUS_TOKEN_PASSWORD":  "hunter2-secret",
 		"YAPETECH_ANONYMOUS_TOKEN_CLIENT_ID": "client-1",
 	}
-	for k, v := range extra {
-		values[k] = v
-	}
+	maps.Copy(values, extra)
 	return func(key string) (string, bool) { v, ok := values[key]; return v, ok }
 }
 
