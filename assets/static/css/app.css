@@ -317,3 +317,26 @@ main:focus {
     scroll-behavior: auto !important;
   }
 }
+
+/* The card of a transfer the agent asks the user to pay. */
+.card-transfer {
+  max-width: 24rem;
+}
+
+.card-transfer-amount {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.card-transfer[data-state="paid"] { border-color: var(--bs-success); }
+.card-transfer[data-state="rejected"] { border-color: var(--bs-secondary); }
+
+.card-transfer-code {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.card-transfer-actions {
+  display: flex;
+  gap: 0.5rem;
+}

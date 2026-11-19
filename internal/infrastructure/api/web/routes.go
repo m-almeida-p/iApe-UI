@@ -33,6 +33,9 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /c/{id}/m/{mid}/raw", a.rawMessage)
 	mux.HandleFunc("POST /c/{id}/m/{mid}/stop", a.stopMessage)
 	mux.HandleFunc("POST /c/{id}/m/{mid}/regenerate", send(a.regenerateMessage))
+	mux.HandleFunc("POST /c/{id}/m/{mid}/card/approve", a.approveCard)
+	mux.HandleFunc("POST /c/{id}/m/{mid}/card/reject", a.rejectCard)
+	mux.HandleFunc("POST /c/{id}/m/{mid}/card/otp", a.confirmCode)
 	return a.authenticate(mux)
 }
 

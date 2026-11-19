@@ -19,6 +19,7 @@ type Services struct {
 	Auth          service.Auth
 	Chat          service.Chat
 	Conversations service.Conversation
+	Interactions  service.Interactions
 }
 
 // Options are the settings the handlers need.

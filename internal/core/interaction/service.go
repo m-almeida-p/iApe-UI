@@ -4,7 +4,6 @@ package interaction
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -78,8 +77,8 @@ func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUI
 }
 
 // answer is what the three answers share: load the card, check it takes the answer, let the service act, and save the card in
-// its new state only if it is still in the state that was read (the compare-and-set). A refusal returns the reply with the card
-// as it was.
+// its new state only if it is still in the state that was read (the compare-and-set). An action that did not go through (a refusal, the agent down) returns the
+// reply with the card as it was, along with the error.
 func (s *Service) answer(
 	ctx context.Context, userID, convID, msgID uuid.UUID,
 	accepts func(domain.Interaction) bool,
@@ -96,10 +95,7 @@ func (s *Service) answer(
 
 	next, err := act(ctx, *card)
 	if err != nil {
-		if _, refused := errors.AsType[*domain.ActionError](err); refused {
-			return msg, err
-		}
-		return domain.Message{}, err
+		return msg, err // the card is as it was: the page can show it again with the reason
 	}
 
 	// The service has acted: save the answer even if the request is gone.

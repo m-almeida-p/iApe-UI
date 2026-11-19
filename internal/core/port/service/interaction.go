@@ -9,8 +9,9 @@ import (
 
 // Interactions answers the cards in the agent's replies. Each call returns the reply as saved, with its card in the new state.
 // All of them: a message that is not the user's is domain.ErrNotFound; a reply with no card, or one in a state that does not
-// take the answer, is domain.ErrInvalidState. When the service refuses the answer (a wrong code) the error is a
-// *domain.ActionError and the reply is returned with its card as it was, so the page can show it again with the reason.
+// take the answer, is domain.ErrInvalidState. When the answer did not go through (the service
+// refused it, a wrong code for one, or it could not be reached: ErrAgentUnavailable) the reply is returned with its card as it
+// was, along with the error, so the page can show it again with the reason.
 //
 //go:generate mockery --name Interactions --filename interaction.go
 type Interactions interface {

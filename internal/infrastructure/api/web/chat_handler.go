@@ -38,6 +38,8 @@ type messageView struct {
 	PromptTokens     int
 	CompletionTokens int
 	ToolCalls        string
+	// Card is the card the agent put in the reply, if it did.
+	Card *cardView
 }
 
 func (a *App) messageView(m domain.Message) messageView {
@@ -64,6 +66,7 @@ func (a *App) messageView(m domain.Message) messageView {
 		v.TTFTMs, v.DurationMs = m.Meta.TTFTMs, m.Meta.DurationMs
 		v.PromptTokens, v.CompletionTokens = m.Meta.Usage.Prompt, m.Meta.Usage.Completion
 		v.ToolCalls = strings.Join(m.Meta.ToolCalls, ",")
+		v.Card = newCardView(m)
 	}
 	return v
 }

@@ -160,9 +160,10 @@ func TestApprove(t *testing.T) {
 		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
 		h.actions.On("Approve", mock.Anything, *cardIn(domain.InteractionPending)).Return(domain.ActionResult{}, domain.ErrAgentUnavailable).Once()
 
-		_, err := h.svc.Approve(t.Context(), userID, convID, replyID)
+		got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
 
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
+		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
 	})
 
 	t.Run("losing the race to save is an invalid state, and it is logged because the service did act", func(t *testing.T) {
