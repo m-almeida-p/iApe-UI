@@ -65,6 +65,23 @@ there). `scripts/schema.sh` applies them to the database `DB_URL` points at, and
 them again changes nothing. `DB_URL` carries `search_path=web_ui`, which is how the program
 finds them; a database without them stops the program at start.
 
+**On the PostgreSQL of the Yape cluster** (`yape-postgres`, the network `yape-local`; no PostgreSQL of this repository's file is
+needed): `scripts/schema.sh --create` makes the database when it is missing and puts the tables in it, through
+`ms-ml-conv-history-migrations` (`make database/create` and `migrations/up` there). Point `DB_URL` at it in `.env`; the cluster
+trusts local connections, so there is no password:
+
+```sh
+DB_URL="postgres://postgres@localhost:5432/agentwebui?sslmode=disable&search_path=web_ui"
+```
+
+```sh
+docker compose up -d --wait agent     # the scripted test agent only (no PostgreSQL)
+scripts/schema.sh --create            # the database agentwebui and its tables, in yape-postgres
+scripts/run.sh                        # the web server from source, on http://localhost:8300
+```
+
+`scripts/cluster.sh` does the same for the web server in Docker on the `yape-local` network.
+
 Want to run the web server from source instead of Docker? Start just the other
 two services (`docker compose up -d --wait`, or `make up`) and run
 `scripts/run.sh` (or `make run`). `scripts/stop.sh` (`make stop`) stops the

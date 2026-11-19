@@ -84,16 +84,10 @@ if ! agent_up; then
   echo "Start it with scripts/yape-agent.sh (and the history service's MCP server for its tools)." >&2
 fi
 
-if [ -z "$(docker exec "$PG" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'")" ]; then
-  docker exec "$PG" psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE $DB_NAME" >/dev/null
-  echo "Created the database $DB_NAME in $PG."
-else
-  echo "The database $DB_NAME already exists in $PG."
-fi
-
-# The web server creates no table: they belong to ms-ml-conv-history-migrations (scripts/schema.sh puts them in place; again
-# changes nothing). The cluster trusts local connections, so the URL needs no password.
-scripts/schema.sh --env "$ENV_FILE" --db-url "postgres://postgres@localhost:5432/$DB_NAME?sslmode=disable"
+# The database and its tables are not made here: ms-ml-conv-history-migrations creates the database when it is missing
+# (database/create) and defines the tables (migrations/web_ui/chat); scripts/schema.sh --create runs both, and running it again
+# changes nothing. The cluster trusts local connections, so the URL needs no password.
+scripts/schema.sh --env "$ENV_FILE" --create --db-url "postgres://postgres@localhost:5432/$DB_NAME?sslmode=disable"
 
 # Named, so compose does not also start the PostgreSQL of this repository's file.
 compose up -d --build --wait web-cluster
