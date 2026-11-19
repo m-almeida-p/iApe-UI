@@ -179,6 +179,34 @@ func TestStream_Completes(t *testing.T) {
 		})
 	})
 
+	t.Run("the card the agent puts in the reply is saved with it, and the last card wins", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			first := domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionPending, ApprovalID: "appr_1", RunID: "run-1"}
+			second := domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionPending, ApprovalID: "appr_2", RunID: "run-1",
+				Transfer: domain.Transfer{Amount: 20, Currency: "PEN", DestinationName: "Rosa Diaz"}}
+			h := newHarness(t)
+			h.expectClaim()
+			h.expectRun(script(nil,
+				tool("request_transfer_approval"),
+				domain.AgentEvent{Kind: domain.AgentInteraction, Interaction: first},
+				domain.AgentEvent{Kind: domain.AgentInteraction, Interaction: second},
+				final("Review your transfer."),
+			))
+			h.expectFinish(resource.Outcome{
+				Content: "Review your transfer.",
+				Status:  domain.StatusComplete,
+				Meta:    domain.Meta{ToolCalls: []string{"request_transfer_approval"}, Interaction: &second},
+			}, nil)
+
+			evs, err := collect(h.svc.Stream(t.Context(), userID, convID, replyID))
+
+			require.NoError(t, err)
+			done := lastOf(t, evs)
+			require.NotNil(t, done.Meta.Interaction, "the page gets the card with the finished reply")
+			assert.Equal(t, "appr_2", done.Meta.Interaction.ApprovalID)
+		})
+	})
+
 	t.Run("empty deltas make no snapshot", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			h := newHarness(t)

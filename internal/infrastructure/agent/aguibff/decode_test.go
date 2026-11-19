@@ -63,7 +63,7 @@ func TestDecode_RealStreams(t *testing.T) {
 		{"limit.sse", []string{"tool:transfer_to_agent", "tool:validate_p2p_amount", "delta", "final:El máximo para cualquier usuario es S/500; indícame un monto de hasta S/500."}},
 		{"approval.sse", []string{
 			"tool:transfer_to_agent", "tool:validate_p2p_amount", "tool:request_contact_from_client", "tool:draft_transfer", "tool:request_transfer_approval",
-			"delta", "final:Revisa tu yapeo y confirma si todo está bien. Si necesitas, puedes cambiar los datos.",
+			"interaction", "delta", "final:Revisa tu yapeo y confirma si todo está bien. Si necesitas, puedes cambiar los datos.",
 		}},
 	}
 	for _, tc := range tests {
@@ -173,4 +173,46 @@ func TestDecode_AHugeLineIsRefused(t *testing.T) {
 
 	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 	assert.Contains(t, err.Error(), "too long")
+}
+
+func TestDecode_TheApprovalCardIsAnInteraction(t *testing.T) {
+	events, err := collect(aguibff.Decode(strings.NewReader(fixture(t, "approval.sse"))))
+
+	require.NoError(t, err)
+	var cards []domain.Interaction
+	for _, ev := range events {
+		if ev.Kind == domain.AgentInteraction {
+			cards = append(cards, ev.Interaction)
+		}
+	}
+	require.Len(t, cards, 1)
+	assert.Equal(t, domain.Interaction{
+		Kind:       domain.InteractionApproval,
+		State:      domain.InteractionPending,
+		ApprovalID: "appr_28006196-bd87-4d46-931e-0f74a46b2c57",
+		RunID:      "28df4c1f-77a3-499a-a310-e5bd9b359dbf",
+		Transfer:   domain.Transfer{Amount: 20, Currency: "PEN", DestinationName: "Rosa Diaz", DestinationPhone: "987654321"},
+	}, cards[0], "the card knows the run that made it: the service asks for it with every answer")
+}
+
+func TestDecode_ACustomEventThatIsNotACardIsLeftAlone(t *testing.T) {
+	sse := "data: {\"type\":\"RUN_STARTED\",\"runId\":\"r\"}\n\n" +
+		"data: {\"type\":\"CUSTOM\",\"name\":\"CONVERSATION_HANDOFF\",\"value\":{\"to\":\"x\"}}\n\n" +
+		"data: {\"type\":\"CUSTOM\",\"name\":\"ACTION_REQUEST\",\"value\":{\"actionType\":\"something-else\",\"approvalId\":\"a\"}}\n\n" +
+		"data: {\"type\":\"RUN_FINISHED\"}\n\n"
+
+	events, err := collect(aguibff.Decode(strings.NewReader(sse)))
+
+	require.NoError(t, err)
+	assert.Empty(t, events)
+}
+
+func TestDecode_ACardWithoutAnApprovalIsRefused(t *testing.T) {
+	sse := "data: {\"type\":\"RUN_STARTED\",\"runId\":\"r\"}\n\n" +
+		"data: {\"type\":\"CUSTOM\",\"name\":\"ACTION_REQUEST\",\"value\":{\"actionType\":\"approval\",\"preview\":{}}}\n\n"
+
+	_, err := collect(aguibff.Decode(strings.NewReader(sse)))
+
+	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
+	assert.Contains(t, err.Error(), "approvalId")
 }

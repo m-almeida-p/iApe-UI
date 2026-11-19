@@ -116,10 +116,11 @@ func (s *Service) run(ctx context.Context, userID, convID uuid.UUID, claimed res
 	content := acc.text()
 	status, reason := s.outcome(ctx, claimed.Reply.ID, outcomeInput{consumerGone: consumerGone, tooLong: tooLong, err: runErr, content: content})
 	meta := domain.Meta{
-		TTFTMs:     ceilMillis(acc.ttft),
-		DurationMs: ceilMillis(time.Since(start)),
-		Usage:      acc.usage,
-		ToolCalls:  acc.tools,
+		TTFTMs:      ceilMillis(acc.ttft),
+		DurationMs:  ceilMillis(time.Since(start)),
+		Usage:       acc.usage,
+		ToolCalls:   acc.tools,
+		Interaction: acc.card,
 	}
 
 	// The request may be gone, so save on a context that outlives it.
@@ -202,9 +203,11 @@ type accumulator struct {
 	finished int // bytes in segments
 	current  strings.Builder
 	tools    []string
-	usage    domain.Usage
-	ttft     time.Duration
-	hasText  bool
+	// card is the last card the agent put in the reply.
+	card    *domain.Interaction
+	usage   domain.Usage
+	ttft    time.Duration
+	hasText bool
 }
 
 // size is how many bytes of text the reply has so far.
@@ -228,6 +231,8 @@ func (a *accumulator) apply(ev domain.AgentEvent, start time.Time) bool {
 		a.usage.Completion += ev.Usage.Completion
 	case domain.AgentToolCall:
 		a.tools = append(a.tools, ev.Tool)
+	case domain.AgentInteraction:
+		a.card = &ev.Interaction
 	}
 	return false
 }

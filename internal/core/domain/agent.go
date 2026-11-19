@@ -27,6 +27,8 @@ const (
 	AgentUsage AgentEventKind = "usage"
 	// AgentToolCall says the agent called a tool.
 	AgentToolCall AgentEventKind = "tool_call"
+	// AgentInteraction says the agent put a card in the reply for the user to answer.
+	AgentInteraction AgentEventKind = "interaction"
 )
 
 // AgentEvent is one thing the agent did while producing a reply. Reasoning
@@ -36,6 +38,8 @@ type AgentEvent struct {
 	Text  string // AgentDelta, AgentFinal
 	Usage Usage  // AgentUsage
 	Tool  string // AgentToolCall
+	// Interaction is the card of an AgentInteraction.
+	Interaction Interaction
 }
 
 // ErrIncompleteStream means the agent's stream ended without a complete reply.

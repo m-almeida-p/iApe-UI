@@ -2,6 +2,7 @@ package aguibff
 
 import (
 	"bufio"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -21,6 +22,23 @@ type event struct {
 	Delta   string `json:"delta"`
 	Tool    string `json:"toolCallName"`
 	Message string `json:"message"`
+	RunID   string `json:"runId"`
+	// Name and Value are those of a CUSTOM event. Value is read only for the cards the Web UI shows.
+	Name  string         `json:"name"`
+	Value jsontext.Value `json:"value"`
+}
+
+// actionRequest is the value of the CUSTOM event ACTION_REQUEST: a transfer waiting for the user's answer.
+type actionRequest struct {
+	ActionType string `json:"actionType"`
+	ApprovalID string `json:"approvalId"`
+	Preview    struct {
+		Amount           float64 `json:"amount"`
+		Currency         string  `json:"currency"`
+		DestinationName  string  `json:"destinationName"`
+		DestinationPhone string  `json:"destinationPhone"`
+		Message          string  `json:"message"`
+	} `json:"preview"`
 }
 
 // Decode reads the SSE of an AG-UI run and yields what the Web UI works with: the text as deltas, each message closed by a
@@ -35,6 +53,7 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 		scanner.Buffer(make([]byte, 0, 64<<10), maxLine)
 
 		var segment strings.Builder
+		var runID string
 		open, finished := false, false
 		fail := func(format string, args ...any) {
 			yield(domain.AgentEvent{}, fmt.Errorf("%w: "+format, append([]any{domain.ErrAgentUnavailable}, args...)...))
@@ -52,6 +71,17 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 			}
 
 			switch ev.Type {
+			case "RUN_STARTED":
+				runID = ev.RunID
+			case "CUSTOM":
+				card, ok, err := approvalCard(ev, runID)
+				if err != nil {
+					fail("%w", err)
+					return
+				}
+				if ok && !yield(domain.AgentEvent{Kind: domain.AgentInteraction, Interaction: card}, nil) {
+					return
+				}
 			case "TEXT_MESSAGE_START":
 				segment.Reset()
 				open = true
@@ -94,4 +124,35 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 			yield(domain.AgentEvent{Kind: domain.AgentFinal, Text: segment.String()}, nil)
 		}
 	}
+}
+
+// approvalCard is the card of an ACTION_REQUEST for a transfer, stamped with the run that made it. Any other CUSTOM event, and an
+// ACTION_REQUEST for another kind of action, is not one: ok is false.
+func approvalCard(ev event, runID string) (card domain.Interaction, ok bool, err error) {
+	if ev.Name != "ACTION_REQUEST" {
+		return card, false, nil
+	}
+	var req actionRequest
+	if err := json.Unmarshal(ev.Value, &req); err != nil {
+		return card, false, fmt.Errorf("malformed ACTION_REQUEST: %w", err)
+	}
+	if req.ActionType != "approval" {
+		return card, false, nil
+	}
+	if req.ApprovalID == "" {
+		return card, false, errors.New("an approval card without approvalId")
+	}
+	return domain.Interaction{
+		Kind:       domain.InteractionApproval,
+		State:      domain.InteractionPending,
+		ApprovalID: req.ApprovalID,
+		RunID:      runID,
+		Transfer: domain.Transfer{
+			Amount:           req.Preview.Amount,
+			Currency:         req.Preview.Currency,
+			DestinationName:  req.Preview.DestinationName,
+			DestinationPhone: req.Preview.DestinationPhone,
+			Message:          req.Preview.Message,
+		},
+	}, true, nil
 }

@@ -73,6 +73,8 @@ type Meta struct {
 	DurationMs int64    `json:"duration_ms,omitzero"`
 	Usage      Usage    `json:"usage,omitzero"`
 	ToolCalls  []string `json:"tool_calls,omitempty"`
+	// Interaction is the card the agent put in the reply, if it did.
+	Interaction *Interaction `json:"interaction,omitzero"`
 }
 
 // Message is one turn of a conversation. Content is Markdown exactly as typed
