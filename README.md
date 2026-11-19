@@ -1,6 +1,6 @@
 # iApe-UI
 
-[![CI](https://github.com/v8tix/iApe-UI/actions/workflows/ci.yml/badge.svg)](https://github.com/v8tix/iApe-UI/actions/workflows/ci.yml)
+[![CI](https://github.com/m-almeida-p/iApe-UI/actions/workflows/ci.yml/badge.svg)](https://github.com/m-almeida-p/iApe-UI/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
