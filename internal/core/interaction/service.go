@@ -1,0 +1,115 @@
+// Package interaction implements the use case of answering the cards in the agent's replies: pay or reject a transfer and give
+// the code the bank asks for.
+package interaction
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+	"uuid"
+
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
+	"iape-ui/internal/core/port/service"
+)
+
+// saveTimeout bounds the saving of an answer after the request is gone: the service has acted, so the card must say so.
+const saveTimeout = 5 * time.Second
+
+// maxCodeLen is the longest code the Web UI sends on. The banks' codes are 4 to 8 digits.
+const maxCodeLen = 12
+
+// Dependencies are what the service needs.
+type Dependencies struct {
+	Messages resource.MessageStore
+	Actions  resource.ActionGateway
+	Logger   *slog.Logger
+}
+
+// Service implements service.Interactions.
+type Service struct{ deps Dependencies }
+
+var _ service.Interactions = (*Service)(nil)
+
+// NewService returns the service.
+func NewService(d Dependencies) *Service { return &Service{deps: d} }
+
+// Approve implements service.Interactions.
+func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
+	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool { return card.State == domain.InteractionPending },
+		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
+			res, err := s.deps.Actions.Approve(ctx, card)
+			if err != nil {
+				return card, err
+			}
+			return card.Approved(res.Message, res.ChallengeID)
+		})
+}
+
+// Reject implements service.Interactions.
+func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
+	return s.answer(ctx, userID, convID, msgID, domain.Interaction.Open,
+		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
+			res, err := s.deps.Actions.Reject(ctx, card)
+			if err != nil {
+				return card, err
+			}
+			return card.Rejected(res.Message)
+		})
+}
+
+// ConfirmOTP implements service.Interactions.
+func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUID, code string) (domain.Message, error) {
+	code = strings.TrimSpace(code)
+	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool { return card.State == domain.InteractionOTPRequired },
+		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
+			if code == "" || len(code) > maxCodeLen || strings.ContainsFunc(code, func(r rune) bool { return r == ' ' || r == '\t' }) {
+				return card, &domain.ActionError{Message: "Enter the code the bank sent you."}
+			}
+			res, err := s.deps.Actions.ConfirmOTP(ctx, card, code)
+			if err != nil {
+				return card, err
+			}
+			return card.CodeConfirmed(res.Message)
+		})
+}
+
+// answer is what the three answers share: load the card, check it takes the answer, let the service act, and save the card in
+// its new state only if it is still in the state that was read (the compare-and-set). A refusal returns the reply with the card
+// as it was.
+func (s *Service) answer(
+	ctx context.Context, userID, convID, msgID uuid.UUID,
+	accepts func(domain.Interaction) bool,
+	act func(context.Context, domain.Interaction) (domain.Interaction, error),
+) (domain.Message, error) {
+	msg, err := s.deps.Messages.Get(ctx, userID, convID, msgID)
+	if err != nil {
+		return domain.Message{}, err
+	}
+	card := msg.Meta.Interaction
+	if msg.Role != domain.RoleAssistant || card == nil || !accepts(*card) {
+		return domain.Message{}, fmt.Errorf("the message has no card that takes this answer: %w", domain.ErrInvalidState)
+	}
+
+	next, err := act(ctx, *card)
+	if err != nil {
+		if _, refused := errors.AsType[*domain.ActionError](err); refused {
+			return msg, err
+		}
+		return domain.Message{}, err
+	}
+
+	// The service has acted: save the answer even if the request is gone.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveTimeout)
+	defer cancel()
+	if err := s.deps.Messages.SaveInteraction(saveCtx, userID, convID, msgID, card.State, next); err != nil {
+		s.deps.Logger.ErrorContext(ctx, "the service answered a card but its answer was not saved",
+			"approval_id", card.ApprovalID, "from", card.State, "to", next.State, "error", err)
+		return domain.Message{}, err
+	}
+	msg.Meta.Interaction = &next
+	return msg, nil
+}
