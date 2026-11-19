@@ -89,3 +89,17 @@ func (i Interaction) CodeConfirmed(result string) (Interaction, error) {
 	i.State, i.Result = InteractionPaid, result
 	return i, nil
 }
+
+// ActionResult is what the agent's service answered to a card's action.
+type ActionResult struct {
+	// Message is the service's own words for the user ("Transfer paid successfully. TxnID: ...").
+	Message string
+	// ChallengeID names the code the bank asks for; empty when none is needed.
+	ChallengeID string
+}
+
+// ActionError is a card's action that the service refused (a wrong code, a transfer that is no longer open): its message is
+// for the user and the card stays as it was.
+type ActionError struct{ Message string }
+
+func (e *ActionError) Error() string { return "action refused: " + e.Message }

@@ -117,14 +117,14 @@ func (c *Client) classify(caller, run context.Context, err error) error {
 	return err
 }
 
-// open sends the turn and returns the stream. A 401 means the token expired: it is refreshed once (when its source can) and the
-// turn is asked again.
-func (c *Client) open(ctx context.Context, req domain.AgentRequest) (io.ReadCloser, error) {
+// send makes a request with the account's token. A 401 means the token expired: it is refreshed once (when its source can) and
+// the request is made again.
+func (c *Client) send(ctx context.Context, request func(token string) (*http.Response, error)) (*http.Response, error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 	}
-	resp, err := c.post(ctx, req, token)
+	resp, err := request(token)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 	}
@@ -133,9 +133,18 @@ func (c *Client) open(ctx context.Context, req domain.AgentRequest) (io.ReadClos
 		if token, err = refresher.Refresh(ctx); err != nil {
 			return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 		}
-		if resp, err = c.post(ctx, req, token); err != nil {
+		if resp, err = request(token); err != nil {
 			return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 		}
+	}
+	return resp, nil
+}
+
+// open sends the turn and returns the stream.
+func (c *Client) open(ctx context.Context, req domain.AgentRequest) (io.ReadCloser, error) {
+	resp, err := c.send(ctx, func(token string) (*http.Response, error) { return c.post(ctx, req, token) })
+	if err != nil {
+		return nil, err
 	}
 
 	// The BFF answers the stream with 201: it is a NestJS POST. Any success is a stream if it says so.

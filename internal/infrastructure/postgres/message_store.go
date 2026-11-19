@@ -199,6 +199,27 @@ func (s *MessageStore) Finish(ctx context.Context, msgID uuid.UUID, out resource
 	return fmt.Errorf("only a streaming reply can finish: %w", domain.ErrInvalidState)
 }
 
+// SaveInteraction implements resource.MessageStore.
+//
+// Pattern: Compare-and-Set Claim
+func (s *MessageStore) SaveInteraction(ctx context.Context, userID, convID, msgID uuid.UUID, from domain.InteractionState, card domain.Interaction) error {
+	encoded, err := json.Marshal(card)
+	if err != nil {
+		return fmt.Errorf("encoding the card: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx, s.sql.saveInteraction, userID, convID, msgID, string(from), string(encoded))
+	if err != nil {
+		return fmt.Errorf("saving the card: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	if _, err := s.Get(ctx, userID, convID, msgID); err != nil {
+		return err // domain.ErrNotFound, or the failure itself
+	}
+	return fmt.Errorf("the card is not in state %q: %w", from, domain.ErrInvalidState)
+}
+
 // ReplaceLastAssistant implements resource.MessageStore.
 func (s *MessageStore) ReplaceLastAssistant(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
 	var fresh domain.Message

@@ -37,6 +37,7 @@ type conversationSQL struct {
 type messageSQL struct {
 	lockConversation, ownsConversation, touchConversation string
 	latest, insert, list, get, claim, finish              string
+	saveInteraction                                       string
 	exists, existsInConversation, remove                  string
 	recoverInterrupted                                    string
 }
@@ -67,6 +68,7 @@ func (s *Statements) templates() map[string]*string {
 		"sql/message/get.gotmpl":                    &s.message.get,
 		"sql/message/claim.gotmpl":                  &s.message.claim,
 		"sql/message/finish.gotmpl":                 &s.message.finish,
+		"sql/message/save_interaction.gotmpl":       &s.message.saveInteraction,
 		"sql/message/exists.gotmpl":                 &s.message.exists,
 		"sql/message/exists_in_conversation.gotmpl": &s.message.existsInConversation,
 		"sql/message/delete.gotmpl":                 &s.message.remove,

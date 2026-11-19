@@ -617,3 +617,108 @@ func TestMessageStoreHonorsContext(t *testing.T) {
 		})
 	}
 }
+
+// cardReply is a finished reply that carries an approval card in the given state.
+func (f *fixture) cardReply(t *testing.T, owner, conv uuid.UUID, state domain.InteractionState) domain.Message {
+	t.Helper()
+	_, reply, err := f.messages.AppendPair(t.Context(), owner, conv, "pay Rosa")
+	require.NoError(t, err)
+	_, err = f.messages.Claim(t.Context(), owner, conv, reply.ID)
+	require.NoError(t, err)
+	card := domain.Interaction{Kind: domain.InteractionApproval, State: state, ApprovalID: "appr_1", RunID: "run-1",
+		Transfer: domain.Transfer{Amount: 20, Currency: "PEN", DestinationName: "Rosa Diaz"}}
+	require.NoError(t, f.messages.Finish(t.Context(), reply.ID, resource.Outcome{
+		Content: "Review your transfer.", Status: domain.StatusComplete,
+		Meta: domain.Meta{TTFTMs: 120, ToolCalls: []string{"request_transfer_approval"}, Interaction: &card},
+	}))
+	return reply
+}
+
+func TestSaveInteraction(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+
+	t.Run("a card keeps its state, and the reply keeps the rest of its meta", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		before, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		paid, err := before.Meta.Interaction.Approved("Transfer paid successfully. TxnID: OP-1", "")
+		require.NoError(t, err)
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid))
+
+		after, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		require.NotNil(t, after.Meta.Interaction)
+		assert.Equal(t, paid, *after.Meta.Interaction)
+		assert.Equal(t, int64(120), after.Meta.TTFTMs, "the other keys of meta are untouched")
+		assert.Equal(t, []string{"request_transfer_approval"}, after.Meta.ToolCalls)
+		assert.Equal(t, "Review your transfer.", after.Content)
+	})
+
+	t.Run("only one of two answers to the same state wins", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		card := domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionPaid, ApprovalID: "appr_1"}
+		const callers = 8
+		results := make(chan error, callers)
+		var wg sync.WaitGroup
+		for range callers {
+			wg.Go(func() {
+				results <- f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+			})
+		}
+		wg.Wait()
+		close(results)
+
+		wins, refused := 0, 0
+		for err := range results {
+			switch {
+			case err == nil:
+				wins++
+			case errors.Is(err, domain.ErrInvalidState):
+				refused++
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}
+		assert.Equal(t, 1, wins)
+		assert.Equal(t, callers-1, refused)
+	})
+
+	t.Run("a card that is no longer in the state the caller saw is refused", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPaid)
+
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending,
+			domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionRejected, ApprovalID: "appr_1"})
+
+		require.ErrorIs(t, err, domain.ErrInvalidState)
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State, "a refused save changes nothing")
+	})
+
+	t.Run("a reply with no card is refused", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		_, reply := f.turn(t, f.alice, conv, "hi", "hello")
+
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending,
+			domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionPaid})
+
+		require.ErrorIs(t, err, domain.ErrInvalidState)
+	})
+
+	t.Run("someone else's message and a missing one are not found", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		card := domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionRejected, ApprovalID: "appr_1"}
+
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.bob, conv, reply.ID, domain.InteractionPending, card), domain.ErrNotFound)
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, uuid.NewV7(), domain.InteractionPending, card), domain.ErrNotFound)
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
+	})
+}
