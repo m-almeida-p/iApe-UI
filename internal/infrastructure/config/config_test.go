@@ -68,6 +68,9 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 10, c.DB.MaxConns)
 				assert.Equal(t, "ui_agent", c.Agent.AppName)
 				assert.Equal(t, 120*time.Second, c.Agent.RequestTimeout)
+				assert.Equal(t, config.ProtocolADKREST, c.Agent.Protocol, "the ADK REST agent unless another is asked for")
+				assert.Equal(t, "yape-token", c.Agent.BearerBin)
+				assert.Empty(t, c.Agent.AccountID)
 				assert.Equal(t, 8000, c.Chat.MaxMessageChars)
 				assert.Equal(t, 50*time.Millisecond, c.Chat.StreamFlushInterval)
 				assert.Equal(t, 100, c.Chat.ListLimit)
@@ -101,6 +104,9 @@ func TestLoad_Valid(t *testing.T) {
 				"HTTP_RESPONSE_TIMEOUT":      "45s",
 				"DB_MAX_CONNS":               "25",
 				"AGENT_REQUEST_TIMEOUT":      "600s",
+				"AGENT_PROTOCOL":             "agui-bff",
+				"YAPE_ACCOUNT_ID":            "25906AC5-9F18-4099-B3FD-E1B74D8549A4",
+				"YAPE_TOKEN_BIN":             "/usr/local/bin/yape-token",
 				"CHAT_MAX_MESSAGE_CHARS":     "500",
 				"CHAT_STREAM_FLUSH_INTERVAL": "100ms",
 				"CHAT_LIST_LIMIT":            "20",
@@ -121,6 +127,9 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 45*time.Second, c.HTTP.ResponseTimeout)
 				assert.Equal(t, 25, c.DB.MaxConns)
 				assert.Equal(t, 600*time.Second, c.Agent.RequestTimeout)
+				assert.Equal(t, config.ProtocolAGUIBFF, c.Agent.Protocol)
+				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Agent.AccountID, "the account is kept in its canonical lower-case form")
+				assert.Equal(t, "/usr/local/bin/yape-token", c.Agent.BearerBin)
 				assert.Equal(t, 500, c.Chat.MaxMessageChars)
 				assert.Equal(t, 100*time.Millisecond, c.Chat.StreamFlushInterval)
 				assert.Equal(t, 20, c.Chat.ListLimit)
@@ -169,6 +178,22 @@ func TestLoad_Invalid(t *testing.T) {
 			name:      "all missing required keys are named in one error",
 			env:       map[string]string{},
 			wantInErr: []string{"DB_URL", "AGENT_BASE_URL", "AGENT_APP_NAME"},
+		},
+		{
+			name:      "an unknown agent protocol is named",
+			env:       with(requiredEnv(), map[string]string{"AGENT_PROTOCOL": "soap"}),
+			wantInErr: []string{"AGENT_PROTOCOL", "adk-rest", "agui-bff"},
+		},
+		{
+			name:      "the BFF needs the account it is asked as",
+			env:       with(requiredEnv(), map[string]string{"AGENT_PROTOCOL": "agui-bff"}),
+			wantInErr: []string{"YAPE_ACCOUNT_ID", "agui-bff"},
+		},
+		{
+			name:       "an account that is not a UUID is refused without echoing it",
+			env:        with(requiredEnv(), map[string]string{"AGENT_PROTOCOL": "agui-bff", "YAPE_ACCOUNT_ID": "not-a-uuid-canary-7"}),
+			wantInErr:  []string{"YAPE_ACCOUNT_ID"},
+			wantNotErr: []string{"not-a-uuid-canary-7"},
 		},
 		{
 			name: "bad scalar values name the key and the value",
@@ -380,7 +405,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			" config.App.LogFormat=json config.App.ShutdownGrace=10s"+
 			" config.HTTP.Addr=:8300 config.HTTP.MaxBodyBytes=131072 config.HTTP.BodyTimeout=30s config.HTTP.ResponseTimeout=2m0s"+
 			" config.DB.URL=[redacted] config.DB.MaxConns=10"+
-			" config.Agent.BaseURL=http://localhost:9093/api config.Agent.AppName=ui_agent config.Agent.RequestTimeout=2m0s"+
+			" config.Agent.BaseURL=http://localhost:9093/api config.Agent.AppName=ui_agent config.Agent.RequestTimeout=2m0s config.Agent.Protocol=adk-rest config.Agent.AccountID=\"\" config.Agent.BearerBin=yape-token"+
 			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms config.Chat.ListLimit=100"+
 			" config.RateLimit.RPS=2 config.RateLimit.Burst=10 config.Session.TTL=24h0m0s"+
 			" config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
@@ -396,7 +421,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			"App":{"Env":"development","BaseURL":"http://localhost:8300","LogLevel":"info","LogFormat":"json","ShutdownGrace":10000000000},
 			"HTTP":{"Addr":":8300","MaxBodyBytes":131072,"BodyTimeout":30000000000,"ResponseTimeout":120000000000},
 			"DB":{"URL":"[redacted]","MaxConns":10},
-			"Agent":{"BaseURL":"http://localhost:9093/api","AppName":"ui_agent","RequestTimeout":120000000000},
+			"Agent":{"BaseURL":"http://localhost:9093/api","AppName":"ui_agent","RequestTimeout":120000000000,"Protocol":"adk-rest","AccountID":"","BearerBin":"yape-token"},
 			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000,"ListLimit":100},
 			"RateLimit":{"RPS":2,"Burst":10},
 			"Session":{"TTL":86400000000000},

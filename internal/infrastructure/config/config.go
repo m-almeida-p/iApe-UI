@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"uuid"
 
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/platform/envcfg"
@@ -66,7 +67,20 @@ type Agent struct {
 	BaseURL        string
 	AppName        string
 	RequestTimeout time.Duration
+	// Protocol is how the agent is reached: ProtocolADKREST (an ADK REST server at BaseURL serving AppName) or
+	// ProtocolAGUIBFF (the AG-UI BFF at BaseURL, asked as the account AccountID).
+	Protocol string
+	// AccountID is the Yape account the BFF is asked as, in its canonical form. Only ProtocolAGUIBFF uses it.
+	AccountID string
+	// BearerBin is the program that prints the account's bearer token (yape-token). Only ProtocolAGUIBFF uses it.
+	BearerBin string
 }
+
+// The ways to reach the agent (Agent.Protocol).
+const (
+	ProtocolADKREST = "adk-rest"
+	ProtocolAGUIBFF = "agui-bff"
+)
 
 // Chat holds chat behavior settings.
 type Chat struct {
@@ -173,6 +187,8 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 		Agent: Agent{
 			AppName:        r.required("AGENT_APP_NAME"),
 			RequestTimeout: r.positive("AGENT_REQUEST_TIMEOUT", 120*time.Second, time.ParseDuration),
+			Protocol:       r.oneOf("AGENT_PROTOCOL", ProtocolADKREST, ProtocolADKREST, ProtocolAGUIBFF),
+			BearerBin:      r.str("YAPE_TOKEN_BIN", "yape-token"),
 		},
 		Chat: Chat{
 			MaxMessageChars:     r.positive("CHAT_MAX_MESSAGE_CHARS", 8000, strconv.Atoi),
@@ -191,6 +207,10 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 	c.App.BaseURL = strings.TrimRight(r.absoluteURL("APP_BASE_URL", r.str("APP_BASE_URL", "http://localhost:8300"), "http", "https"), "/")
 	c.DB.URL = envcfg.Secret(r.databaseURL("DB_URL", r.required("DB_URL")))
 	c.Agent.BaseURL = strings.TrimRight(r.absoluteURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
+	c.Agent.AccountID = r.uuidString("YAPE_ACCOUNT_ID")
+	if c.Agent.Protocol == ProtocolAGUIBFF && c.Agent.AccountID == "" {
+		r.fail("YAPE_ACCOUNT_ID is required when AGENT_PROTOCOL is %s", ProtocolAGUIBFF)
+	}
 	c.Admin = r.admin()
 
 	// The checks that compare keys run only when each key is sound by itself, so
@@ -272,6 +292,21 @@ func (r *reader) positive[T cmp.Ordered](key string, def T, conv func(string) (T
 		return def
 	}
 	return v
+}
+
+// uuidString is a UUID setting in its canonical lower-case form, or "" when it is not set. A value that is not a UUID is
+// refused without being echoed: an account is an identifier of a person.
+func (r *reader) uuidString(key string) string {
+	v := r.str(key, "")
+	if v == "" {
+		return ""
+	}
+	id, err := uuid.Parse(v)
+	if err != nil {
+		r.fail("%s must be a UUID", key)
+		return ""
+	}
+	return id.String()
 }
 
 func (r *reader) oneOf(key, def string, allowed ...string) string {
