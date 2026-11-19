@@ -42,8 +42,9 @@ func TestNewActions_AnAgentWithoutCardsCannotAnswerOnesLeftBehind(t *testing.T) 
 	_, approve := actions.Approve(t.Context(), card)
 	_, reject := actions.Reject(t.Context(), card)
 	_, code := actions.ConfirmOTP(t.Context(), card, "123456")
+	contact := actions.ConfirmContact(t.Context(), "Maria", domain.Contact{Name: "Maria Torres", Phone: "912345678"})
 
-	for _, err := range []error{approve, reject, code} {
+	for _, err := range []error{approve, reject, code, contact} {
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 	}
 }

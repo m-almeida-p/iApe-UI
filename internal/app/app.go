@@ -185,6 +185,10 @@ func (noActions) Reject(context.Context, domain.Interaction) (domain.ActionResul
 	return domain.ActionResult{}, domain.ErrAgentUnavailable
 }
 
+func (noActions) ConfirmContact(context.Context, string, domain.Contact) error {
+	return domain.ErrAgentUnavailable
+}
+
 func (noActions) ConfirmOTP(context.Context, domain.Interaction, string) (domain.ActionResult, error) {
 	return domain.ActionResult{}, domain.ErrAgentUnavailable
 }

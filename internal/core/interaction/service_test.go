@@ -290,3 +290,92 @@ func TestConfirmOTP(t *testing.T) {
 		require.ErrorIs(t, err, boom)
 	})
 }
+
+func contactReply(state domain.InteractionState) domain.Message {
+	return replyWith(&domain.Interaction{Kind: domain.InteractionContact, State: state, RequestID: "req-1", RunID: "run-1", Query: "Maria"})
+}
+
+func TestChooseContact(t *testing.T) {
+	maria := domain.Candidates("Maria")[0]
+
+	t.Run("the chosen candidate is confirmed with the agent's service and the card closes", func(t *testing.T) {
+		h := newHarness(t)
+		h.expectGet(contactReply(domain.InteractionPending))
+		h.actions.On("ConfirmContact", mock.Anything, "Maria", maria).Return(nil).Once()
+		want := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionConfirmed, RequestID: "req-1", RunID: "run-1", Query: "Maria", Contact: maria}
+		h.expectSave(domain.InteractionPending, want, nil)
+
+		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionConfirmed, got.Meta.Interaction.State)
+		assert.Equal(t, maria, got.Meta.Interaction.Contact)
+	})
+
+	t.Run("a choice that is not a candidate is refused without asking the service", func(t *testing.T) {
+		for _, choice := range []int{-1, len(domain.Candidates("Maria")), 99} {
+			h := newHarness(t)
+			h.expectGet(contactReply(domain.InteractionPending))
+
+			got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, choice)
+
+			var refused *domain.ActionError
+			require.ErrorAs(t, err, &refused, "%d", choice)
+			assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
+		}
+	})
+
+	t.Run("a card that is closed, or is a transfer, takes no contact", func(t *testing.T) {
+		for _, m := range []domain.Message{contactReply(domain.InteractionConfirmed), replyWith(cardIn(domain.InteractionPending))} {
+			h := newHarness(t)
+			h.expectGet(m)
+
+			_, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
+
+			require.ErrorIs(t, err, domain.ErrInvalidState)
+		}
+	})
+
+	t.Run("a service that refuses leaves the card pending, with the reason", func(t *testing.T) {
+		h := newHarness(t)
+		h.expectGet(contactReply(domain.InteractionPending))
+		h.actions.On("ConfirmContact", mock.Anything, "Maria", maria).Return(&domain.ActionError{Message: "no such contact"}).Once()
+
+		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
+
+		var refused *domain.ActionError
+		require.ErrorAs(t, err, &refused)
+		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
+	})
+}
+
+func TestConfirmCandidate(t *testing.T) {
+	t.Run("the contact is confirmed and given back for the message", func(t *testing.T) {
+		h := newHarness(t)
+		juan := domain.Candidates("")[0]
+		h.actions.On("ConfirmContact", mock.Anything, "", juan).Return(nil).Once()
+
+		got, err := h.svc.ConfirmCandidate(t.Context(), "", 0)
+
+		require.NoError(t, err)
+		assert.Equal(t, juan, got)
+	})
+
+	t.Run("a choice that is not a candidate is refused without asking the service", func(t *testing.T) {
+		h := newHarness(t)
+
+		_, err := h.svc.ConfirmCandidate(t.Context(), "maria", 7)
+
+		var refused *domain.ActionError
+		require.ErrorAs(t, err, &refused)
+	})
+
+	t.Run("a failure of the service is passed on", func(t *testing.T) {
+		h := newHarness(t)
+		h.actions.On("ConfirmContact", mock.Anything, "maria", domain.Candidates("maria")[0]).Return(domain.ErrAgentUnavailable).Once()
+
+		_, err := h.svc.ConfirmCandidate(t.Context(), "maria", 0)
+
+		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
+	})
+}

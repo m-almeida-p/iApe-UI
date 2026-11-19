@@ -173,3 +173,33 @@ func TestActions_AnApprovalIdWithPathCharactersCannotChangeTheRoute(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, "/bff/approvals/..%2F..%2Fadmin%2Fx%3Fy=1/reject", b.requests[0].URL.EscapedPath(), "the id stays one path segment")
 }
+
+func TestActions_ConfirmContactTellsTheBFFWhomTheUserChose(t *testing.T) {
+	b := newBFF(t, serveJSON(t, http.StatusCreated, "contact-ok.json"))
+
+	err := clientFor(b, &fakeTokens{token: "tok-1"}).ConfirmContact(t.Context(), "Maria", domain.Contact{Name: "Maria Torres", Phone: "912345678"})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, b.count())
+	r := b.requests[0]
+	assert.Equal(t, http.MethodPost, r.Method)
+	assert.Equal(t, "/bff/contacts/confirm", r.URL.Path)
+	assert.Equal(t, "Bearer tok-1", r.Header.Get("Authorization"))
+	assert.Equal(t, account, r.Header.Get("X-Yape-Account-Id"))
+	var sent map[string]string
+	require.NoError(t, json.Unmarshal(b.bodies[0], &sent))
+	assert.Equal(t, map[string]string{"query": "Maria", "phone": "912345678", "name": "Maria Torres"}, sent)
+}
+
+func TestActions_AContactTheBFFRefusesIsTheServicesOwnWords(t *testing.T) {
+	b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"statusCode":400,"message":["phone must be valid","name must not be empty"]}`)
+	})
+
+	err := clientFor(b, &fakeTokens{token: "t"}).ConfirmContact(t.Context(), "Maria", domain.Contact{})
+
+	var refused *domain.ActionError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, "phone must be valid; name must not be empty", refused.Message)
+}

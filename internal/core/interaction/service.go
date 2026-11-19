@@ -76,6 +76,38 @@ func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUI
 		})
 }
 
+// ChooseContact implements service.Interactions.
+func (s *Service) ChooseContact(ctx context.Context, userID, convID, msgID uuid.UUID, choice int) (domain.Message, error) {
+	return s.answer(ctx, userID, convID, msgID,
+		func(card domain.Interaction) bool {
+			return card.Kind == domain.InteractionContact && card.State == domain.InteractionPending
+		},
+		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
+			contact, err := s.confirm(ctx, card.Query, choice)
+			if err != nil {
+				return card, err
+			}
+			return card.ContactChosen(contact)
+		})
+}
+
+// ConfirmCandidate implements service.Interactions.
+func (s *Service) ConfirmCandidate(ctx context.Context, query string, choice int) (domain.Contact, error) {
+	return s.confirm(ctx, query, choice)
+}
+
+// confirm tells the agent's service whom the user chose among the candidates for query.
+func (s *Service) confirm(ctx context.Context, query string, choice int) (domain.Contact, error) {
+	candidates := domain.Candidates(query)
+	if choice < 0 || choice >= len(candidates) {
+		return domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}
+	}
+	if err := s.deps.Actions.ConfirmContact(ctx, query, candidates[choice]); err != nil {
+		return domain.Contact{}, err
+	}
+	return candidates[choice], nil
+}
+
 // answer is what the three answers share: load the card, check it takes the answer, let the service act, and save the card in
 // its new state only if it is still in the state that was read (the compare-and-set). An action that did not go through (a refusal, the agent down) returns the
 // reply with the card as it was, along with the error.

@@ -17,6 +17,10 @@ type ActionGateway interface {
 	// Reject cancels the transfer.
 	Reject(ctx context.Context, card domain.Interaction) (domain.ActionResult, error)
 
+	// ConfirmContact tells the agent's service whom the user chose for query, the reference the agent gave. It is also what the
+	// composer's @ picker does before the name goes in a message.
+	ConfirmContact(ctx context.Context, query string, contact domain.Contact) error
+
 	// ConfirmOTP gives the code the bank asked for. A wrong code is a *domain.ActionError and the card stays as it was.
 	ConfirmOTP(ctx context.Context, card domain.Interaction, code string) (domain.ActionResult, error)
 }

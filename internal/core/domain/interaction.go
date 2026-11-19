@@ -9,6 +9,8 @@ type InteractionKind string
 const (
 	// InteractionApproval is a transfer the user has to pay or reject.
 	InteractionApproval InteractionKind = "approval"
+	// InteractionContact asks the user to confirm who the agent should pay.
+	InteractionContact InteractionKind = "contact"
 )
 
 // InteractionState is where a card is. It only goes forward: a card that was paid or rejected is closed.
@@ -24,6 +26,8 @@ const (
 	InteractionPaid InteractionState = "paid"
 	// InteractionRejected is closed: the user said no.
 	InteractionRejected InteractionState = "rejected"
+	// InteractionConfirmed is closed: the user chose the contact.
+	InteractionConfirmed InteractionState = "confirmed"
 )
 
 // Transfer is what an approval card shows. The amount is for display, it is never computed with.
@@ -33,6 +37,12 @@ type Transfer struct {
 	DestinationName  string  `json:"destination_name,omitempty"`
 	DestinationPhone string  `json:"destination_phone,omitempty"`
 	Message          string  `json:"message,omitempty"`
+}
+
+// Contact is a person the user can pay.
+type Contact struct {
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
 }
 
 // Interaction is a card in the agent's reply that the user answers. It is kept in the message's Meta, so the card is
@@ -49,6 +59,13 @@ type Interaction struct {
 	ChallengeID string `json:"challenge_id,omitempty"`
 	// Result is what the service said about the last answer, to show on the card.
 	Result string `json:"result,omitempty"`
+
+	// RequestID, Query and Prompt are those of a contact card: the agent's request, what it asked about, and what it says to the user.
+	RequestID string `json:"request_id,omitempty"`
+	Query     string `json:"query,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
+	// Contact is whom the user chose, once they did.
+	Contact Contact `json:"contact,omitzero"`
 }
 
 // Open reports whether the card still waits for the user.
@@ -59,8 +76,8 @@ func (i Interaction) Open() bool {
 // Approved records that the user paid. When the bank wants a code, challengeID names it and the card asks for it; else the
 // transfer is paid. A card that is not pending cannot be approved: ErrInvalidState.
 func (i Interaction) Approved(result, challengeID string) (Interaction, error) {
-	if i.State != InteractionPending {
-		return i, fmt.Errorf("approving a card that is %s: %w", i.State, ErrInvalidState)
+	if i.Kind != InteractionApproval || i.State != InteractionPending {
+		return i, fmt.Errorf("approving a %s card that is %s: %w", i.Kind, i.State, ErrInvalidState)
 	}
 	i.Result = result
 	if challengeID != "" {
@@ -73,8 +90,8 @@ func (i Interaction) Approved(result, challengeID string) (Interaction, error) {
 
 // Rejected records that the user said no. A card that is closed cannot be rejected: ErrInvalidState.
 func (i Interaction) Rejected(result string) (Interaction, error) {
-	if !i.Open() {
-		return i, fmt.Errorf("rejecting a card that is %s: %w", i.State, ErrInvalidState)
+	if i.Kind != InteractionApproval || !i.Open() {
+		return i, fmt.Errorf("rejecting a %s card that is %s: %w", i.Kind, i.State, ErrInvalidState)
 	}
 	i.State, i.Result = InteractionRejected, result
 	return i, nil
@@ -83,8 +100,8 @@ func (i Interaction) Rejected(result string) (Interaction, error) {
 // CodeConfirmed records that the code the bank asked for was right, and the transfer is paid. Only a card that asked for a
 // code takes one: ErrInvalidState.
 func (i Interaction) CodeConfirmed(result string) (Interaction, error) {
-	if i.State != InteractionOTPRequired {
-		return i, fmt.Errorf("confirming a code on a card that is %s: %w", i.State, ErrInvalidState)
+	if i.Kind != InteractionApproval || i.State != InteractionOTPRequired {
+		return i, fmt.Errorf("confirming a code on a %s card that is %s: %w", i.Kind, i.State, ErrInvalidState)
 	}
 	i.State, i.Result = InteractionPaid, result
 	return i, nil
@@ -103,3 +120,12 @@ type ActionResult struct {
 type ActionError struct{ Message string }
 
 func (e *ActionError) Error() string { return "action refused: " + e.Message }
+
+// ContactChosen records whom the user chose. Only a contact card that is pending takes it: ErrInvalidState.
+func (i Interaction) ContactChosen(c Contact) (Interaction, error) {
+	if i.Kind != InteractionContact || i.State != InteractionPending {
+		return i, fmt.Errorf("choosing a contact on a %s card that is %s: %w", i.Kind, i.State, ErrInvalidState)
+	}
+	i.State, i.Contact = InteractionConfirmed, c
+	return i, nil
+}

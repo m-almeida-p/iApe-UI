@@ -42,6 +42,24 @@ func (_m *ActionGateway) Approve(ctx context.Context, card domain.Interaction) (
 	return r0, r1
 }
 
+// ConfirmContact provides a mock function with given fields: ctx, query, contact
+func (_m *ActionGateway) ConfirmContact(ctx context.Context, query string, contact domain.Contact) error {
+	ret := _m.Called(ctx, query, contact)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ConfirmContact")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, domain.Contact) error); ok {
+		r0 = rf(ctx, query, contact)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // ConfirmOTP provides a mock function with given fields: ctx, card, code
 func (_m *ActionGateway) ConfirmOTP(ctx context.Context, card domain.Interaction, code string) (domain.ActionResult, error) {
 	ret := _m.Called(ctx, card, code)

@@ -23,4 +23,12 @@ type Interactions interface {
 
 	// ConfirmOTP gives the code the card asked for.
 	ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUID, code string) (domain.Message, error)
+
+	// ChooseContact confirms the choice-th of the card's candidates (see domain.Candidates) as the person to pay. A choice
+	// that is not one of them is a *domain.ActionError.
+	ChooseContact(ctx context.Context, userID, convID, msgID uuid.UUID, choice int) (domain.Message, error)
+
+	// ConfirmCandidate confirms the choice-th candidate for query before any card asks, as the composer's @ picker does, and
+	// returns the contact so its name can go in the message. A choice that is not one of them is a *domain.ActionError.
+	ConfirmCandidate(ctx context.Context, query string, choice int) (domain.Contact, error)
 }

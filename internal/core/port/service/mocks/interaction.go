@@ -44,6 +44,62 @@ func (_m *Interactions) Approve(ctx context.Context, userID uuid.UUID, convID uu
 	return r0, r1
 }
 
+// ChooseContact provides a mock function with given fields: ctx, userID, convID, msgID, choice
+func (_m *Interactions) ChooseContact(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID, choice int) (domain.Message, error) {
+	ret := _m.Called(ctx, userID, convID, msgID, choice)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChooseContact")
+	}
+
+	var r0 domain.Message
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int) (domain.Message, error)); ok {
+		return rf(ctx, userID, convID, msgID, choice)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int) domain.Message); ok {
+		r0 = rf(ctx, userID, convID, msgID, choice)
+	} else {
+		r0 = ret.Get(0).(domain.Message)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int) error); ok {
+		r1 = rf(ctx, userID, convID, msgID, choice)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ConfirmCandidate provides a mock function with given fields: ctx, query, choice
+func (_m *Interactions) ConfirmCandidate(ctx context.Context, query string, choice int) (domain.Contact, error) {
+	ret := _m.Called(ctx, query, choice)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ConfirmCandidate")
+	}
+
+	var r0 domain.Contact
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) (domain.Contact, error)); ok {
+		return rf(ctx, query, choice)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) domain.Contact); ok {
+		r0 = rf(ctx, query, choice)
+	} else {
+		r0 = ret.Get(0).(domain.Contact)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, query, choice)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ConfirmOTP provides a mock function with given fields: ctx, userID, convID, msgID, code
 func (_m *Interactions) ConfirmOTP(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID, code string) (domain.Message, error) {
 	ret := _m.Called(ctx, userID, convID, msgID, code)

@@ -216,3 +216,45 @@ func TestDecode_ACardWithoutAnApprovalIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 	assert.Contains(t, err.Error(), "approvalId")
 }
+
+func TestDecode_TheContactRequestIsAnInteraction(t *testing.T) {
+	events, err := collect(aguibff.Decode(strings.NewReader(fixture(t, "contact-request.sse"))))
+
+	require.NoError(t, err)
+	var cards []domain.Interaction
+	for _, ev := range events {
+		if ev.Kind == domain.AgentInteraction {
+			cards = append(cards, ev.Interaction)
+		}
+	}
+	require.Len(t, cards, 1)
+	assert.Equal(t, domain.Interaction{
+		Kind:      domain.InteractionContact,
+		State:     domain.InteractionPending,
+		RequestID: "4a2569dc-090d-42ec-a2aa-bc107ad724d2",
+		RunID:     "fd92d122-4d82-402f-9572-772a8efb6b12",
+		Query:     "Maria",
+		Prompt:    "Confirma que sea la persona correcta antes de yapearle.",
+	}, cards[0])
+}
+
+func TestDecode_AContactRequestUsesTheAgentReferenceAndNeedsOne(t *testing.T) {
+	stream := func(value string) string {
+		return "data: {\"type\":\"RUN_STARTED\",\"runId\":\"r\"}\n\n" +
+			"data: {\"type\":\"CUSTOM\",\"name\":\"CONTACT_REQUEST\",\"value\":" + value + "}\n\n" +
+			"data: {\"type\":\"RUN_FINISHED\"}\n\n"
+	}
+
+	events, err := collect(aguibff.Decode(strings.NewReader(stream(`{"requestId":"q","agentReference":"Ana","query":"ana","message":"m"}`))))
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "Ana", events[0].Interaction.Query, "the reference is what the BFF wants back")
+
+	events, err = collect(aguibff.Decode(strings.NewReader(stream(`{"requestId":"q","query":"ana","message":"m"}`))))
+	require.NoError(t, err)
+	assert.Equal(t, "ana", events[0].Interaction.Query, "without a reference the query is used")
+
+	_, err = collect(aguibff.Decode(strings.NewReader(stream(`{"requestId":"q","message":"m"}`))))
+	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
+	assert.Contains(t, err.Error(), "query")
+}

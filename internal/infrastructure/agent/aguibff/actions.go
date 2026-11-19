@@ -53,14 +53,26 @@ func (c *Client) ConfirmOTP(ctx context.Context, card domain.Interaction, code s
 	return domain.ActionResult{Message: got.Message}, err
 }
 
+// ConfirmContact implements resource.ActionGateway.
+func (c *Client) ConfirmContact(ctx context.Context, query string, contact domain.Contact) error {
+	_, err := c.postJSON(ctx, "/bff/contacts/confirm", map[string]string{"query": query, "phone": contact.Phone, "name": contact.Name})
+	return err
+}
+
 // act posts an action of an approval to the BFF. The route is built from the approval's id, never taken from the stream, and
-// the id is one path segment whatever it holds. A 4xx the BFF explains is the service refusing: *domain.ActionError.
+// the id is one path segment whatever it holds.
 func (c *Client) act(ctx context.Context, approvalID, action string, body map[string]string) (actionAnswer, error) {
+	return c.postJSON(ctx, "/bff/approvals/"+url.PathEscape(approvalID)+"/"+action, body)
+}
+
+// postJSON posts a JSON body to a route of the BFF as the account. A 4xx the BFF explains is the service refusing:
+// *domain.ActionError.
+func (c *Client) postJSON(ctx context.Context, route string, body map[string]string) (actionAnswer, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return actionAnswer{}, err
 	}
-	target := c.base + "/bff/approvals/" + url.PathEscape(approvalID) + "/" + action
+	target := c.base + route
 	if c.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.timeout)

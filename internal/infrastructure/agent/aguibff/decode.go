@@ -2,6 +2,7 @@ package aguibff
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -74,7 +75,7 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 			case "RUN_STARTED":
 				runID = ev.RunID
 			case "CUSTOM":
-				card, ok, err := approvalCard(ev, runID)
+				card, ok, err := cardOf(ev, runID)
 				if err != nil {
 					fail("%w", err)
 					return
@@ -126,12 +127,49 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 	}
 }
 
-// approvalCard is the card of an ACTION_REQUEST for a transfer, stamped with the run that made it. Any other CUSTOM event, and an
-// ACTION_REQUEST for another kind of action, is not one: ok is false.
-func approvalCard(ev event, runID string) (card domain.Interaction, ok bool, err error) {
-	if ev.Name != "ACTION_REQUEST" {
-		return card, false, nil
+// contactRequest is the value of the CUSTOM event CONTACT_REQUEST: the agent asks the user to confirm who to pay.
+type contactRequest struct {
+	RequestID      string `json:"requestId"`
+	Query          string `json:"query"`
+	AgentReference string `json:"agentReference"`
+	Message        string `json:"message"`
+}
+
+// cardOf is the card of a CUSTOM event, stamped with the run that made it: a transfer to approve (ACTION_REQUEST) or a contact to
+// confirm (CONTACT_REQUEST). Any other CUSTOM event, and an ACTION_REQUEST for another kind of action, is not a card: ok is false.
+func cardOf(ev event, runID string) (card domain.Interaction, ok bool, err error) {
+	switch ev.Name {
+	case "ACTION_REQUEST":
+		return approvalCard(ev, runID)
+	case "CONTACT_REQUEST":
+		return contactCard(ev, runID)
 	}
+	return card, false, nil
+}
+
+// contactCard is the card of a CONTACT_REQUEST. What the BFF wants back when the contact is confirmed is the agent's reference,
+// and the query when it gave none.
+func contactCard(ev event, runID string) (card domain.Interaction, ok bool, err error) {
+	var req contactRequest
+	if err := json.Unmarshal(ev.Value, &req); err != nil {
+		return card, false, fmt.Errorf("malformed CONTACT_REQUEST: %w", err)
+	}
+	query := cmp.Or(req.AgentReference, req.Query)
+	if query == "" {
+		return card, false, errors.New("a contact request without query")
+	}
+	return domain.Interaction{
+		Kind:      domain.InteractionContact,
+		State:     domain.InteractionPending,
+		RequestID: req.RequestID,
+		RunID:     runID,
+		Query:     query,
+		Prompt:    req.Message,
+	}, true, nil
+}
+
+// approvalCard is the card of an ACTION_REQUEST for a transfer.
+func approvalCard(ev event, runID string) (card domain.Interaction, ok bool, err error) {
 	var req actionRequest
 	if err := json.Unmarshal(ev.Value, &req); err != nil {
 		return card, false, fmt.Errorf("malformed ACTION_REQUEST: %w", err)

@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"encoding/json/v2"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,4 +119,79 @@ func TestMeta_TheCardIsStoredInTheMessageAndOldRowsStillRead(t *testing.T) {
 	plain, err := json.Marshal(domain.Meta{TTFTMs: 50})
 	require.NoError(t, err)
 	assert.NotContains(t, string(plain), "interaction")
+}
+
+func contactCard() domain.Interaction {
+	return domain.Interaction{
+		Kind: domain.InteractionContact, State: domain.InteractionPending, RequestID: "req-1", RunID: "run-1",
+		Query: "Maria", Prompt: "Confirma que sea la persona correcta antes de yapearle.",
+	}
+}
+
+func TestInteraction_AContactCardIsChosenOnce(t *testing.T) {
+	chosen, err := contactCard().ContactChosen(domain.Contact{Name: "Maria Torres", Phone: "912345678"})
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.InteractionConfirmed, chosen.State)
+	assert.Equal(t, domain.Contact{Name: "Maria Torres", Phone: "912345678"}, chosen.Contact)
+	assert.False(t, chosen.Open())
+	assert.Equal(t, "Maria", chosen.Query, "the card keeps what the agent asked about")
+
+	again, err := chosen.ContactChosen(domain.Contact{Name: "Other", Phone: "900000000"})
+	require.ErrorIs(t, err, domain.ErrInvalidState)
+	assert.Equal(t, chosen, again, "a refused move changes nothing")
+}
+
+func TestInteraction_TheKindsDoNotTakeEachOthersAnswers(t *testing.T) {
+	contact := contactCard()
+	_, err := contact.Approved("Paid", "")
+	require.ErrorIs(t, err, domain.ErrInvalidState, "a contact is not paid")
+	_, err = contact.Rejected("no")
+	require.ErrorIs(t, err, domain.ErrInvalidState, "a contact is not rejected")
+	asking := contactCard()
+	asking.State = domain.InteractionOTPRequired
+	_, err = asking.CodeConfirmed("Paid")
+	require.ErrorIs(t, err, domain.ErrInvalidState)
+
+	_, err = approval().ContactChosen(domain.Contact{Name: "x", Phone: "y"})
+	require.ErrorIs(t, err, domain.ErrInvalidState, "a transfer is not a contact")
+}
+
+func TestCandidates(t *testing.T) {
+	names := func(cs []domain.Contact) []string {
+		out := make([]string, len(cs))
+		for i, c := range cs {
+			out[i] = c.Name
+		}
+		return out
+	}
+
+	t.Run("no query offers the default contacts", func(t *testing.T) {
+		assert.Equal(t, []string{"Juan Perez", "Maria Torres", "Carlos Diaz", "Ana Rojas", "Luis Vargas"}, names(domain.Candidates("")))
+	})
+	t.Run("a query keeps the contacts it is part of, ignoring case and accents", func(t *testing.T) {
+		assert.Equal(t, []string{"Maria Torres"}, names(domain.Candidates("  MARÍA ")))
+		assert.Equal(t, []string{"Juan Perez"}, names(domain.Candidates("@perez")))
+	})
+	t.Run("a name nobody has is offered as itself, with a few last names", func(t *testing.T) {
+		got := domain.Candidates("Rosa")
+		require.NotEmpty(t, got)
+		assert.LessOrEqual(t, len(got), 3)
+		for _, c := range got {
+			assert.True(t, strings.HasPrefix(c.Name, "Rosa"), c.Name)
+		}
+	})
+	t.Run("a full name is the first candidate as typed", func(t *testing.T) {
+		assert.Equal(t, "Rosa Diaz", domain.Candidates("rosa diaz")[0].Name)
+	})
+	t.Run("the phones are Peruvian mobile numbers and do not change", func(t *testing.T) {
+		first, second := domain.Candidates("Rosa"), domain.Candidates("Rosa")
+		assert.Equal(t, first, second)
+		for _, c := range append(first, domain.Candidates("")...) {
+			assert.Regexp(t, `^9\d{8}$`, c.Phone, c.Name)
+		}
+	})
+	t.Run("the query is cut to a sensible size and never panics", func(t *testing.T) {
+		assert.NotPanics(t, func() { domain.Candidates(strings.Repeat("ñ", 10_000)) })
+	})
 }
