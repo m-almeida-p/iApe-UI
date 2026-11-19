@@ -76,6 +76,10 @@ var rules = []rule{
 		under: []string{"internal/testagent", "internal/contract"}, thirdParty: true},
 	{what: "the scripted agent's command is the scripted agent, with the settings every program reads",
 		under: []string{"cmd/test-agent"}, internal: []string{"internal/testagent", "internal/platform"}, thirdParty: true},
+	{what: "the Yape agent (the gateway model and the history's MCP tools) knows neither program, only the settings every program reads",
+		under: []string{"internal/yapeagent"}, internal: []string{"internal/platform"}, thirdParty: true},
+	{what: "the Yape agent's command is the Yape agent, with the settings every program reads",
+		under: []string{"cmd/yape-agent"}, internal: []string{"internal/yapeagent", "internal/platform"}, thirdParty: true},
 }
 
 func under(dir, parent string) bool { return dir == parent || strings.HasPrefix(dir, parent+"/") }
