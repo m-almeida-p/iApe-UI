@@ -1,0 +1,26 @@
+data: {"type":"RUN_STARTED","threadId":"3c8e60e7-3a30-4bd0-b3d2-aac10b3113b3","runId":"c31841b7-bc7c-4f38-bc0a-b96b84522a19","timestamp":1795129694665}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_call_DFe0Y8LZBfFSHOTzMYTOiczg","toolCallName":"transfer_to_agent","timestamp":1795129695542}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_call_DFe0Y8LZBfFSHOTzMYTOiczg","delta":"{\"agent_name\":\"p2p_agent\"}","timestamp":1795129695542}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_call_DFe0Y8LZBfFSHOTzMYTOiczg","timestamp":1795129695542}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_0cbdf77f-3f77-4d61-b76e-712dcf231fc1","toolCallId":"tc_call_DFe0Y8LZBfFSHOTzMYTOiczg","content":"{\"id\":\"call_DFe0Y8LZBfFSHOTzMYTOiczg\",\"name\":\"transfer_to_agent\"}","role":"tool","timestamp":1795129695547}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_call_lJ8q2mhMGLIH4v5s00cJuPxL","toolCallName":"transfer_to_agent","timestamp":1795129696511}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_call_lJ8q2mhMGLIH4v5s00cJuPxL","delta":"{\"agent_name\":\"p2p_workflow\"}","timestamp":1795129696511}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_call_lJ8q2mhMGLIH4v5s00cJuPxL","timestamp":1795129696511}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_51384488-e7db-4adb-9b11-1f7cc2df87b3","toolCallId":"tc_call_lJ8q2mhMGLIH4v5s00cJuPxL","content":"{\"id\":\"call_lJ8q2mhMGLIH4v5s00cJuPxL\",\"name\":\"transfer_to_agent\"}","role":"tool","timestamp":1795129696515}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"dc2bd290-38cd-4d0d-bcfc-3ccdf9cedaaf","role":"assistant","timestamp":1795129698886}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"dc2bd290-38cd-4d0d-bcfc-3ccdf9cedaaf","delta":"¿A quién necesitas yapearle y cuánto?","timestamp":1795129698886}
+
+data: {"type":"RUN_FINISHED","threadId":"3c8e60e7-3a30-4bd0-b3d2-aac10b3113b3","runId":"c31841b7-bc7c-4f38-bc0a-b96b84522a19","timestamp":1795129698886}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"dc2bd290-38cd-4d0d-bcfc-3ccdf9cedaaf","timestamp":1795129698887}
+

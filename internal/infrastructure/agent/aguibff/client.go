@@ -1,0 +1,204 @@
+package aguibff
+
+import (
+	"bytes"
+	"context"
+	"encoding/json/v2"
+	"fmt"
+	"io"
+	"iter"
+	"mime"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+	"uuid"
+
+	"iape-ui/internal/core/domain"
+	"iape-ui/internal/core/port/resource"
+	"iape-ui/internal/infrastructure/config"
+)
+
+var _ resource.AgentGateway = (*Client)(nil)
+
+const (
+	maxErrorBody = 512
+	dialTimeout  = 5 * time.Second
+)
+
+// HTTPError is a refusal by the BFF.
+type HTTPError struct {
+	Status int
+	Body   string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("agui-bff returned HTTP %d: %s", e.Status, e.Body)
+}
+
+// Client talks to the AG-UI BFF as one Yape account. It implements resource.AgentGateway.
+type Client struct {
+	base    string
+	account string
+	timeout time.Duration
+	tokens  TokenSource
+	http    *http.Client
+}
+
+// NewClient makes a client for the BFF at cfg.BaseURL, asking as cfg.AccountID with the tokens that tokens gives. A nil
+// httpClient gets a transport with a dial timeout.
+func NewClient(cfg config.Agent, tokens TokenSource, httpClient *http.Client) *Client {
+	if httpClient == nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
+		transport.MaxIdleConnsPerHost = 64
+		httpClient = &http.Client{Transport: transport}
+	}
+	return &Client{
+		base:    strings.TrimRight(cfg.BaseURL, "/"),
+		account: cfg.AccountID,
+		timeout: cfg.RequestTimeout,
+		tokens:  tokens,
+		http:    httpClient,
+	}
+}
+
+// runInput is the AG-UI RunAgentInput the BFF reads: the thread and run ids and the user's message. Empty state, tools,
+// context and props are part of the shape.
+type runInput struct {
+	ThreadID       string         `json:"threadId"`
+	RunID          string         `json:"runId"`
+	State          map[string]any `json:"state"`
+	Tools          []any          `json:"tools"`
+	Context        []any          `json:"context"`
+	ForwardedProps map[string]any `json:"forwardedProps"`
+	Messages       []message      `json:"messages"`
+}
+
+type message struct {
+	ID      string `json:"id"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// Run implements resource.AgentGateway: one turn, as a new run of the conversation's thread.
+func (c *Client) Run(ctx context.Context, req domain.AgentRequest) iter.Seq2[domain.AgentEvent, error] {
+	return func(yield func(domain.AgentEvent, error) bool) {
+		runCtx, cancel := context.WithTimeout(ctx, c.timeout)
+		defer cancel() // also cancels the upstream request when the caller stops iterating
+
+		body, err := c.open(runCtx, req)
+		if err != nil {
+			yield(domain.AgentEvent{}, c.classify(ctx, runCtx, err))
+			return
+		}
+		defer func() { _ = body.Close() }()
+
+		for ev, err := range Decode(body) {
+			if err != nil {
+				yield(domain.AgentEvent{}, c.classify(ctx, runCtx, err))
+				return
+			}
+			if !yield(ev, nil) {
+				return
+			}
+		}
+	}
+}
+
+// classify tells what ended a run: the caller leaving, the time limit, or the failure itself.
+func (c *Client) classify(caller, run context.Context, err error) error {
+	switch {
+	case caller.Err() != nil:
+		return caller.Err()
+	case run.Err() != nil:
+		return fmt.Errorf("agent run timed out after %s: %w", c.timeout, context.DeadlineExceeded)
+	}
+	return err
+}
+
+// open sends the turn and returns the stream. A 401 means the token expired: it is refreshed once (when its source can) and the
+// turn is asked again.
+func (c *Client) open(ctx context.Context, req domain.AgentRequest) (io.ReadCloser, error) {
+	token, err := c.tokens.Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+	}
+	resp, err := c.post(ctx, req, token)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+	}
+	if refresher, ok := c.tokens.(Refresher); ok && resp.StatusCode == http.StatusUnauthorized {
+		_ = readHTTPError(resp)
+		if token, err = refresher.Refresh(ctx); err != nil {
+			return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+		}
+		if resp, err = c.post(ctx, req, token); err != nil {
+			return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+		}
+	}
+
+	// The BFF answers the stream with 201: it is a NestJS POST. Any success is a stream if it says so.
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, classifyStatus(readHTTPError(resp))
+	}
+	if mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mt != "text/event-stream" {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("unexpected content type %q from the BFF (expected text/event-stream)", resp.Header.Get("Content-Type"))
+	}
+	return resp.Body, nil
+}
+
+func (c *Client) post(ctx context.Context, req domain.AgentRequest, token string) (*http.Response, error) {
+	runID := uuid.New().String()
+	payload, err := json.Marshal(runInput{
+		ThreadID: req.ConversationID.String(),
+		RunID:    runID,
+		Messages: []message{{ID: runID, Role: "user", Content: req.Text}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/agent", bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	hr.Header.Set("Authorization", "Bearer "+token)
+	hr.Header.Set("X-Yape-Account-Id", c.account)
+	hr.Header.Set("Content-Type", "application/json")
+	hr.Header.Set("Accept", "text/event-stream")
+	return c.http.Do(hr)
+}
+
+// Ping implements resource.AgentGateway: the BFF answers its health check. It needs no token.
+func (c *Client) Ping(ctx context.Context) error {
+	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/health", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(hr)
+	if err != nil {
+		return fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return classifyStatus(readHTTPError(resp))
+	}
+	_ = resp.Body.Close()
+	return nil
+}
+
+// readHTTPError reads (a bounded part of) an error response and closes it.
+func readHTTPError(resp *http.Response) *HTTPError {
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	return &HTTPError{Status: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+}
+
+// classifyStatus marks gateway-class failures as "agent unavailable".
+func classifyStatus(e *HTTPError) error {
+	switch e.Status {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, e)
+	}
+	return e
+}

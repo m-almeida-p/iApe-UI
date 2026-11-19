@@ -1,0 +1,10 @@
+data: {"type":"RUN_STARTED","threadId":"e7a0b8aa-4965-4e03-a386-2d81f32b3cb3","runId":"86dcb15f-a1ce-499d-abaf-f00a1854b9eb","timestamp":1795129693372}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"b931135d-84fe-4b01-9291-d31789571fc8","role":"assistant","timestamp":1795129693374}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"b931135d-84fe-4b01-9291-d31789571fc8","delta":"No puedo ayudarte con esa solicitud. ¿Intentamos con otra?","timestamp":1795129693374}
+
+data: {"type":"RUN_FINISHED","threadId":"e7a0b8aa-4965-4e03-a386-2d81f32b3cb3","runId":"86dcb15f-a1ce-499d-abaf-f00a1854b9eb","timestamp":1795129693374}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"b931135d-84fe-4b01-9291-d31789571fc8","timestamp":1795129693391}
+
