@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -189,7 +190,6 @@ func TestApproveRejectAndConfirmCode(t *testing.T) {
 		err  error
 		want int
 	}{
-		{"a card that was answered already is a conflict", domain.ErrInvalidState, http.StatusConflict},
 		{"a message that is not the user's is not found", domain.ErrNotFound, http.StatusNotFound},
 		{"any other failure is a 500", errors.New("boom"), http.StatusInternalServerError},
 	}
@@ -335,13 +335,15 @@ func TestChooseContact(t *testing.T) {
 		}
 	})
 
-	t.Run("a card answered already is a conflict", func(t *testing.T) {
+	t.Run("a card answered already shows the card as it is now", func(t *testing.T) {
 		h := newChatHarness(t)
 		h.cards.On("ChooseContact", mock.Anything, alice.ID, convID, streamMsgID, 1).Return(domain.Message{}, domain.ErrInvalidState)
+		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(contactReplyMsg(domain.InteractionConfirmed), nil)
 
 		rec := h.do(http.MethodPost, cardPath("contact"), form, htmx)
 
-		assert.Equal(t, http.StatusConflict, rec.Code)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "confirmed", attrOf(byTestID(parseHTML(t, rec.Body.String()), "card")[0], "data-state"))
 	})
 
 	t.Run("without htmx it goes back to the conversation", func(t *testing.T) {
@@ -774,16 +776,44 @@ func TestCardRoutes_EachRouteHoldsTheSameLine(t *testing.T) {
 		}
 	})
 
-	t.Run("a card answered already is a conflict that says so in plain words, on every route", func(t *testing.T) {
+	// Losing the race to answer a card (a second tab, a phone, the claim of another) must not wipe the reply off the page: htmx swaps a
+	// 409 over the whole reply, so the page is given the reply as it is now.
+	t.Run("a card answered already is drawn as it is now, on every route", func(t *testing.T) {
 		for _, rt := range cardRoutes {
 			h := newChatHarness(t)
 			h.expectCard(rt.call, rt.args, domain.Message{}, domain.ErrInvalidState)
+			h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(processingReply(t), nil)
+
+			rec := h.do(rt.method, cardPath(rt.action), rt.form, htmx)
+
+			require.Equal(t, http.StatusOK, rec.Code, rt.name)
+			assert.Equal(t, "processing", attrOf(byTestID(parseHTML(t, rec.Body.String()), "card")[0], "data-state"), rt.name)
+		}
+	})
+
+	t.Run("when the reply cannot be read the 409 swaps nothing, and says so in plain words", func(t *testing.T) {
+		for _, rt := range cardRoutes {
+			h := newChatHarness(t)
+			h.expectCard(rt.call, rt.args, domain.Message{}, domain.ErrInvalidState)
+			h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, errors.New("db down"))
 
 			rec := h.do(rt.method, cardPath(rt.action), rt.form, htmx)
 
 			assert.Equal(t, http.StatusConflict, rec.Code, rt.name)
+			assert.Equal(t, "none", rec.Header().Get("HX-Reswap"), "htmx must not put the text over the reply")
 			assert.Contains(t, rec.Body.String(), "answered already")
+			assert.NotContains(t, rec.Body.String(), "db down")
 		}
+	})
+
+	t.Run("without htmx a card answered already goes back to the conversation", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.expectCard("Approve", nil, domain.Message{}, domain.ErrInvalidState)
+		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil)
+
+		rec := h.do(http.MethodPost, cardPath("approve"), nil, nil)
+
+		assert.Equal(t, http.StatusSeeOther, rec.Code)
 	})
 
 	t.Run("a failure is a 500 that tells nothing of the failure, on every route", func(t *testing.T) {
@@ -1311,4 +1341,29 @@ func TestRegenerate_NotOfferedOnAReplyThatHoldsAPayment(t *testing.T) {
 			assert.Len(t, byTestID(root, "copy-message"), 1, "the text can still be copied")
 		})
 	}
+}
+
+// After a timeout the card stays claimed: nobody can answer it for a while, so it must not say "Try again".
+func TestCardFailed_AClaimedCardDoesNotInviteAnotherTry(t *testing.T) {
+	t.Run("a card that is still being answered shows no error", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).
+			Return(processingReply(t), fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, context.DeadlineExceeded))
+
+		root := parseHTML(t, h.do(http.MethodPost, cardPath("approve"), nil, htmx).Body.String())
+
+		assert.Equal(t, "processing", attrOf(byTestID(root, "card")[0], "data-state"))
+		assert.Empty(t, byTestID(root, "card-error"))
+		assert.Len(t, byTestID(root, "card-processing"), 1)
+	})
+
+	t.Run("a card that was given back shows the reason", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).
+			Return(cardReply(domain.InteractionPending), &domain.ActionError{Message: "Transfer is no longer open"})
+
+		root := parseHTML(t, h.do(http.MethodPost, cardPath("approve"), nil, htmx).Body.String())
+
+		assert.Contains(t, textContent(byTestID(root, "card-error")[0]), "no longer open")
+	})
 }

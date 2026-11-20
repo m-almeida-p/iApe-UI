@@ -203,10 +203,10 @@ func (a *App) cardFailed(w http.ResponseWriter, r *http.Request, ref messageRef,
 	refused, isRefusal := errors.AsType[*domain.ActionError](err)
 	switch {
 	case errors.Is(err, domain.ErrInvalidState):
-		http.Error(w, "That card was answered already.", http.StatusConflict)
+		a.cardAnsweredElsewhere(w, r, ref)
 	case isRefusal || errors.Is(err, domain.ErrAgentUnavailable):
 		view := a.messageView(msg)
-		if view.Card != nil {
+		if view.Card != nil && !view.Card.Processing { // a claimed card cannot be tried again yet: no "try again"
 			view.Card.Error = cardErrorText(refused)
 		}
 		if !fromHTMX(r) {
@@ -217,6 +217,20 @@ func (a *App) cardFailed(w http.ResponseWriter, r *http.Request, ref messageRef,
 	default:
 		a.fail(w, r, err)
 	}
+}
+
+// cardAnsweredElsewhere answers a request for a card that was answered already (a second tab, a phone, the claim of another): the
+// page is given the reply as it is now, with the card in its real state. A 409 would be swapped by htmx over the whole reply and
+// wipe it off the page, so when the reply cannot be read the 409 tells htmx to swap nothing.
+func (a *App) cardAnsweredElsewhere(w http.ResponseWriter, r *http.Request, ref messageRef) {
+	msg, err := a.svc.Conversations.Message(r.Context(), ref.userID, ref.convID, ref.msgID)
+	if err != nil {
+		w.Header().Set("HX-Reswap", "none")
+		http.Error(w, "That card was answered already.", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	a.answerWithReply(w, r, ref.convID, msg)
 }
 
 // resumeText is what the user's choice of a contact says to the agent, so that it goes on. The BFF's own page sends the same.
