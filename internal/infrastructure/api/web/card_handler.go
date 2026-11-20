@@ -25,9 +25,8 @@ type cardView struct {
 	ApproveURL  string
 	RejectURL   string
 	CodeURL     string
-	// A contact card: what the agent says, who the user may choose (each button posts its index) and whom they chose.
+	// A contact card: who the user may choose (each button posts its index) and whom they chose.
 	IsContact  bool
-	Prompt     string
 	Candidates []candidateView
 	ContactURL string
 	Chosen     string
@@ -70,7 +69,7 @@ func newCardView(m domain.Message) *cardView {
 
 // newContactView draws a contact card: the candidates while it is pending, whom the user chose once it is confirmed.
 func newContactView(card *domain.Interaction, base string) *cardView {
-	v := &cardView{State: string(card.State), Open: card.Open(), IsContact: true, Prompt: card.Prompt, ContactURL: base + "contact"}
+	v := &cardView{State: string(card.State), Open: card.Open(), IsContact: true, ContactURL: base + "contact"}
 	if card.State == domain.InteractionPending {
 		for i, c := range domain.Candidates(card.Query) {
 			v.Candidates = append(v.Candidates, candidateView{Name: c.Name, Phone: c.Phone, Choice: strconv.Itoa(i)})

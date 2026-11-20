@@ -8,7 +8,6 @@
 {{/* A contact the agent asks the user to confirm: each candidate is a button that posts its index. */}}
 {{define "partial:card_contact"}}<section class="card card-transfer mt-2" data-testid="card" data-kind="contact" data-state="{{.State}}" aria-label="Confirm the contact">
   <div class="card-body">
-    {{if .Prompt}}<div class="small mb-2" data-testid="card-prompt">{{.Prompt}}</div>{{end}}
     {{if .Chosen}}<div class="card-transfer-to" data-testid="card-chosen">{{.Chosen}}</div>{{end}}
     {{if .Error}}<div class="alert alert-warning mt-2 mb-2 py-1 small" role="alert" data-testid="card-error">{{.Error}}</div>{{end}}
     {{if .Candidates}}
