@@ -151,12 +151,23 @@ func (a *App) showCard(w http.ResponseWriter, r *http.Request) {
 	}
 	msg, err := a.svc.Conversations.Message(r.Context(), ref.userID, ref.convID, ref.msgID)
 	if err != nil {
+		if fromHTMX(r) {
+			// htmx asks again after any error: 286 is the status that tells it to stop, and the config of the page swaps nothing for it
+			if !errors.Is(err, domain.ErrNotFound) {
+				a.log.ErrorContext(r.Context(), "a card could not be read", "error", err)
+			}
+			w.WriteHeader(statusStopPolling)
+			return
+		}
 		a.fail(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	a.answerWithReply(w, r, ref.convID, msg)
 }
+
+// statusStopPolling is the status with which htmx stops polling an element.
+const statusStopPolling = 286
 
 func (a *App) approveCard(w http.ResponseWriter, r *http.Request) {
 	a.answerCard(w, r, func(ref messageRef) (domain.Message, error) {

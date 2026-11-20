@@ -1233,7 +1233,7 @@ func TestShowCard_TheReplyAsItIsNow(t *testing.T) {
 		h := newChatHarness(t)
 		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, domain.ErrNotFound)
 
-		assert.Equal(t, http.StatusNotFound, h.do(http.MethodGet, cardStatusPath(), nil, htmx).Code)
+		assert.Equal(t, http.StatusNotFound, h.do(http.MethodGet, cardStatusPath(), nil, nil).Code, "a page that asks without htmx gets the plain 404")
 	})
 
 	t.Run("a reply with no card draws no card", func(t *testing.T) {
@@ -1250,7 +1250,7 @@ func TestShowCard_TheReplyAsItIsNow(t *testing.T) {
 		h := newChatHarness(t)
 		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, errors.New("db password=hunter2 down"))
 
-		rec := h.do(http.MethodGet, cardStatusPath(), nil, htmx)
+		rec := h.do(http.MethodGet, cardStatusPath(), nil, nil)
 
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 		assert.NotContains(t, rec.Body.String(), "hunter2")
@@ -1366,4 +1366,19 @@ func TestCardFailed_AClaimedCardDoesNotInviteAnotherTry(t *testing.T) {
 
 		assert.Contains(t, textContent(byTestID(root, "card-error")[0]), "no longer open")
 	})
+}
+
+// htmx asks again after every error, so a card that cannot be read tells the poll to stop (286) instead of failing every 3 seconds.
+func TestShowCard_AFailureStopsThePoll(t *testing.T) {
+	for name, err := range map[string]error{"the reply is gone": domain.ErrNotFound, "the store fails": errors.New("db password=hunter2 down")} {
+		t.Run(name, func(t *testing.T) {
+			h := newChatHarness(t)
+			h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, err)
+
+			rec := h.do(http.MethodGet, cardStatusPath(), nil, htmx)
+
+			assert.Equal(t, 286, rec.Code)
+			assert.Empty(t, rec.Body.String())
+		})
+	}
 }

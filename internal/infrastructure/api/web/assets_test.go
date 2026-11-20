@@ -205,6 +205,7 @@ func TestHtmxConfigSwapsARefusalInAndReportsAnyOtherError(t *testing.T) {
 	}{
 		{"a page or a fragment is swapped in", []int{http.StatusOK}, true, false},
 		{"an answer with nothing in it swaps nothing", []int{http.StatusNoContent}, false, false},
+		{"an answer that stops a poll swaps nothing", []int{286}, false, false},
 		{
 			"a refusal that the server explains is swapped in",
 			[]int{http.StatusConflict, http.StatusUnprocessableEntity, http.StatusTooManyRequests}, true, false,
