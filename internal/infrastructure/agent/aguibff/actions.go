@@ -24,6 +24,30 @@ type actionAnswer struct {
 	OTPRequired bool   `json:"otp_required"`
 	TransferID  string `json:"transfer_id"`
 	Message     string `json:"displayMessage"`
+	// Success and Execution say whether the transfer was done. A BFF that says nothing (a reject, an older one) is taken at its word.
+	Success   *bool `json:"success"`
+	Execution *struct {
+		Status string `json:"status"`
+	} `json:"execution"`
+}
+
+// confirmed reports whether the answer does not contradict the transfer being done: "success" is not false and, when the execution
+// has a status, it is SUCCESS.
+func (a actionAnswer) confirmed() bool {
+	if a.Success != nil && !*a.Success {
+		return false
+	}
+	return a.Execution == nil || strings.EqualFold(strings.TrimSpace(a.Execution.Status), "SUCCESS")
+}
+
+// unconfirmed is the error of a 2xx that does not say the transfer was done. The service answered, so the transfer may have gone
+// through or not: it is neither a refusal nor a request that never left, and the card stays claimed until the claim is stale.
+func unconfirmed(a actionAnswer) error {
+	status := ""
+	if a.Execution != nil {
+		status = a.Execution.Status
+	}
+	return fmt.Errorf("%w: the BFF did not confirm the transfer (success=%v, status=%q)", domain.ErrAgentUnavailable, a.Success != nil && *a.Success, status)
 }
 
 // Approve implements resource.ActionGateway.
@@ -33,6 +57,9 @@ func (c *Client) Approve(ctx context.Context, card domain.Interaction) (domain.A
 		return domain.ActionResult{}, err
 	}
 	if !got.OTPRequired {
+		if !got.confirmed() {
+			return domain.ActionResult{}, unconfirmed(got)
+		}
 		return domain.ActionResult{Message: got.Message}, nil
 	}
 	if strings.TrimSpace(got.TransferID) == "" {
@@ -52,7 +79,13 @@ func (c *Client) ConfirmOTP(ctx context.Context, card domain.Interaction, code s
 	got, err := c.act(ctx, card.ApprovalID, "otp/confirm", map[string]string{
 		"transfer_id": card.ChallengeID, "otp": code, "run_id": card.RunID,
 	})
-	return domain.ActionResult{Message: got.Message}, err
+	if err != nil {
+		return domain.ActionResult{}, err
+	}
+	if !got.confirmed() {
+		return domain.ActionResult{}, unconfirmed(got)
+	}
+	return domain.ActionResult{Message: got.Message}, nil
 }
 
 // ConfirmContact implements resource.ActionGateway.
@@ -80,7 +113,8 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 	}
 	target := c.base + route
 	caller := ctx
-	ctx, cancel := c.withTimeout(ctx)
+	limit := c.actionLimit()
+	ctx, cancel := withLimit(ctx, limit)
 	defer cancel()
 	resp, err := c.send(ctx, func(token string) (*http.Response, error) {
 		hr, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
@@ -94,7 +128,7 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 		return c.http.Do(hr)
 	})
 	if err != nil {
-		return actionAnswer{}, c.classify(caller, ctx, err)
+		return actionAnswer{}, c.classify(caller, ctx, limit, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return actionAnswer{}, refusal(classifyStatus(readHTTPError(resp)))
@@ -102,7 +136,7 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 	defer func() { _ = resp.Body.Close() }()
 	var got actionAnswer
 	if err := json.UnmarshalRead(io.LimitReader(resp.Body, maxErrorBody*16), &got); err != nil {
-		return actionAnswer{}, c.classify(caller, ctx, fmt.Errorf("reading the BFF's answer: %w", err))
+		return actionAnswer{}, c.classify(caller, ctx, limit, fmt.Errorf("reading the BFF's answer: %w", err))
 	}
 	return got, nil
 }

@@ -57,7 +57,9 @@ func NewClient(cfg config.Agent, tokens TokenSource, httpClient *http.Client) *C
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.DialContext = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
 		transport.MaxIdleConnsPerHost = 64
-		httpClient = &http.Client{Transport: transport}
+		// The BFF is at the address of the settings and nowhere else: a redirect is not followed, so the token and the user's code do not
+		// go to another place.
+		httpClient = &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	return &Client{
 		base:    strings.TrimRight(cfg.BaseURL, "/"),
@@ -94,14 +96,14 @@ func (c *Client) Run(ctx context.Context, req domain.AgentRequest) iter.Seq2[dom
 
 		body, err := c.open(runCtx, req)
 		if err != nil {
-			yield(domain.AgentEvent{}, c.classify(ctx, runCtx, err))
+			yield(domain.AgentEvent{}, c.classify(ctx, runCtx, c.timeout, err))
 			return
 		}
 		defer func() { _ = body.Close() }()
 
 		for ev, err := range Decode(body) {
 			if err != nil {
-				yield(domain.AgentEvent{}, c.classify(ctx, runCtx, err))
+				yield(domain.AgentEvent{}, c.classify(ctx, runCtx, c.timeout, err))
 				return
 			}
 			if !yield(ev, nil) {
@@ -113,10 +115,25 @@ func (c *Client) Run(ctx context.Context, req domain.AgentRequest) iter.Seq2[dom
 
 // withTimeout limits a request to the configured time. Zero is no limit.
 func (c *Client) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	if c.timeout <= 0 {
+	return withLimit(ctx, c.timeout)
+}
+
+func withLimit(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc) {
+	if limit <= 0 {
 		return context.WithCancel(ctx)
 	}
-	return context.WithTimeout(ctx, c.timeout)
+	return context.WithTimeout(ctx, limit)
+}
+
+// actionLimit is the time an answer to a card is given: the configured limit, but never more than half of what a claim on the card
+// lasts (domain.ClaimTTL). The call has to be over, and its card saved, before the claim goes stale, or another click takes the card
+// over while the first call is still out. No limit in the settings is the ceiling too.
+func (c *Client) actionLimit() time.Duration {
+	ceiling := domain.ClaimTTL / 2
+	if c.timeout <= 0 {
+		return ceiling
+	}
+	return min(c.timeout, ceiling)
 }
 
 // classify tells what ended a request: the caller leaving, the time limit, or the failure itself.
@@ -129,12 +146,12 @@ func unreached(err error) error {
 	return fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 }
 
-func (c *Client) classify(caller, run context.Context, err error) error {
+func (c *Client) classify(caller, run context.Context, limit time.Duration, err error) error {
 	switch {
 	case caller.Err() != nil:
 		return caller.Err()
 	case run.Err() != nil:
-		return fmt.Errorf("agent request timed out after %s: %w", c.timeout, context.DeadlineExceeded)
+		return fmt.Errorf("agent request timed out after %s: %w", limit, context.DeadlineExceeded)
 	}
 	return err
 }
