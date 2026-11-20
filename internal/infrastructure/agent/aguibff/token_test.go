@@ -121,3 +121,31 @@ func TestCommandToken_RefreshSkipsTheCache(t *testing.T) {
 	assert.Equal(t, "cached-token", cached)
 	assert.Equal(t, "fresh-token", fresh, "--refresh asks the identity provider again")
 }
+
+// The program is another program's: it does not get what only this server is to know (the database, the admin's password), and it does
+// keep what it needs to find its own configuration and the network.
+func TestCommandToken_DoesNotSeeTheServersOwnSecrets(t *testing.T) {
+	dump := filepath.Join(t.TempDir(), "env.txt")
+	t.Setenv("DB_URL", "postgres://app:canary-db-1@h/d")
+	t.Setenv("DATABASE_URL", "postgres://app:canary-db-2@h/d")
+	t.Setenv("ADMIN_PASSWORD", "canary-admin-3")
+	t.Setenv("POSTGRES_PASSWORD", "canary-pg-4")
+	t.Setenv("AZURE_CLIENT_SECRET", "its-own-secret") // the program's own: it may need it
+	t.Setenv("HTTPS_PROXY", "http://proxy.example:3128")
+	t.Setenv("MY_OWN_SETTING", "kept")
+	src := aguibff.CommandToken{Bin: fakeBin(t, `env > '`+dump+`'; printf tok`), AccountID: account, Timeout: 5 * time.Second}
+
+	got, err := src.Token(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "tok", got)
+	seen, err := os.ReadFile(dump)
+	require.NoError(t, err)
+	for _, name := range []string{"DB_URL", "DATABASE_URL", "ADMIN_PASSWORD", "POSTGRES_PASSWORD"} {
+		assert.NotContains(t, string(seen), name+"=", "%s is the server's own", name)
+	}
+	assert.NotContains(t, string(seen), "canary")
+	for _, kept := range []string{"PATH=", "HTTPS_PROXY=http://proxy.example:3128", "MY_OWN_SETTING=kept", "AZURE_CLIENT_SECRET=its-own-secret"} {
+		assert.Contains(t, string(seen), kept)
+	}
+}

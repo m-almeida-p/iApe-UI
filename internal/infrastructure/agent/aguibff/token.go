@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -56,6 +57,24 @@ func (c CommandToken) Token(ctx context.Context) (string, error) { return c.run(
 // the BFF refused.
 func (c CommandToken) Refresh(ctx context.Context) (string, error) { return c.run(ctx, "--refresh") }
 
+// serverSecretNames are the settings that only this server is to know; the token program has no use for them. Only these are named:
+// the program may need a secret of its own from the environment (an identity provider's client secret), so no pattern is cut.
+var serverSecretNames = map[string]bool{"DB_URL": true, "DATABASE_URL": true, "ADMIN_PASSWORD": true, "POSTGRES_PASSWORD": true}
+
+// withoutServerSecrets is env without the server's own secrets: the database's address and the admin's and the database's
+// passwords. The rest stays, because the program needs it to find its configuration, its identity provider and the network.
+func withoutServerSecrets(env []string) []string {
+	kept := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if serverSecretNames[strings.ToUpper(name)] {
+			continue
+		}
+		kept = append(kept, kv)
+	}
+	return kept
+}
+
 func (c CommandToken) run(ctx context.Context, extra ...string) (string, error) {
 	timeout := c.Timeout
 	if timeout <= 0 {
@@ -67,6 +86,7 @@ func (c CommandToken) run(ctx context.Context, extra ...string) (string, error) 
 	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"--account", c.AccountID}, extra...)...)
 	stdout, stderr := &capture{limit: maxProgramOutput}, &capture{limit: maxProgramOutput}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.Env = withoutServerSecrets(os.Environ())
 	cmd.WaitDelay = stopGrace
 	if err := cmd.Run(); err != nil {
 		if cause := context.Cause(ctx); cause != nil {
