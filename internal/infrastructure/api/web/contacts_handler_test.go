@@ -272,3 +272,35 @@ func TestConfirmCandidate_WhatTheFormHolds(t *testing.T) {
 		assert.Contains(t, rec.Header().Get("Location"), "/login")
 	})
 }
+
+// The picker says whom the user saw: if the list for the query is no longer what they saw (they typed on, or the list changed between
+// the drawing and the click), a different person must not be confirmed with the service.
+func TestConfirmCandidate_ThePersonThatWasShownIsThePersonThatIsConfirmed(t *testing.T) {
+	maria := domain.Candidates("maria")[0]
+
+	t.Run("the name that was shown, at that place of the list, is confirmed", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(maria, nil).Once()
+
+		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {"maria"}, "choice": {"0"}, "name": {maria.Name}}, nil)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "@("+maria.Name+")", rec.Body.String())
+	})
+
+	for name, form := range map[string]url.Values{
+		"another person is at that place":                      {"q": {"maria"}, "choice": {"0"}, "name": {"Someone Else"}},
+		"the place is not in the list":                         {"q": {"maria"}, "choice": {"7"}, "name": {maria.Name}},
+		"the name is of the same person with its case changed": {"q": {"maria"}, "choice": {"0"}, "name": {strings.ToUpper(maria.Name)}},
+	} {
+		t.Run("nobody is confirmed when "+name, func(t *testing.T) {
+			h := newChatHarness(t)
+
+			rec := h.do(http.MethodPost, "/contacts/confirm", form, nil)
+
+			assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+			assert.Contains(t, rec.Body.String(), "list changed")
+			h.cards.AssertNotCalled(t, "ConfirmCandidate", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}

@@ -461,7 +461,12 @@
       const res = await fetch('/contacts/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ q: mention.query, choice: option.dataset.choice }),
+        // The query the list was drawn for and the name the user saw, not what is typed by now: the server checks they are the same person.
+        body: new URLSearchParams({
+          q: picker()?.querySelector('[data-query]')?.dataset.query ?? mention.query,
+          choice: option.dataset.choice,
+          name: option.dataset.name ?? '',
+        }),
       });
       const text = (await res.text()).trim();
       if (!res.ok) {

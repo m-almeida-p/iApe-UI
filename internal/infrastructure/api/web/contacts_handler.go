@@ -36,7 +36,16 @@ func (a *App) confirmCandidate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Choose one of the contacts.", http.StatusBadRequest)
 		return
 	}
-	contact, err := a.svc.Interactions.ConfirmCandidate(r.Context(), r.PostFormValue("q"), choice)
+	// The page says whom the user saw. The list is worked out again for the query, and if what is at that place is not who was shown
+	// (they typed on, or the list changed), nobody is confirmed.
+	query := r.PostFormValue("q")
+	if shown := r.PostFormValue("name"); shown != "" {
+		if candidates := domain.Candidates(query); choice >= len(candidates) || candidates[choice].Name != shown {
+			http.Error(w, "The list changed. Choose again.", http.StatusUnprocessableEntity)
+			return
+		}
+	}
+	contact, err := a.svc.Interactions.ConfirmCandidate(r.Context(), query, choice)
 	if refused, ok := errors.AsType[*domain.ActionError](err); ok {
 		http.Error(w, refused.Message, http.StatusUnprocessableEntity)
 		return
