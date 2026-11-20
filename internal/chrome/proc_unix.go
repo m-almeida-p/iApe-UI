@@ -8,8 +8,8 @@ import (
 )
 
 // isolate puts the server in a process group of its own, so that the Ctrl-C
-// which interrupts the evaluator does not also kill the browser in the middle
-// of a call. The evaluator closes it in an orderly way instead.
+// which interrupts the explorer does not also kill the browser in the middle
+// of a call. The explorer closes it in an orderly way instead.
 func isolate(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }

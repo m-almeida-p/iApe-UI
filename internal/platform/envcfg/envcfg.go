@@ -1,6 +1,6 @@
 // Package envcfg reads settings from the process environment and a .env file,
 // and holds the type that keeps a secret out of logs and error messages. The Web
-// UI and the evaluator both use it, and it knows about neither.
+// UI and the explorer both use it, and it knows about neither.
 package envcfg
 
 import (

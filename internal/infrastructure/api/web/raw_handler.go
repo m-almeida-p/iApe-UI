@@ -6,7 +6,7 @@ import (
 )
 
 // rawMessage answers with a message exactly as it is stored, as plain text. It
-// is what "copy" copies and what the evaluator scores: the Markdown the agent
+// is what "copy" copies and what a script compares against: the Markdown the agent
 // wrote, not the page's rendering of it. A reply still being written is not
 // final, so it is a conflict.
 func (a *App) rawMessage(w http.ResponseWriter, r *http.Request) {

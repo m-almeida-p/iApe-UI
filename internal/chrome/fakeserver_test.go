@@ -152,7 +152,7 @@ func runFakeServer(args []string) int {
 }
 
 // fakeNpx writes a program named npx that starts this test binary as the server,
-// with the behaviours given. What the evaluator checks before it starts anything
+// with the behaviours given. What the explorer checks before it starts anything
 // is npx on a pinned package, and the test binary is neither; this is.
 func fakeNpx(t testing.TB, behaviours ...string) string {
 	t.Helper()

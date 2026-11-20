@@ -38,7 +38,7 @@ func TestSidebarRow(t *testing.T) {
 	require.Len(t, renames, 2)
 	require.Len(t, deletes, 2)
 
-	t.Run("the row has an id the page and the evaluator can find it by", func(t *testing.T) {
+	t.Run("the row has an id the page and the explorer can find it by", func(t *testing.T) {
 		assert.Equal(t, convID.String(), attrOf(rows[0], "data-id"))
 		assert.Equal(t, "conversation-"+convID.String(), attrOf(rows[0], "id"))
 	})

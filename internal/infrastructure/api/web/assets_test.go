@@ -163,7 +163,7 @@ func TestHtmxConfigKeepsTheCSPWorking(t *testing.T) {
 	assert.False(t, *cfg.AllowScriptTags, "nothing swapped in is ever a script")
 	require.NotNil(t, cfg.DefaultSettleDelay, "htmx waits 20 ms after every swap unless told not to")
 	assert.Zero(t, *cfg.DefaultSettleDelay,
-		"the delay sits between pressing Send and the reply's stream opening, on every message (U-05)")
+		"the delay sits between pressing Send and the reply's stream opening, on every message")
 	assert.False(t, cfg.IncludeIndicator, "htmx must not inject its own <style> element")
 	assert.NotEmpty(t, cfg.AttributesToSettle, "an empty list falls back to the default, which includes style")
 	assert.NotContains(t, cfg.AttributesToSettle, "style",

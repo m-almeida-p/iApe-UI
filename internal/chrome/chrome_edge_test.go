@@ -443,23 +443,6 @@ func TestChrome_StartChat(t *testing.T) {
 	})
 }
 
-func TestChrome_NavigateGivesTheInitScriptToTheBrowser(t *testing.T) {
-	a := newApp()
-	var args atomic.Value
-	tools := a.tools()
-	inner := tools["navigate_page"]
-	tools["navigate_page"] = func(ctx context.Context, got map[string]any) (*mcp.CallToolResult, error) {
-		args.Store(got)
-		return inner(ctx, got)
-	}
-	c := signedIn(t, a, tools)
-
-	require.NoError(t, chrome.Navigate(c, t.Context(), "http://app/", "window.x = 1"))
-	assert.Equal(t, "window.x = 1", args.Load().(map[string]any)["initScript"])
-	require.NoError(t, chrome.Navigate(c, t.Context(), "http://app/", ""))
-	assert.NotContains(t, args.Load().(map[string]any), "initScript", "no script, no argument")
-}
-
 func TestChrome_StartChatWhenThePageCannotBeReadOnceItIsThere(t *testing.T) {
 	a := newApp()
 	var navigated atomic.Bool

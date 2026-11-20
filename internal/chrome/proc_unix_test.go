@@ -93,7 +93,7 @@ func TestOpen_StartsAProcessAndStopsIt(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"pageId":3}`, got.Text)
 	})
-	t.Run("it does not see the evaluator's secrets", func(t *testing.T) {
+	t.Run("it does not see this program's secrets", func(t *testing.T) {
 		got, err := s.Call(t.Context(), "env", nil)
 
 		require.NoError(t, err)

@@ -1,6 +1,6 @@
 {{/*
   One conversation in the sidebar. The row is the unit the page and the
-  evaluator work with: data-testid="conversation" and data-id sit on it.
+  explorer work with: data-testid="conversation" and data-id sit on it.
 */}}
 {{define "partial:conversation_item"}}<li class="conversation-item{{if .Active}} active{{end}}" id="conversation-{{.ID}}" data-testid="conversation" data-id="{{.ID}}">
   <a href="/c/{{.ID}}" class="conversation-link" data-testid="conversation-link"{{if .Active}} aria-current="page"{{end}}>{{.Title}}</a>

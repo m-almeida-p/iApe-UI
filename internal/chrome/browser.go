@@ -1,4 +1,4 @@
-// Package chrome is the explorer's browser: it drives the Web UI in Chrome through the evaluator's driver, finding elements by their
+// Package chrome is the explorer's browser: it drives the Web UI in Chrome through Chrome DevTools MCP, finding elements by their
 // accessible names the way a person who cannot see the page does.
 package chrome
 
@@ -13,7 +13,7 @@ import (
 	"iape-ui/internal/explore"
 )
 
-// Driver is what the browser needs of the evaluator's driver, which *Driver is.
+// Driver is what the browser needs of the connection to Chrome DevTools MCP, which *Chrome is.
 type Driver interface {
 	Tool(ctx context.Context, name string, args map[string]any, opts ...CallOption) (Result, error)
 	Click(ctx context.Context, q Query) error

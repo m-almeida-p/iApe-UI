@@ -140,7 +140,6 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 
 		{webAdapter, "internal/infrastructure/postgres", "the domain", ours("internal/core/domain"), true},
 		{webAdapter, "internal/infrastructure/api/web", "a port", ours("internal/core/port/service"), true},
-		{webAdapter, "internal/infrastructure/agent/adkrest", "the settings, which the adapters share", ours("internal/infrastructure/config"), true},
 		{webAdapter, "internal/infrastructure/config", "what both programs share", ours("internal/platform/redact"), true},
 		{webAdapter, "internal/infrastructure/postgres", "another module", "github.com/jackc/pgx/v5", true},
 		{webAdapter, "internal/infrastructure/api/web", "a use case", ours("internal/core/chat"), false},

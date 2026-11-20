@@ -99,7 +99,7 @@ func TestChildEnv_Names(t *testing.T) {
 func TestBuildCommand_Environment(t *testing.T) {
 	command := []string{"npx", "-y", "chrome-devtools-mcp@1.10.1"}
 
-	t.Run("the process gets the trimmed environment and not the evaluator's", func(t *testing.T) {
+	t.Run("the process gets the trimmed environment and not the whole of this program's", func(t *testing.T) {
 		cmd, err := chrome.BuildCommand(t.Context(), command, privacyFlags, []string{"PATH=/bin", "HF_TOKEN=CANARY", "NODE_AUTH_TOKEN=CANARY", "NPM_TOKEN=CANARY"}, false)
 
 		require.NoError(t, err)

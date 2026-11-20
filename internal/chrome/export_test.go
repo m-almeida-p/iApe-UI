@@ -1,7 +1,6 @@
 package chrome
 
 import (
-	"context"
 	"os/exec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -30,8 +29,3 @@ func ScriptName(function string) string   { return scriptName(function) }
 func PinnedPackage(command []string) bool { return pinnedPackage(command) }
 func RedactURL(address string) string     { return redactURL(address) }
 func IsStale(err error) bool              { return isStale(err) }
-
-// Navigate goes to url on the tab, with an init script.
-func Navigate(c *Chrome, ctx context.Context, url, initScript string) error {
-	return c.tab.navigate(ctx, url, initScript)
-}

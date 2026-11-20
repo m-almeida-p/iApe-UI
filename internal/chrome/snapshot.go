@@ -1,5 +1,3 @@
-// Package devtools drives the Web UI through Chrome DevTools MCP: it starts the
-// server, calls its tools, and reads what they print.
 package chrome
 
 import (

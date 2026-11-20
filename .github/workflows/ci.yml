@@ -1,7 +1,7 @@
 # The checks a change has to pass before anyone reviews it. Each job runs a script a
 # developer can run too, so CI and a laptop cannot drift apart:
 #   gate          scripts/check.sh      formatting, vet, linters, vulnerabilities, unit tests, coverage
-#   windows       go build/vet/test     the same build, vet and the devtools package's tests, on a real
+#   windows       go build/vet/test     the same build, vet and the chrome package's tests, on a real
 #                                        Windows runner: this project has no Windows machine to test on
 #                                        otherwise, and the gate above only ever runs on Linux
 #   secrets       gitleaks              no secret anywhere in the history (values are redacted in the log)

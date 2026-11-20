@@ -52,14 +52,9 @@ func (t *tab) fill(ctx context.Context, uid, value string) error {
 	return err
 }
 
-// navigate goes to url. initScript, when set, runs in the new document before
-// any of the page's own code: that is how the observer gets in (see observer.js).
-func (t *tab) navigate(ctx context.Context, url, initScript string) error {
-	args := map[string]any{"type": "url", "url": url}
-	if initScript != "" {
-		args["initScript"] = initScript
-	}
-	_, err := t.call(ctx, "navigate_page", args)
+// navigate goes to url.
+func (t *tab) navigate(ctx context.Context, url string) error {
+	_, err := t.call(ctx, "navigate_page", map[string]any{"type": "url", "url": url})
 	return err
 }
 

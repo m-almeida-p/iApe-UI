@@ -97,7 +97,7 @@ func (c *Chrome) Login(ctx context.Context, email, password string) error {
 
 // StartChat opens the start page, where a message starts a new conversation, and waits for its composer.
 func (c *Chrome) StartChat(ctx context.Context) error {
-	if err := c.tab.navigate(ctx, c.base+"/", ""); err != nil {
+	if err := c.tab.navigate(ctx, c.base+"/"); err != nil {
 		return fmt.Errorf("opening the start page: %w", err)
 	}
 	err := c.waitFor(ctx, func(snap Snapshot) bool { return composerOf(snap) || signInOf(snap) })

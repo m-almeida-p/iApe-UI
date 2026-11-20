@@ -128,7 +128,7 @@ func TestOpen_EdgeCases(t *testing.T) {
 			assert.ErrorContains(t, err, "must pin a version")
 		}
 	})
-	t.Run("an environment of nothing the server may have is not the evaluator's", func(t *testing.T) {
+	t.Run("an environment of nothing the server may have is not this program's", func(t *testing.T) {
 		opts := processOptions(t)
 		opts.Environ = []string{"HF_TOKEN=CANARY", "DB_URL=postgres://u:CANARY@h/d"}
 		s, err := chrome.Open(t.Context(), opts)

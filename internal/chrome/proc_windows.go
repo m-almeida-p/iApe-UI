@@ -9,8 +9,8 @@ import (
 )
 
 // isolate starts the server in a process group of its own, so that the
-// Ctrl-C/Ctrl-Break which interrupts the evaluator does not also reach the
-// browser in the middle of a call. The evaluator closes it in an orderly way
+// Ctrl-C/Ctrl-Break which interrupts the explorer does not also reach the
+// browser in the middle of a call. The explorer closes it in an orderly way
 // instead.
 func isolate(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}

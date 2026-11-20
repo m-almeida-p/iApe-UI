@@ -487,7 +487,7 @@ func TestConfig_LogValueKeepsTheAddressOfTheFirstUserOut(t *testing.T) {
 // The view shows every field and hides the ones that are a Secret, so a field
 // whose name says that it holds a secret has to be one.
 func TestConfig_AFieldNamedLikeASecretIsASecret(t *testing.T) {
-	// What the evaluator's store and the browser's environment take for the name of a secret.
+	// What the browser's environment takes for the name of a secret.
 	named := regexp.MustCompile(`(?i)(password|passwd|secret|token|cookie|credential|api[_-]?key|private[_-]?key)`)
 	found := 0
 	var check func(of reflect.Type, path string)

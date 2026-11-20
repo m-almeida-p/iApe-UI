@@ -55,9 +55,9 @@ var secretName = regexp.MustCompile(`(?i)(password|passwd|passphrase|secret|toke
 
 // ChildEnv keeps, from an environment in the form os.Environ gives, what
 // Chrome DevTools MCP needs. The server is a package fetched from a registry and
-// it drives a browser; it has no use for the Hugging Face token, the Web UI
-// password or the database settings the evaluator's own environment holds, so it
-// does not get them. A name that looks like a secret is dropped even when it
+// it drives a browser; it has no use for the Web UI's
+// password, a token or the database settings that this program's environment holds,
+// so it does not get them. A name that looks like a secret is dropped even when it
 // would otherwise pass. The result is never nil: a nil Env makes the process inherit this one's whole environment, which is what
 // all this is there to prevent, and an environment with nothing the server needs would be exactly that.
 func ChildEnv(environ []string) []string {
