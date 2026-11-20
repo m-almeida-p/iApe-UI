@@ -52,9 +52,16 @@ through a thread id that already has the agent's shape and derives one only for 
 ```bash
 # the conversations the history has for the account (first page)
 curl -s "localhost:3100/v1/conversations?idYapeAccount=$YAPE_ACCOUNT_ID&page[size]=5"
-# does a given conversation exist, and what did it hold
-curl -s "localhost:3100/v1/conversations/<conv_v1_...>/messages"
+# does a given conversation exist for the account, and what did it hold (another account's is a 404, as one that does not exist)
+curl -s "localhost:3100/v1/conversations/<conv_v1_...>/messages?idYapeAccount=$YAPE_ACCOUNT_ID"
 ```
 
 After the fix, start a chat in the UI, send one message, and the id in the page's requests (`threadId`) must be the `_id` of a
 conversation in that list within a few seconds (Debezium, Kafka and the consumer are asynchronous).
+
+## Where it stands
+
+All of this is in place. The UI makes the id (`domain.NewConversationID`), the BFF passes it through (branch
+`feat/AIP-472/poc-tx-and-projections-v2` of the agent service), and the UI no longer keeps a copy of any chat: the history is the only
+source (the Historial in the side menu, `README.md`). `it/live` (`TestLiveFlow`, with `AGENT_LIVE=1` and `HISTORY_LIVE=1`) checks it against
+the real services: a chat's id is the `_id` of its conversation in the history, and continuing it writes to the same conversation.

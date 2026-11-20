@@ -73,7 +73,7 @@ and it happened: the next paths all failed with that text, which looks like a bu
 
 ## What the Web UI does not do yet
 
-- A reply whose card is closed (paid, rejected, confirmed) still offers **Regenerate**; regenerating would ask the agent for another card.
+- The cards are not kept: a reload makes them disappear, and so does a restart of the server (see *One answer per card*).
 - A card answered from another tab gives the first tab a 409, and that tab shows the old card until it is reloaded.
 - A Web UI that runs against the real BFF needs the token program on its own computer; there is no static token setting, on purpose.
 ## Decisions the tests pinned and did not change
@@ -83,58 +83,51 @@ Edge-case tests found these, and they are choices more than bugs, so they stay a
 - **A 2xx answer to a card's action whose body is empty or unreadable is an error** ("reading the BFF's answer"), even though the action may
   have gone through at the service. After a payment, how to show a success that cannot be told is a product decision.
 - **A zero, negative or absurd amount on a transfer card** offers Reject only; the service has the last word on whether it can be paid.
-- **`AGENT_REQUEST_TIMEOUT` has no floor or ceiling** (`1ns` makes every call time out; `999h` is accepted). A turn of the agent keeps it as it is; an answer to a card is cut to `ClaimTTL/2` (60 s), so that the call is over before its claim can be taken over.
+- **`AGENT_REQUEST_TIMEOUT` has no floor or ceiling** (`1ns` makes every call time out; `999h` is accepted). A turn of the agent keeps it as it is; an answer to a card is cut to 60 s: a person is waiting for a call to the payment service.
 - **A refusal on a request without htmx** redirects to the conversation and loses its reason; only the htmx answer shows it on the card.
 - **A graceful close of Chrome DevTools MCP** does not kill its process group, so a Chrome helper that outlives the server would survive it.
 - **A secret split across two lines** is not found by the explorer's filter. The accessibility tree is one element a line, and the password is
   only typed in the sign-in page, from which nothing is recorded.
 
-## One answer per card (the claim)
+## One answer per card (the service decides)
 
-The agent's service is reached from phones too, where retries and double taps are normal, so the Web UI does not leave idempotency to the
-service alone. A card is **claimed before the service is asked**: `Pay`, `Reject`, the code and the contact choice first save the card as
-`processing` (same compare-and-set as every save, now also on the claim's id), and only the caller that won that save calls the service.
-Fifty simultaneous answers ask the service once; the rest get `ErrInvalidState`.
+The agent's service is reached from phones too, where retries and double taps are normal. The Web UI used to **claim** a card (save it as
+`processing`, with a compare-and-set) before asking the service, so that only one answer reached it. That was removed with the chats'
+storage: the cards now live only in the page's reply, in this server's memory, and **the service is what keeps one transfer from being
+paid twice**. It ignores a repeat of an answer, which was checked against the real BFF: a second `approve` of the same approval is `400
+{"error":"approval already resolved: APPROVED"}` (also a third), not a second payment.
 
-What becomes of the claim, by what the service did:
+What the card does with each answer:
 
 | The service... | The card |
 |---|---|
-| acted | saved in its new state (`paid`, `rejected`, `otp_required`, `confirmed`) |
-| said no (`ActionError`), or the request never left (`domain.ErrNotSent`: no token, connection refused, 401 that cannot be renewed) | given back, as it was, with the reason |
-| did not answer in time, dropped the connection, or failed at the gateway (502/503/504) | **stays `processing`**: the payment may have gone through, so no one may answer it again for `domain.ClaimTTL` (2 minutes) |
+| acted | kept in its new state (`paid`, `rejected`, `otp_required`, `confirmed`) |
+| said no (`ActionError`), could not be reached, timed out, or did not confirm the transfer | **as it was**, with the reason, and it can be answered again: that is safe, because the service decides |
+| says the approval was answered already (`approval already resolved: APPROVED`/`REJECTED`) | the card becomes that: `paid` ("This transfer was already approved. Its result is in your history.") or `rejected` |
 
-After the time a stale claim is taken over by one caller (the old holder's save is then refused) and the card goes back to the state it had.
-Nothing in the schema changed: the claim (`claim_id`, `claimed_at`, `resume`) lives in the card's JSON in `messages.meta`.
+Several answers at once (a double tap, a second tab): those that find the card open all reach the service, which does one and says
+`already resolved` to the others; those that come after the card closed get `ErrInvalidState` and the page is given the reply as it is now.
+The card ends as what was done, and the first answer to be kept is the one that stays (a compare-and-set on the card's state, in memory,
+only to keep the first). The page keeps the button off while the request is out (`hx-disabled-elt`). Eight simultaneous answers are one
+payment: `internal/core/interaction`. Against the real BFF: `it/live` (`TestLiveFlow`, a second click shows the same state).
 
-On the page a `processing` card shows no buttons and **asks `GET /c/{id}/m/{mid}/card` every 3 seconds** (htmx), replacing the reply; the
-new reply has no poll once the card is in another state, so it stops by itself. Once the claim is stale the card is drawn as what it
-was (Pay and Reject, the code field, the candidates) with a note, so the user can answer again.
-
-**Answering again is safe: checked against the real BFF.** A second `approve` of the same approval is `400 {"error":"approval already
-resolved: APPROVED"}` (also for a third), not a second payment. The BFF explains a refusal in `message` (NestJS) or in `error` (the
-approvals' own); the client reads both (an `error` that is only the status name, as in `"Bad Request"`, explains nothing) and sets
-`ActionError.Resolved` to the word after `already resolved:`. For `Approve` and `Reject` the service takes that as the answer: `APPROVED`
-leaves the card `paid` ("This transfer was already approved. Its result is in your history.") and `REJECTED` leaves it `rejected`. That
-is how a payment whose reply was lost finds out what became of it. Any other word (`EXPIRED`), or an approval that cannot become that
-(a rejection of a card that waits for a code, whose approval is `APPROVED`), is given back with the reason.
+The BFF explains a refusal in `message` (NestJS) or in `error` (the approvals' own); the client reads both (an `error` that is only the
+status name, as in `"Bad Request"`, explains nothing) and sets `ActionError.Resolved` to the word after `already resolved:`. Any other
+word (`EXPIRED`), or an approval that cannot become that (a rejection of a card that waits for a code, whose approval is `APPROVED`), is
+given back with the reason.
 
 Caveat: `APPROVED` does not say whether the transfer was paid or still waits for its code (the first reply, with the transfer id the code
 needs, is the one that was lost), so the card says "approved" and sends the user to the history for the result.
 
-Pinned by: `internal/core/domain/claim_test.go`, `internal/core/interaction/claim_test.go` (including 50 concurrent callers),
-`it/message/store_test.go` (`TestSaveInteraction_TheClaimOfACard`, against PostgreSQL), the `ErrNotSent` and refusal tests of the BFF
-client, and the card tests of the web layer.
+What is lost: a reload makes the card disappear (the history keeps no cards: that is the module `card-events`, later), and a restart
+forgets the reply and its card. A payment made is in the user's bank history either way.
 
 ### What the review added (phase 5)
 
-- **A reply that holds a payment is not regenerated.** `ReplaceLastAssistant` refuses (`ErrInvalidState`) a reply whose card is `processing`,
-  `otp_required` or `paid` (`domain.Interaction.HoldsPayment`), and the page offers no Regenerate or Retry there. Before, the row was deleted
-  while the BFF had approved, and the new turn could ask for the same transfer again.
 - **Losing the race to answer a card does not wipe the reply.** htmx swaps a 409 over the whole reply, so the page is given the reply as it
-  is now; if it cannot be read, the 409 carries `HX-Reswap: none`. A card that stays claimed after a timeout shows no "try again".
+  is now; if it cannot be read, the 409 carries `HX-Reswap: none`. 
 - **A 2xx that does not confirm the transfer is not paid.** An answer to approve or the code with `success: false`, or an `execution.status`
-  that is not `SUCCESS`, is an answer that may or may not have gone through: the card stays claimed. A BFF that says nothing about
+  that is not `SUCCESS`, is an answer that may or may not have gone through: the card is as it was, and answering again is safe. A BFF that says nothing about
   success (a reject, an older BFF) is taken at its word.
 - **The card routes are limited per user** (`approve`, `reject`, `otp` and `/contacts/confirm`, in a bucket of their own, apart from the
   messages'): each is a call to the payment service and runs the token program. There is **no cap of wrong codes** on a card: the bank owns
