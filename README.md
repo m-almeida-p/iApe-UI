@@ -121,6 +121,9 @@ token. It signs in as `EXPLORE_USER_EMAIL`/`EXPLORE_USER_PASSWORD`, or as the fi
 Chrome DevTools MCP with `EXPLORE_MCP_COMMAND` and `EXPLORE_MCP_ARGS`: `npx` on a pinned package, headless unless `-headed`, and
 always with the flags that keep usage statistics off and the profile temporary.
 
+What was found building this against the agent service (the protocol, the mock bank, the ban and how to lift it, the environment) is in
+[`docs/agent-integration-notes.md`](docs/agent-integration-notes.md).
+
 **Mind the guardrail.** The agent service bans an account that trips its prompt-injection guard too often: with the settings of
 a development `.env` (`CIRCUIT_BREAKER_MAX_BLOCKS_PER_WINDOW`, `CIRCUIT_BREAKER_BAN_DURATION_SECONDS`) two runs of `guard` in a few
 minutes can ban the account for a long time, and every later message then answers "Por seguridad, limitamos tu acceso al
