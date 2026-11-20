@@ -173,7 +173,7 @@ func TestRowTitle(t *testing.T) {
 		{"cut by the history", domain.ConversationSummary{FirstMessage: "hola", FirstMessageTruncated: true}, "hola…"},
 		{"nothing", domain.ConversationSummary{}, "(no message)"},
 		{"spaces only", domain.ConversationSummary{FirstMessage: " \n "}, "(no message)"},
-		{"direction tricks are removed", domain.ConversationSummary{FirstMessage: "Rosa‮ 123"}, "Rosa 123"},
+		{"direction tricks are removed", domain.ConversationSummary{FirstMessage: "Rosa\u202e 123"}, "Rosa 123"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -311,7 +311,7 @@ func TestConfirmOTP(t *testing.T) {
 
 	for name, code := range map[string]string{
 		"empty": "", "spaces only": "   ", "a space inside": "12 34", "a tab inside": "12\t34", "a newline inside": "12\n34", "a NUL": "12\x0034",
-		"too long": strings.Repeat("1", 13), "not UTF-8": "12\xff34", "a zero-width character": "12​34", "a bidi override": "12‮34",
+		"too long": strings.Repeat("1", 13), "not UTF-8": "12\xff34", "a zero-width character": "12\u200b34", "a bidi override": "12\u202e34",
 	} {
 		t.Run("a code that cannot be one never leaves the Web UI: "+name, func(t *testing.T) {
 			h := newHarness(t)
