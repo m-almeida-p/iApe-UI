@@ -307,7 +307,7 @@ func (r Report) Markdown() string {
 		if s.Err != nil {
 			result = "FAILED: " + s.Err.Error()
 		}
-		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", s.N, cell(s.Raw), cell(result), s.Took.Round(time.Millisecond), cell(summary(s.NewLines)))
+		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", s.N, Cell(s.Raw), Cell(result), s.Took.Round(time.Millisecond), Cell(summary(s.NewLines)))
 	}
 	if f := r.Failure(); f != nil {
 		fmt.Fprintf(&b, "\nStep %d failed: %v\n", f.N, f.Err)
@@ -327,7 +327,7 @@ func summary(lines []string) string {
 	return strings.Join(lines[:shown], "; ") + fmt.Sprintf("; … (%d more)", len(lines)-shown)
 }
 
-// cell makes text fit a cell of a Markdown table.
-func cell(s string) string {
+// Cell makes text fit a cell of a Markdown table: one line, with its pipes and backslashes escaped.
+func Cell(s string) string {
 	return strings.NewReplacer(`\`, `\\`, "|", `\|`, "\n", " ", "\r", " ").Replace(s)
 }

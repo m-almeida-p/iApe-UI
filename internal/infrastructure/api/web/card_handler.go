@@ -44,9 +44,6 @@ type candidateView struct {
 	Choice      string
 }
 
-// newCardView draws the card of m, or none when the reply has no approval card.
-func newCardView(m domain.Message) *cardView { return newCardViewAt(m, time.Time{}) }
-
 // staleNote is what a card says when its answer got no reply and it is offered again.
 const staleNote = "The last answer got no reply. Answering again is safe: the service ignores a repeat."
 

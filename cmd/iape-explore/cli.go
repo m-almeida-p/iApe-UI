@@ -244,7 +244,7 @@ func (d deps) runPlans(ctx context.Context, sess session, plans []plan, out, pas
 		if why != "" {
 			_, _ = fmt.Fprintf(d.stdout, "         %s\n", why)
 		}
-		_, _ = fmt.Fprintf(&summary, "| %s | %s | %d | %s | %s |\n", p.id, verdict, len(rep.Steps), took, cell(why))
+		_, _ = fmt.Fprintf(&summary, "| %s | %s | %d | %s | %s |\n", p.id, verdict, len(rep.Steps), took, explore.Cell(why))
 		if ctx.Err() != nil {
 			break
 		}
@@ -257,11 +257,6 @@ func (d deps) runPlans(ctx context.Context, sess session, plans []plan, out, pas
 		}
 	}
 	return code
-}
-
-// cell makes text fit a cell of a Markdown table: one line, with its pipes and backslashes escaped.
-func cell(s string) string {
-	return strings.NewReplacer(`\`, `\\`, "|", `\|`, "\n", " ", "\r", " ").Replace(s)
 }
 
 func (d deps) runPlan(ctx context.Context, sess session, p plan, dir, password string) explore.Report {

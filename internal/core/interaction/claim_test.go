@@ -540,3 +540,16 @@ func TestClaim_EveryClaimHasAnIDOfItsOwn(t *testing.T) {
 	assert.NotEmpty(t, ids[0])
 	assert.NotEqual(t, ids[0], ids[1])
 }
+
+// A service made without a logger logs to the default one: the error paths must not panic.
+func TestNewService_NeedsNoLogger(t *testing.T) {
+	msgs, actions := mocks.NewMessageStore(t), mocks.NewActionGateway(t)
+	svc := interaction.NewService(interaction.Dependencies{Messages: msgs, Actions: actions})
+	card := *cardIn(domain.InteractionPending)
+	msgs.On("Get", mock.Anything, userID, convID, replyID).Return(replyWith(&card), nil).Once()
+	msgs.On("SaveInteraction", mock.Anything, userID, convID, replyID, mock.Anything, mock.Anything).Return(nil).Once()
+	actions.On("Approve", mock.Anything, mock.Anything).Return(domain.ActionResult{Message: "paid"}, nil).Once()
+	msgs.On("SaveInteraction", mock.Anything, userID, convID, replyID, mock.Anything, mock.Anything).Return(errors.New("connection reset")).Once()
+
+	assert.NotPanics(t, func() { _, _ = svc.Approve(t.Context(), userID, convID, replyID) })
+}

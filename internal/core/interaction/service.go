@@ -31,7 +31,8 @@ func plausibleCode(code string) bool {
 		!strings.ContainsFunc(code, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
 }
 
-// Dependencies are what the service needs. Now and NewClaimID are for tests: they default to the clock and to a new id each.
+// Dependencies are what the service needs. Logger, Now and NewClaimID default to the default logger, the clock and a new id each; the
+// last two are there for tests.
 type Dependencies struct {
 	Messages   resource.MessageStore
 	Actions    resource.ActionGateway
@@ -47,6 +48,9 @@ var _ service.Interactions = (*Service)(nil)
 
 // NewService returns the service.
 func NewService(d Dependencies) *Service {
+	if d.Logger == nil {
+		d.Logger = slog.Default()
+	}
 	if d.Now == nil {
 		d.Now = time.Now
 	}
@@ -111,42 +115,39 @@ func (s *Service) ChooseContact(ctx context.Context, userID, convID, msgID uuid.
 			return card.Kind == domain.InteractionContact && card.State == domain.InteractionPending
 		},
 		func(card domain.Interaction) error {
-			if choice < 0 || choice >= len(domain.Candidates(card.Query)) {
-				return &domain.ActionError{Message: "Choose one of the contacts."}
-			}
-			return nil
+			_, err := candidateAt(card.Query, choice)
+			return err
 		},
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
-			contact, err := s.confirm(ctx, card.Query, choice)
+			chosen, err := candidateAt(card.Query, choice)
 			if err != nil {
 				return card, err
 			}
-			return card.ContactChosen(contact)
+			if err := s.deps.Actions.ConfirmContact(ctx, card.Query, chosen); err != nil {
+				return card, err
+			}
+			return card.ContactChosen(chosen)
 		})
 }
 
 // ConfirmCandidate implements service.Interactions. As the BFF's own page does for its picker, the service is told the chosen
 // name: what the user typed after the @ may be nothing, or part of a name.
 func (s *Service) ConfirmCandidate(ctx context.Context, query string, choice int) (domain.Contact, error) {
-	candidates := domain.Candidates(query)
-	if choice < 0 || choice >= len(candidates) {
-		return domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}
+	chosen, err := candidateAt(query, choice)
+	if err != nil {
+		return domain.Contact{}, err
 	}
-	chosen := candidates[choice]
 	if err := s.deps.Actions.ConfirmContact(ctx, chosen.Name, chosen); err != nil {
 		return domain.Contact{}, err
 	}
 	return chosen, nil
 }
 
-// confirm tells the agent's service whom the user chose among the candidates for the reference the agent gave.
-func (s *Service) confirm(ctx context.Context, reference string, choice int) (domain.Contact, error) {
-	candidates := domain.Candidates(reference)
+// candidateAt is the candidate the user chose among the ones for query, or the refusal that tells them to choose again.
+func candidateAt(query string, choice int) (domain.Contact, error) {
+	candidates := domain.Candidates(query)
 	if choice < 0 || choice >= len(candidates) {
 		return domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}
-	}
-	if err := s.deps.Actions.ConfirmContact(ctx, reference, candidates[choice]); err != nil {
-		return domain.Contact{}, err
 	}
 	return candidates[choice], nil
 }

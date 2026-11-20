@@ -25,6 +25,9 @@ import (
 	"iape-ui/internal/infrastructure/config"
 )
 
+// newCardView draws the card of m with no clock: a claim never goes stale.
+func newCardView(m domain.Message) *cardView { return newCardViewAt(m, time.Time{}) }
+
 // cardStatusPath is the route that says how the card is now.
 func cardStatusPath() string { return "/c/" + convID.String() + "/m/" + streamMsgID.String() + "/card" }
 
