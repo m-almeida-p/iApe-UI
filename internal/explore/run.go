@@ -96,20 +96,31 @@ func (r *Runner) Run(ctx context.Context, id string, steps []Step) Report {
 	for i, st := range steps {
 		res := StepResult{N: i + 1, Raw: strings.TrimSpace(st.Raw), Kind: st.Kind}
 		start := r.now()
+		// A run that was called off does nothing more to the page, so that no message is sent after the person said stop.
+		if err := ctx.Err(); err != nil {
+			res.Err = err
+			res.Took = r.now().Sub(start)
+			rep.Steps = append(rep.Steps, res)
+			break
+		}
 		res.Err = r.act(ctx, st)
 
 		var text string
+		var readErr error
 		if ctx.Err() == nil {
-			text = r.record(ctx, res.N, slug(st), &res)
+			text, readErr = r.record(ctx, res.N, slug(st), &res)
 		}
 		if res.Err == nil && ctx.Err() == nil {
-			res.Err = r.expect(ctx, st, text)
+			res.Err = r.expect(ctx, st, text, readErr)
 		}
 		if res.Err == nil && ctx.Err() != nil {
 			res.Err = ctx.Err()
 		}
 		res.Took = r.now().Sub(start)
-		res.NewLines = newLines(seen, text)
+		// A page that could not be read says nothing of what is new on it, and what the next step is measured from stays as it was.
+		if readErr == nil && ctx.Err() == nil {
+			res.NewLines = newLines(seen, text)
+		}
 		rep.Steps = append(rep.Steps, res)
 		if res.Err != nil {
 			break
@@ -180,13 +191,14 @@ const recordTimeout = 30 * time.Second
 var uidPrefix = regexp.MustCompile(`(?m)^(\s*)uid=\d+_\d+\s*`)
 
 // record saves what the page shows after a step and returns the page's text, without the uids that change from one snapshot to
-// the next. A page that cannot be read at this moment does not fail the step: the step did what it was asked.
-func (r *Runner) record(ctx context.Context, n int, name string, res *StepResult) string {
+// the next, and why it could not be read, if it could not. A page that cannot be read at this moment does not fail the step: the step
+// did what it was asked. Only an expectation that needs the text fails for want of it.
+func (r *Runner) record(ctx context.Context, n int, name string, res *StepResult) (text string, readErr error) {
 	rctx, cancel := context.WithTimeout(ctx, recordTimeout)
 	defer cancel()
 	text, err := r.Browser.Text(rctx)
 	if err != nil {
-		text = ""
+		text, readErr = "", err
 	} else {
 		text = uidPrefix.ReplaceAllString(text, "$1")
 		_ = r.Sink.Write(n, name, "snapshot.txt", []byte(text))
@@ -195,13 +207,16 @@ func (r *Runner) record(ctx context.Context, n int, name string, res *StepResult
 		_ = r.Sink.Write(n, name, "network.txt", []byte(reqs))
 	}
 	_ = r.Browser.Screenshot(rctx, r.Sink.Path(n, name, "png"))
-	return text
+	return text, readErr
 }
 
 // expect checks what an expectation says against the page.
-func (r *Runner) expect(ctx context.Context, st Step, text string) error {
+func (r *Runner) expect(ctx context.Context, st Step, text string, readErr error) error {
 	switch st.Kind {
 	case KindExpect:
+		if readErr != nil {
+			return fmt.Errorf("reading the page: %w", readErr)
+		}
 		if !strings.Contains(text, st.Arg) {
 			return fmt.Errorf("the page does not show %q", st.Arg)
 		}
@@ -314,5 +329,5 @@ func summary(lines []string) string {
 
 // cell makes text fit a cell of a Markdown table.
 func cell(s string) string {
-	return strings.NewReplacer("|", `\|`, "\n", " ").Replace(s)
+	return strings.NewReplacer(`\`, `\\`, "|", `\|`, "\n", " ", "\r", " ").Replace(s)
 }

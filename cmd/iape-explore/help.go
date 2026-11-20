@@ -39,7 +39,7 @@ func helpText() string {
 	p("  iape-explore -list                     list the paths")
 	p("  iape-explore -path ID [flags]          run one path")
 	p("  iape-explore -all [flags]              run every path, each in a conversation of its own")
-	p("  iape-explore [flags] STEP...           run steps of your own (see Steps)")
+	p("  iape-explore [flags] STEP...           run steps of your own (see Steps); flags go before the steps, and after -- a step may start with -")
 	p("")
 	p("Flags:")
 	fs := newFlagSet(&options{})

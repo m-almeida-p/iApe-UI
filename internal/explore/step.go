@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 )
 
 // Kind is what a step does.
@@ -125,7 +124,7 @@ func Parse(raw string) (Step, error) {
 		s.Kind, s.Wait = KindWait, d
 	case strings.HasPrefix(line, "otp:"):
 		code := strings.TrimSpace(strings.TrimPrefix(line, "otp:"))
-		if n := len(code); n < 4 || n > 8 || strings.IndexFunc(code, func(r rune) bool { return !unicode.IsDigit(r) }) >= 0 {
+		if n := len(code); n < 4 || n > 8 || strings.IndexFunc(code, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
 			return Step{}, fmt.Errorf("otp: takes 4 to 8 digits")
 		}
 		s.Kind, s.Arg = KindOTP, code
@@ -148,6 +147,7 @@ func Parse(raw string) (Step, error) {
 
 func parseCard(text string) (Card, error) {
 	kind, state, ok := strings.Cut(strings.TrimSpace(text), "=")
+	kind, state = strings.TrimSpace(kind), strings.TrimSpace(state)
 	if !ok || kind == "" || state == "" {
 		return Card{}, fmt.Errorf("expect-card: takes kind=state, such as approval=paid")
 	}

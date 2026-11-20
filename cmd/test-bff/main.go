@@ -36,6 +36,13 @@ import (
 
 const defaultAddr = ":9093"
 
+// maxSlowChunks is the longest #slow reply that can be asked for: its chunks are made before the first one is sent, so a number that
+// is a typo of a few digits more would eat the memory of the container before it said anything.
+const maxSlowChunks = 1_000_000
+
+// healthTimeout is how long healthcheck waits for an answer.
+var healthTimeout = 3 * time.Second
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(healthcheck(os.Args[2:]))
@@ -78,7 +85,7 @@ func healthcheck(args []string) int {
 	if len(args) > 0 {
 		url = args[0]
 	}
-	resp, err := (&http.Client{Timeout: 3 * time.Second}).Get(url)
+	resp, err := (&http.Client{Timeout: healthTimeout}).Get(url)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "unhealthy:", err)
 		return 1
@@ -117,8 +124,8 @@ func options(lookup func(string) (string, bool)) ([]testbff.Option, error) {
 	chunks := testbff.DefaultSlowChunks
 	if raw, ok := lookup("TEST_BFF_SLOW_CHUNKS"); ok && raw != "" {
 		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			return nil, fmt.Errorf("TEST_BFF_SLOW_CHUNKS=%q is not a positive number", raw)
+		if err != nil || n < 1 || n > maxSlowChunks {
+			return nil, fmt.Errorf("TEST_BFF_SLOW_CHUNKS=%q is not a number from 1 to %d", raw, maxSlowChunks)
 		}
 		chunks = n
 	}

@@ -6,6 +6,7 @@ import (
 	"net/mail"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"iape-ui/internal/chrome"
@@ -35,6 +36,11 @@ func loadSettings(lookup func(string) (string, bool)) (settings, error) {
 		v = strings.TrimSpace(v)
 		return v, ok && v != ""
 	}
+	// A password is used exactly as it was given: spaces at its ends are part of it. A value of blanks alone is no password.
+	getExact := func(key string) (string, bool) {
+		v, ok := lookup(key)
+		return v, ok && strings.TrimSpace(v) != ""
+	}
 	s := settings{BaseURL: "http://localhost:8300", Command: slices.Clone(chrome.DefaultCommand), Args: slices.Clone(chrome.DefaultArgs)}
 
 	if raw, ok := get("EXPLORE_BASE_URL"); ok {
@@ -56,17 +62,19 @@ func loadSettings(lookup func(string) (string, bool)) (settings, error) {
 		errs = append(errs, fmt.Errorf("EXPLORE_MCP_COMMAND and EXPLORE_MCP_ARGS: %w", err))
 	}
 
-	email, hasEmail := get("EXPLORE_USER_EMAIL")
-	password, hasPassword := get("EXPLORE_USER_PASSWORD")
+	emailKey, passwordKey := "EXPLORE_USER_EMAIL", "EXPLORE_USER_PASSWORD"
+	email, hasEmail := get(emailKey)
+	password, hasPassword := getExact(passwordKey)
 	if !hasEmail && !hasPassword {
-		email, hasEmail = get("ADMIN_EMAIL")
-		password, hasPassword = get("ADMIN_PASSWORD")
+		emailKey, passwordKey = "ADMIN_EMAIL", "ADMIN_PASSWORD"
+		email, hasEmail = get(emailKey)
+		password, hasPassword = getExact(passwordKey)
 	}
 	switch {
 	case hasEmail && !hasPassword:
-		errs = append(errs, errors.New("EXPLORE_USER_PASSWORD is required when EXPLORE_USER_EMAIL is set"))
+		errs = append(errs, fmt.Errorf("%s is required when %s is set", passwordKey, emailKey))
 	case hasPassword && !hasEmail:
-		errs = append(errs, errors.New("EXPLORE_USER_EMAIL is required when EXPLORE_USER_PASSWORD is set"))
+		errs = append(errs, fmt.Errorf("%s is required when %s is set", emailKey, passwordKey))
 	case hasEmail:
 		if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
 			errs = append(errs, errors.New("the user's email must be a plain email address"))
@@ -80,10 +88,18 @@ func loadSettings(lookup func(string) (string, bool)) (settings, error) {
 func checkBaseURL(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	switch {
-	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "":
 		return "", errors.New("must be an http or https address, such as http://localhost:8300")
 	case u.User != nil:
 		return "", errors.New("must not carry a user name or password")
+	case strings.ContainsAny(raw, "?#"):
+		// The pages are reached by adding to the address (base + "/login"), which a query or a fragment would swallow.
+		return "", errors.New("must not carry a query or a fragment")
+	}
+	if port := u.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "", errors.New("has a port that is not between 1 and 65535")
+		}
 	}
 	return strings.TrimRight(u.String(), "/"), nil
 }

@@ -66,8 +66,43 @@ func parseOptions(args []string) (options, error) {
 		}
 		return o, usageError{msg: err.Error()}
 	}
+	if err := checkPathFlag(fs, o); err != nil {
+		return o, err
+	}
 	o.steps = fs.Args()
+	if err := flagAmongSteps(args, o.steps); err != nil {
+		return o, err
+	}
 	return o, o.check()
+}
+
+// checkPathFlag refuses -path given with no id: it would otherwise be taken for a flag that was not passed.
+func checkPathFlag(fs *flag.FlagSet, o options) error {
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "path" })
+	if given && o.pathID == "" {
+		return usageError{"-path takes the id of a path (see -list)"}
+	}
+	return nil
+}
+
+// flagAmongSteps refuses a step that starts with a dash. The flag package stops at the first argument that is no flag, so a flag
+// written after the steps ("Hola -headless") would be sent to the agent as a message. After "--" the dash is a character like any
+// other: the way to send a message that starts with one.
+func flagAmongSteps(args, steps []string) error {
+	if len(steps) == 0 {
+		return nil
+	}
+	if before := len(args) - len(steps) - 1; before >= 0 && args[before] == "--" {
+		return nil
+	}
+	for _, step := range steps {
+		if strings.HasPrefix(step, "-") {
+			return usageError{fmt.Sprintf("%q comes after the steps, where it is a message, not a flag: flags must come before the steps "+
+				"(use -- before the steps to send a message that starts with a dash)", step)}
+		}
+	}
+	return nil
 }
 
 func (o options) check() error {
@@ -159,6 +194,11 @@ func (d deps) run(ctx context.Context, args []string) int {
 	if out == "" {
 		out = d.defaultOut()
 	}
+	// A run that cannot keep its records is no run: it is said before Chrome is opened.
+	if err := os.MkdirAll(out, 0o700); err != nil {
+		_, _ = fmt.Fprintf(d.stderr, "iape-explore: the records cannot be kept in %s: %v\n", out, err)
+		return exitInfra
+	}
 
 	sess, err := d.open(ctx, cfg, openOptions{Headless: opts.headless, Settle: opts.settle})
 	if err != nil {
@@ -203,20 +243,31 @@ func (d deps) runPlans(ctx context.Context, sess session, plans []plan, out, pas
 		if why != "" {
 			_, _ = fmt.Fprintf(d.stdout, "         %s\n", why)
 		}
-		_, _ = fmt.Fprintf(&summary, "| %s | %s | %d | %s | %s |\n", p.id, verdict, len(rep.Steps), took, strings.ReplaceAll(why, "|", `\|`))
+		_, _ = fmt.Fprintf(&summary, "| %s | %s | %d | %s | %s |\n", p.id, verdict, len(rep.Steps), took, cell(why))
 		if ctx.Err() != nil {
 			break
 		}
 	}
 	_, _ = fmt.Fprintf(d.stdout, "records: %s\n", out)
 	if err := writeFile(filepath.Join(out, "summary.md"), summary.String()); err != nil {
-		_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
+		_, _ = fmt.Fprintln(d.stderr, "iape-explore: the records cannot be kept:", err)
+		if code == exitOK {
+			code = exitInfra // the paths passed, and nothing says so
+		}
 	}
 	return code
 }
 
+// cell makes text fit a cell of a Markdown table: one line, with its pipes and backslashes escaped.
+func cell(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "|", `\|`, "\n", " ", "\r", " ").Replace(s)
+}
+
 func (d deps) runPlan(ctx context.Context, sess session, p plan, dir, password string) explore.Report {
 	steps, err := explore.ParseAll(p.steps)
+	if err == nil && len(steps) == 0 {
+		err = errors.New("the plan has no steps: a run that checks nothing proves nothing")
+	}
 	if err == nil {
 		err = sess.Fresh(ctx)
 	}

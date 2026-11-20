@@ -3,8 +3,8 @@ package explore
 import (
 	"cmp"
 	"math/rand/v2"
+	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -70,14 +70,26 @@ var paths = []Path{
 			"expect-card:contact=confirmed", "expect-card:approval=pending"}},
 }
 
-// Paths is the catalog, in the order it is shown.
-func Paths() []Path { return slices.Clone(paths) }
+// clone is a copy of the path that shares no step list with the catalog.
+func (p Path) clone() Path {
+	p.After, p.Custom = slices.Clone(p.After), slices.Clone(p.Custom)
+	return p
+}
+
+// Paths is the catalog, in the order it is shown. The paths are copies: changing one changes nothing of the catalog.
+func Paths() []Path {
+	out := make([]Path, len(paths))
+	for i, p := range paths {
+		out[i] = p.clone()
+	}
+	return out
+}
 
 // Find returns the path with the id.
 func Find(id string) (Path, bool) {
 	for _, p := range paths {
 		if p.ID == id {
-			return p, true
+			return p.clone(), true
 		}
 	}
 	return Path{}, false
@@ -87,6 +99,7 @@ func Find(id string) (Path, bool) {
 // one named), types the amount (the path's, or the one given) and sends it. Any other path says all its steps, and an amount or a
 // contact mean nothing to it.
 func (p Path) Steps(amount, contact string) []string {
+	amount, contact = strings.TrimSpace(amount), strings.TrimSpace(contact)
 	if p.Custom != nil {
 		name := cmp.Or(contact, freshName())
 		steps := slices.Clone(p.Custom)
@@ -106,8 +119,13 @@ func (p Path) Steps(amount, contact string) []string {
 	return append(steps, p.After...)
 }
 
-// ValidAmount reports whether amount is a number of soles the explorer will type: whole or with decimals, never empty.
+// amountPattern is a plain decimal number: up to six digits with no leading zero (a single 0 is the exception), and, if there is a
+// dot, one or two decimals after it. "5." and ".5" are refused, as are signs, exponents, "NaN", "Inf", hex and digits of other scripts:
+// the amount is typed into a message as "<amount> soles", so it is what a person would type.
+var amountPattern = regexp.MustCompile(`^(?:0|[1-9][0-9]{0,5})(?:\.[0-9]{1,2})?$`)
+
+// ValidAmount reports whether amount is a number of soles the explorer will type: a plain decimal above zero and below a million,
+// such as "5", "20.5" or "150.00".
 func ValidAmount(amount string) bool {
-	f, err := strconv.ParseFloat(amount, 64)
-	return err == nil && f > 0 && f < 1_000_000
+	return amountPattern.MatchString(amount) && strings.ContainsAny(amount, "123456789")
 }
