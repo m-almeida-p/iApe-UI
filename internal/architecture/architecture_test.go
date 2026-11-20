@@ -68,6 +68,11 @@ var rules = []rule{
 	{what: "the evaluator is put together from its own parts",
 		under: []string{"cmd/eval"}, internal: []string{"internal/eval", "internal/platform"}, thirdParty: true},
 
+	{what: "the explorer's logic and its browser know only themselves and the evaluator's browser driver, and nothing of HTTP, SQL or files",
+		under: []string{"internal/explore"}, internal: []string{"internal/explore", "internal/eval/infrastructure/devtools"}, noStd: outside},
+	{what: "the explorer is put together from its own parts and the evaluator's settings and driver",
+		under: []string{"cmd/iape-explore"}, internal: []string{"internal/explore", "internal/eval/infrastructure", "internal/platform"}, thirdParty: true},
+
 	{what: "what both programs share knows neither of them",
 		under: []string{"internal/platform"}, thirdParty: true},
 	{what: "the view of a struct for a log is made with the standard library alone",
@@ -125,6 +130,8 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 		evalCommand  = "the evaluator's command"
 		shared       = "what both programs share"
 		agentCommand = "the scripted agent's command"
+		exploreLogic = "the explorer's logic or its browser"
+		exploreCmd   = "the explorer's command"
 	)
 	type importCase struct {
 		who  string
@@ -183,6 +190,18 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 		{"the view of a struct", "internal/platform/redact", "the settings reader beside it", ours("internal/platform/envcfg"), false},
 		{"the UI contract", "internal/contract", "the Web UI", ours("internal/infrastructure/api/web"), false},
 		{"the scripted agent", "internal/testagent", "the evaluator", ours("internal/eval/core/domain"), false},
+		{exploreLogic, "internal/explore", "the Web UI", ours("internal/core/domain"), false},
+		{exploreLogic, "internal/explore", "an evaluator use case", ours("internal/eval/core/run"), false},
+		{exploreLogic, "internal/explore", "a file", "os", false},
+		{exploreLogic, "internal/explore", "the network", "net/http", false},
+		{exploreLogic, "internal/explore", "another module", "github.com/stretchr/testify/assert", false},
+		{exploreLogic, "internal/explore/infrastructure/chrome", "the evaluator's driver", ours("internal/eval/infrastructure/devtools"), true},
+		{exploreLogic, "internal/explore/infrastructure/chrome", "the evaluator's settings", ours("internal/eval/infrastructure/config"), false},
+		{exploreCmd, "cmd/iape-explore", "the explorer's logic", ours("internal/explore"), true},
+		{exploreCmd, "cmd/iape-explore", "the evaluator's settings", ours("internal/eval/infrastructure/config"), true},
+		{exploreCmd, "cmd/iape-explore", "what both programs share", ours("internal/platform/envcfg"), true},
+		{exploreCmd, "cmd/iape-explore", "the Web UI", ours("internal/core/domain"), false},
+		{exploreCmd, "cmd/iape-explore", "an evaluator use case", ours("internal/eval/core/run"), false},
 		{agentCommand, "cmd/test-agent", "the scripted agent", ours("internal/testagent"), true},
 		{agentCommand, "cmd/test-agent", "the Web UI", ours("internal/infrastructure/config"), false},
 
