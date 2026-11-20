@@ -59,12 +59,13 @@ type lastMessage struct {
 	seq    int
 	role   domain.Role
 	status domain.Status
+	card   domain.InteractionState // the state of its card, empty when it has none
 }
 
 // latestMessage returns the highest-numbered message, or ok=false when the
 // conversation has none.
 func (s *MessageStore) latestMessage(ctx context.Context, tx pgx.Tx, convID uuid.UUID) (last lastMessage, ok bool, err error) {
-	err = tx.QueryRow(ctx, s.sql.latest, convID).Scan(&last.id, &last.seq, &last.role, &last.status)
+	err = tx.QueryRow(ctx, s.sql.latest, convID).Scan(&last.id, &last.seq, &last.role, &last.status, &last.card)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lastMessage{}, false, nil
 	}
@@ -244,6 +245,9 @@ func (s *MessageStore) ReplaceLastAssistant(ctx context.Context, userID, convID,
 		}
 		if last.role != domain.RoleAssistant || !last.status.Terminal() {
 			return fmt.Errorf("there is no finished reply to replace: %w", domain.ErrInvalidState)
+		}
+		if (domain.Interaction{State: last.card}).HoldsPayment() {
+			return fmt.Errorf("the reply holds a payment (its card is %s): %w", last.card, domain.ErrInvalidState)
 		}
 		if _, err := tx.Exec(ctx, s.sql.remove, last.id); err != nil {
 			return err

@@ -1343,3 +1343,36 @@ func TestSaveInteraction_TheClaimOfACard(t *testing.T) {
 		assert.Equal(t, domain.InteractionProcessing, read(t, conv, id).State)
 	})
 }
+
+// The reply that holds a card whose payment the service may have taken is not replaced: the new turn could ask for the same
+// transfer again, and the answer on its way would find the reply gone.
+func TestReplaceLastAssistant_NotTheReplyThatHoldsAPayment(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+
+	for _, state := range []domain.InteractionState{domain.InteractionProcessing, domain.InteractionOTPRequired, domain.InteractionPaid} {
+		t.Run("a card that is "+string(state), func(t *testing.T) {
+			conv := f.conversation(t, f.alice)
+			reply := f.cardReply(t, f.alice, conv, state)
+
+			_, err := f.messages.ReplaceLastAssistant(ctx, f.alice, conv, reply.ID)
+
+			require.ErrorIs(t, err, domain.ErrInvalidState)
+			got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+			require.NoError(t, err, "the reply is still there")
+			assert.Equal(t, state, got.Meta.Interaction.State)
+		})
+	}
+
+	for _, state := range []domain.InteractionState{domain.InteractionPending, domain.InteractionRejected} {
+		t.Run("a card that is "+string(state)+" can be asked again", func(t *testing.T) {
+			conv := f.conversation(t, f.alice)
+			reply := f.cardReply(t, f.alice, conv, state)
+
+			fresh, err := f.messages.ReplaceLastAssistant(ctx, f.alice, conv, reply.ID)
+
+			require.NoError(t, err)
+			assert.NotEqual(t, reply.ID, fresh.ID)
+		})
+	}
+}

@@ -60,7 +60,8 @@ func (a *App) messageView(m domain.Message) messageView {
 		v.Body = a.md.Render(m.Content)
 	}
 	v.Streaming = !m.Status.Terminal()
-	v.Actions = m.Status.Terminal()
+	// A reply that holds a payment is not regenerated: the new turn could ask for the same transfer again.
+	v.Actions = m.Status.Terminal() && (m.Meta.Interaction == nil || !m.Meta.Interaction.HoldsPayment())
 	v.Copy = m.Status.Terminal() && m.Content != ""
 	if m.Status.Terminal() {
 		v.TTFTMs, v.DurationMs = m.Meta.TTFTMs, m.Meta.DurationMs

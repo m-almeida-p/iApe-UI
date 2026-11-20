@@ -155,6 +155,12 @@ func (i Interaction) ContactChosen(c Contact) (Interaction, error) {
 	return i, nil
 }
 
+// HoldsPayment reports whether the agent's service may have taken or be taking the transfer of the card: its answer is on its way,
+// it waits for the code, or it paid. The reply that holds such a card must not be replaced.
+func (i Interaction) HoldsPayment() bool {
+	return i.State == InteractionProcessing || i.State == InteractionOTPRequired || i.State == InteractionPaid
+}
+
 // Claim marks the card as being answered, by the claim named id at now. The service is asked only by whoever holds the claim, so a
 // double tap, a second tab or a retry of the phone's network cannot send the same answer twice. A card that cannot be answered (closed,
 // or already claimed) is ErrInvalidState: take over a stale claim with Reclaim.

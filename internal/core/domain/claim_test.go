@@ -117,3 +117,16 @@ func TestClaim_AClaimedCardRefusesEveryAnswerUntilItIsLetGo(t *testing.T) {
 	_, err = claimed.CodeConfirmed("Paid")
 	require.ErrorIs(t, err, domain.ErrInvalidState)
 }
+
+// A card whose answer is on its way, waits for a code, or paid is a payment the agent's service knows of: the reply that holds it
+// cannot be thrown away and asked again, which could ask for the same transfer a second time.
+func TestHoldsPayment_OnlyWhatTheServiceMayHaveDone(t *testing.T) {
+	for state, want := range map[domain.InteractionState]bool{
+		domain.InteractionProcessing: true, domain.InteractionOTPRequired: true, domain.InteractionPaid: true,
+		domain.InteractionPending: false, domain.InteractionRejected: false, domain.InteractionConfirmed: false, "": false,
+	} {
+		card := approval()
+		card.State = state
+		assert.Equal(t, want, card.HoldsPayment(), "state %q", state)
+	}
+}

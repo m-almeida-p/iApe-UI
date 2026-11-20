@@ -1285,3 +1285,30 @@ func TestCard_AClaimThatWentStaleOffersTheAnswerAgain(t *testing.T) {
 		assert.NotEmpty(t, byTestID(root, "card-contact"))
 	})
 }
+
+// A reply that holds a payment cannot be regenerated: the new turn could ask for the same transfer again.
+func TestRegenerate_NotOfferedOnAReplyThatHoldsAPayment(t *testing.T) {
+	claimedAt := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	processing := processingReply(t)
+	for name, tc := range map[string]struct {
+		m       domain.Message
+		offered bool
+	}{
+		"a card being answered":        {processing, false},
+		"a card that paid":             {cardReply(domain.InteractionPaid), false},
+		"a card that waits for a code": {cardReply(domain.InteractionOTPRequired), false},
+		"a card nobody answered":       {cardReply(domain.InteractionPending), true},
+		"a card that was rejected":     {cardReply(domain.InteractionRejected), true},
+		"a reply with no card":         {reply(domain.StatusComplete, "hello"), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newChatHarnessWithOptions(t, Options{Now: func() time.Time { return claimedAt }})
+			h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(tc.m, nil)
+
+			root := parseHTML(t, h.do(http.MethodPost, stopPath(), nil, htmx).Body.String())
+
+			assert.Equal(t, tc.offered, len(byTestID(root, "regenerate")) == 1)
+			assert.Len(t, byTestID(root, "copy-message"), 1, "the text can still be copied")
+		})
+	}
+}
