@@ -3,8 +3,11 @@ package message_test
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -720,5 +723,490 @@ func TestSaveInteraction(t *testing.T) {
 		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
 		require.NoError(t, err)
 		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
+	})
+}
+
+// replyIn is a reply of the given status that carries card in its meta, made the way the program makes one: appended, claimed,
+// finished. A pending or a streaming reply cannot carry a card through Finish, so its meta is set in the table, as it would be by
+// something that went wrong.
+func (f *fixture) replyIn(t *testing.T, owner, conv uuid.UUID, status domain.Status, card domain.Interaction) domain.Message {
+	t.Helper()
+	ctx := t.Context()
+	_, reply, err := f.messages.AppendPair(ctx, owner, conv, "pay Rosa")
+	require.NoError(t, err)
+	if status == domain.StatusPending {
+		f.setMeta(t, reply.ID, fmt.Sprintf(`{"interaction": %s}`, mustJSON(t, card)))
+		return reply
+	}
+	_, err = f.messages.Claim(ctx, owner, conv, reply.ID)
+	require.NoError(t, err)
+	if status == domain.StatusStreaming {
+		f.setMeta(t, reply.ID, fmt.Sprintf(`{"interaction": %s}`, mustJSON(t, card)))
+		return reply
+	}
+	require.NoError(t, f.messages.Finish(ctx, reply.ID, resource.Outcome{
+		Content: "Review your transfer.", Status: status, Meta: domain.Meta{TTFTMs: 7, Interaction: &card},
+	}))
+	return reply
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(raw)
+}
+
+func (f *fixture) setMeta(t *testing.T, msgID uuid.UUID, meta string) {
+	t.Helper()
+	_, err := f.pool.Exec(t.Context(), `UPDATE messages SET meta = $2::jsonb WHERE id = $1`, msgID, meta)
+	require.NoError(t, err)
+}
+
+// row is what the table holds of a message, as text, so that a test can say that nothing in it changed.
+type row struct {
+	Content, Status, Meta string
+	UpdatedAt             time.Time
+}
+
+func (f *fixture) rowOf(t *testing.T, msgID uuid.UUID) row {
+	t.Helper()
+	var r row
+	err := f.pool.QueryRow(t.Context(), `SELECT content, status, meta::text, updated_at FROM messages WHERE id = $1`, msgID).
+		Scan(&r.Content, &r.Status, &r.Meta, &r.UpdatedAt)
+	require.NoError(t, err)
+	return r
+}
+
+func approval(state domain.InteractionState) domain.Interaction {
+	return domain.Interaction{
+		Kind: domain.InteractionApproval, State: state, ApprovalID: "appr_1", RunID: "run-1",
+		Transfer: domain.Transfer{Amount: 20, Currency: "PEN", DestinationName: "Rosa Diaz"},
+	}
+}
+
+func TestSaveInteraction_RepliesThatCannotBeAnswered(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	paid := approval(domain.InteractionPaid)
+
+	for _, status := range []domain.Status{domain.StatusPending, domain.StatusStreaming, domain.StatusFailed, domain.StatusStopped} {
+		t.Run("a reply that is "+string(status), func(t *testing.T) {
+			conv := f.conversation(t, f.alice)
+			reply := f.replyIn(t, f.alice, conv, status, approval(domain.InteractionPending))
+			before := f.rowOf(t, reply.ID)
+
+			err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid)
+
+			require.ErrorIs(t, err, domain.ErrInvalidState)
+			assert.Equal(t, before, f.rowOf(t, reply.ID), "nothing changed, not even updated_at")
+		})
+	}
+	t.Run("a message of the user", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		user, _, err := f.messages.AppendPair(ctx, f.alice, conv, "pay Rosa")
+		require.NoError(t, err)
+		f.setMeta(t, user.ID, fmt.Sprintf(`{"interaction": %s}`, mustJSON(t, approval(domain.InteractionPending))))
+		before := f.rowOf(t, user.ID)
+
+		err = f.messages.SaveInteraction(ctx, f.alice, conv, user.ID, domain.InteractionPending, paid)
+
+		require.ErrorIs(t, err, domain.ErrInvalidState)
+		assert.Equal(t, before, f.rowOf(t, user.ID))
+	})
+	t.Run("a reply whose meta has no card", func(t *testing.T) {
+		for name, meta := range map[string]string{
+			"an empty object":      `{}`,
+			"a null":               `null`,
+			"a card that is null":  `{"interaction": null}`,
+			"a card with no state": `{"interaction": {"kind": "approval"}}`,
+			"other keys only":      `{"ttft_ms": 5, "tool_calls": ["x"]}`,
+		} {
+			conv := f.conversation(t, f.alice)
+			_, reply := f.turn(t, f.alice, conv, "hi", "hello")
+			f.setMeta(t, reply.ID, meta)
+			before := f.rowOf(t, reply.ID)
+
+			err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid)
+
+			require.ErrorIs(t, err, domain.ErrInvalidState, name)
+			assert.Equal(t, before, f.rowOf(t, reply.ID), name)
+		}
+	})
+}
+
+func TestSaveInteraction_TheCheckIsOnTheStateAlone(t *testing.T) {
+	// The compare-and-set looks at the state and nothing else: it is the caller, the interaction service, that knows what kind of
+	// card it read, and it saves what it made from that card. This is what the store does with a card of another kind.
+	f := newFixture(t)
+	ctx := t.Context()
+	conv := f.conversation(t, f.alice)
+	contact := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionPending, RequestID: "req_1", Query: "Rosa"}
+	reply := f.replyIn(t, f.alice, conv, domain.StatusComplete, contact)
+
+	require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+
+	got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+	require.NoError(t, err)
+	assert.Equal(t, approval(domain.InteractionPaid), *got.Meta.Interaction, "the card is replaced whole")
+}
+
+func TestSaveInteraction_ManyAtOnce(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+
+	t.Run("fifty callers from the same state: one wins", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		const callers = 50
+		results := make(chan error, callers)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range callers {
+			wg.Go(func() {
+				card := approval(domain.InteractionPaid)
+				card.Result = fmt.Sprint("answer ", i)
+				<-start
+				results <- f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+			})
+		}
+		close(start)
+		wg.Wait()
+		close(results)
+
+		wins, refused := 0, 0
+		for err := range results {
+			switch {
+			case err == nil:
+				wins++
+			case errors.Is(err, domain.ErrInvalidState):
+				refused++
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}
+		assert.Equal(t, 1, wins)
+		assert.Equal(t, callers-1, refused)
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
+		assert.True(t, strings.HasPrefix(got.Meta.Interaction.Result, "answer "), "the card is one caller's whole answer: %q", got.Meta.Interaction.Result)
+	})
+	t.Run("callers from different states, in turn", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		needsCode := approval(domain.InteractionOTPRequired)
+		needsCode.ChallengeID = "chal_1"
+		paid := approval(domain.InteractionPaid)
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, needsCode))
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid), domain.ErrInvalidState,
+			"the one who still saw it pending is late")
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionOTPRequired, paid))
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionOTPRequired, paid), domain.ErrInvalidState,
+			"and so is the one who saw it ask for the code")
+
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
+	})
+	t.Run("two cards of two replies do not meet", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		first := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		second := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for i, id := range []uuid.UUID{first.ID, second.ID} {
+			wg.Go(func() {
+				errs[i] = f.messages.SaveInteraction(ctx, f.alice, conv, id, domain.InteractionPending, approval(domain.InteractionRejected))
+			})
+		}
+		wg.Wait()
+
+		assert.NoError(t, errs[0])
+		assert.NoError(t, errs[1], "each reply has its own card to answer")
+	})
+}
+
+func TestSaveInteraction_WhatItWrites(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+
+	t.Run("text of every kind, a megabyte of it included", func(t *testing.T) {
+		for name, result := range map[string]string{
+			"quotes and backslashes": `say "hi" \ back\slash A \n`,
+			"emoji and unicode":      "pagó 💸 日本語 שלום \u2028 \u200f",
+			"new lines and tabs":     "line 1\nline 2\r\n\ttab",
+			"json inside":            `{"a":[1,2,{"b":null}],"c":"</script>"}`,
+			"sql inside":             `'; DROP TABLE messages; --`,
+			"a megabyte":             strings.Repeat("ñ😀", 1<<18),
+			"nothing":                "",
+		} {
+			conv := f.conversation(t, f.alice)
+			reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+			card := approval(domain.InteractionPaid)
+			card.Result = result
+			card.Transfer.Message = result
+			card.Prompt = result
+
+			require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card), name)
+
+			got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+			require.NoError(t, err, name)
+			assert.Equal(t, card, *got.Meta.Interaction, name)
+		}
+	})
+	t.Run("a card with a character that jsonb cannot keep is an error, and changes nothing", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		before := f.rowOf(t, reply.ID)
+		card := approval(domain.InteractionPaid)
+		card.Result = "Transfer paid\x00 successfully"
+
+		var err error
+		require.NotPanics(t, func() {
+			err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+		})
+
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domain.ErrInvalidState, "the card was not refused for its state: it could not be written")
+		assert.NotErrorIs(t, err, domain.ErrNotFound)
+		assert.ErrorContains(t, err, "saving the card")
+		assert.Equal(t, before, f.rowOf(t, reply.ID))
+		still, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionPending, still.Meta.Interaction.State, "and the reply can still be answered")
+	})
+	t.Run("text that is not UTF-8 is an error before the database is asked", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		before := f.rowOf(t, reply.ID)
+		card := approval(domain.InteractionPaid)
+		card.Result = "bad \xff\xfe bytes"
+
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+
+		require.ErrorContains(t, err, "encoding the card")
+		assert.Equal(t, before, f.rowOf(t, reply.ID))
+	})
+	t.Run("an amount that is not a number is an error before the database is asked", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		before := f.rowOf(t, reply.ID)
+		card := approval(domain.InteractionPaid)
+		card.Transfer.Amount = math.NaN()
+
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+
+		require.ErrorContains(t, err, "encoding the card")
+		assert.Equal(t, before, f.rowOf(t, reply.ID))
+	})
+	t.Run("a state to compare with that holds a NUL is an error, and changes nothing", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		before := f.rowOf(t, reply.ID)
+
+		var err error
+		require.NotPanics(t, func() {
+			err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, "pend\x00ing", approval(domain.InteractionPaid))
+		})
+
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domain.ErrNotFound)
+		assert.Equal(t, before, f.rowOf(t, reply.ID))
+	})
+	t.Run("a card with only its zero values", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+
+		// Its state is empty, so nobody can answer it again: from "pending" is not "".
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, domain.Interaction{}))
+
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.Interaction{}, *got.Meta.Interaction)
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)), domain.ErrInvalidState)
+	})
+	t.Run("the rest of the reply is as it was", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		// A newer program wrote keys this one does not know, among the ones it does.
+		f.setMeta(t, reply.ID, fmt.Sprintf(`{
+			"ttft_ms": 120, "duration_ms": 4500, "usage": {"prompt": 11, "completion": 22, "cached": 3},
+			"tool_calls": ["request_transfer_approval", "list_contacts"],
+			"future_key": {"nested": [1, 2.50, {"deep": null}], "text": "ñ 😀 \"q\""}, "another": false,
+			"interaction": %s}`, mustJSON(t, approval(domain.InteractionPending))))
+		others := func() string {
+			var s string
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT (meta - 'interaction')::text FROM messages WHERE id = $1`, reply.ID).Scan(&s))
+			return s
+		}
+		keysBefore, before := others(), f.rowOf(t, reply.ID)
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+
+		assert.Equal(t, keysBefore, others(), "every other key is as it was, the unknown ones too")
+		after := f.rowOf(t, reply.ID)
+		assert.Equal(t, before.Content, after.Content)
+		assert.Equal(t, before.Status, after.Status)
+		assert.True(t, after.UpdatedAt.After(before.UpdatedAt), "updated_at moved: %s -> %s", before.UpdatedAt, after.UpdatedAt)
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		assert.Equal(t, int64(120), got.Meta.TTFTMs)
+		assert.Equal(t, int64(4500), got.Meta.DurationMs)
+		assert.Equal(t, []string{"request_transfer_approval", "list_contacts"}, got.Meta.ToolCalls)
+		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
+	})
+	t.Run("the conversation's activity and the other messages are not touched", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		_, other := f.turn(t, f.alice, conv, "hi", "hello")
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		beforeOther := f.rowOf(t, other.ID)
+		beforeConv, err := f.conversations.Get(ctx, f.alice, conv)
+		require.NoError(t, err)
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+
+		assert.Equal(t, beforeOther, f.rowOf(t, other.ID))
+		afterConv, err := f.conversations.Get(ctx, f.alice, conv)
+		require.NoError(t, err)
+		assert.Equal(t, beforeConv, afterConv)
+	})
+}
+
+func TestSaveInteraction_WhoseMessageItIs(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	paid := approval(domain.InteractionPaid)
+
+	t.Run("the conversation was deleted after the reply was read", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		_, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		require.NoError(t, f.conversations.Delete(ctx, f.alice, conv))
+
+		err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid)
+
+		require.ErrorIs(t, err, domain.ErrNotFound)
+	})
+	t.Run("the conversation of someone else, with the right ids", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		before := f.rowOf(t, reply.ID)
+
+		err := f.messages.SaveInteraction(ctx, f.bob, conv, reply.ID, domain.InteractionPending, paid)
+
+		require.ErrorIs(t, err, domain.ErrNotFound)
+		assert.Equal(t, before, f.rowOf(t, reply.ID))
+	})
+	t.Run("a conversation of the user's own that is not the message's", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		elsewhere := f.conversation(t, f.alice)
+		before := f.rowOf(t, reply.ID)
+
+		err := f.messages.SaveInteraction(ctx, f.alice, elsewhere, reply.ID, domain.InteractionPending, paid)
+
+		require.ErrorIs(t, err, domain.ErrNotFound)
+		assert.Equal(t, before, f.rowOf(t, reply.ID))
+	})
+	t.Run("a conversation of someone else that is not the message's", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		bobs := f.conversation(t, f.bob)
+
+		err := f.messages.SaveInteraction(ctx, f.bob, bobs, reply.ID, domain.InteractionPending, paid)
+
+		require.ErrorIs(t, err, domain.ErrNotFound)
+	})
+	t.Run("ids that are not there", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, uuid.NewV7(), reply.ID, domain.InteractionPending, paid), domain.ErrNotFound)
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, uuid.NewV7(), conv, reply.ID, domain.InteractionPending, paid), domain.ErrNotFound)
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, uuid.Nil(), domain.InteractionPending, paid), domain.ErrNotFound)
+	})
+}
+
+func TestSaveInteraction_AContextThatEnds(t *testing.T) {
+	f := newFixture(t)
+	conv := f.conversation(t, f.alice)
+	reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+	before := f.rowOf(t, reply.ID)
+	past, cancelPast := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelPast()
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	for name, tc := range map[string]struct {
+		ctx  context.Context
+		want error
+	}{
+		"canceled":          {canceled, context.Canceled},
+		"a deadline passed": {past, context.DeadlineExceeded},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := f.messages.SaveInteraction(tc.ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid))
+
+			require.ErrorIs(t, err, tc.want)
+			assert.NotErrorIs(t, err, domain.ErrInvalidState, "a card is not refused because the caller gave up")
+			assert.NotErrorIs(t, err, domain.ErrNotFound)
+			assert.Equal(t, before, f.rowOf(t, reply.ID))
+		})
+	}
+	t.Run("the same call on a live context works", func(t *testing.T) {
+		require.NoError(t, f.messages.SaveInteraction(t.Context(), f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+	})
+}
+
+func TestFinish_StoresACardAndGetReadsItBack(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	tests := map[string]domain.Interaction{
+		"an approval with a transfer":      approval(domain.InteractionPending),
+		"an approval with a zero transfer": {Kind: domain.InteractionApproval, State: domain.InteractionPending, ApprovalID: "appr_2"},
+		"a card that asks for a code":      {Kind: domain.InteractionApproval, State: domain.InteractionOTPRequired, ApprovalID: "appr_3", ChallengeID: "chal_3", Transfer: domain.Transfer{Amount: 0.1}},
+		"a contact card":                   {Kind: domain.InteractionContact, State: domain.InteractionPending, RequestID: "req_1", Query: "Rosa 😀", Prompt: "Who do you mean?"},
+		"a contact card that was answered": {Kind: domain.InteractionContact, State: domain.InteractionConfirmed, RequestID: "req_2", Contact: domain.Contact{Name: "Rosa Díaz", Phone: "999888777"}},
+		"a card of text that needs escaping": {Kind: domain.InteractionApproval, State: domain.InteractionPaid, ApprovalID: "a\"b\\c", Result: "pagó \"S/ 20\"\n💸",
+			Transfer: domain.Transfer{DestinationName: "O'Brien <x>", Message: "line 1\nline 2"}},
+	}
+	for name, card := range tests {
+		t.Run(name, func(t *testing.T) {
+			conv := f.conversation(t, f.alice)
+			_, reply, err := f.messages.AppendPair(ctx, f.alice, conv, "pay Rosa")
+			require.NoError(t, err)
+			_, err = f.messages.Claim(ctx, f.alice, conv, reply.ID)
+			require.NoError(t, err)
+
+			require.NoError(t, f.messages.Finish(ctx, reply.ID, resource.Outcome{
+				Content: "Review.", Status: domain.StatusComplete,
+				Meta: domain.Meta{TTFTMs: 5, DurationMs: 90, ToolCalls: []string{"t"}, Interaction: &card},
+			}))
+
+			got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+			require.NoError(t, err)
+			require.NotNil(t, got.Meta.Interaction)
+			assert.Equal(t, card, *got.Meta.Interaction)
+			assert.Equal(t, int64(5), got.Meta.TTFTMs)
+			listed, err := f.messages.List(ctx, f.alice, conv)
+			require.NoError(t, err)
+			require.NotNil(t, listed[1].Meta.Interaction, "and the list has it as well")
+			assert.Equal(t, card, *listed[1].Meta.Interaction)
+		})
+	}
+	t.Run("a reply that finishes with no card has none, and the table has no key for it", func(t *testing.T) {
+		conv := f.conversation(t, f.alice)
+		_, reply := f.turn(t, f.alice, conv, "hi", "hello")
+
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+
+		require.NoError(t, err)
+		assert.Nil(t, got.Meta.Interaction)
+		var hasKey bool
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT meta ? 'interaction' FROM messages WHERE id = $1`, reply.ID).Scan(&hasKey))
+		assert.False(t, hasKey)
 	})
 }

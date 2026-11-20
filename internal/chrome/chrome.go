@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -15,6 +16,8 @@ import (
 var (
 	// ErrLoginFailed means the Web UI refused the sign-in, or never finished it.
 	ErrLoginFailed = errors.New("signing in failed")
+	// ErrNoTab means that nothing was done on the page yet: Login opens the tab every other call works in.
+	ErrNoTab = errors.New("the browser has no tab: Login opens it")
 	// ErrSessionEnded means the Web UI asks to sign in again: its session has a lifetime.
 	ErrSessionEnded = errors.New("the Web UI session ended")
 )
@@ -68,6 +71,9 @@ func (c *Chrome) Login(ctx context.Context, email, password string) error {
 	}
 	emailBox, err := snap.Require(Query{Role: "textbox", Name: "Email"})
 	if err != nil {
+		if composerOf(snap) {
+			return nil // the Web UI took the browser past the sign-in page: it is signed in already
+		}
 		return fmt.Errorf("the sign-in page: %w", err)
 	}
 	passwordBox, err := snap.Require(Query{Role: "textbox", Name: "Password"})
@@ -126,10 +132,10 @@ func (c *Chrome) waitFor(ctx context.Context, ok func(Snapshot) bool) error {
 		if err == nil && ok(snap) {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if !time.Now().Before(deadline) {
 			return errors.New("the page did not show it in time")
 		}
-		if err := pause(ctx, cmp.Or(c.cfg.Poll, 250*time.Millisecond)); err != nil {
+		if err := pauseBefore(ctx, cmp.Or(c.cfg.Poll, 250*time.Millisecond), deadline); err != nil {
 			return err
 		}
 	}
@@ -167,10 +173,12 @@ func (c *Chrome) Screenshot(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	if len(res.Images) == 0 {
+	// A picture of no bytes is no picture: written out, it would be an empty file that looks like a screenshot.
+	i := slices.IndexFunc(res.Images, func(img Image) bool { return len(img.Data) > 0 })
+	if i < 0 {
 		return errors.New("the browser returned no picture")
 	}
-	return os.WriteFile(path, res.Images[0].Data, 0o600)
+	return os.WriteFile(path, res.Images[i].Data, 0o600)
 }
 
 // Close ends the browser session.
@@ -179,9 +187,9 @@ func (c *Chrome) Close(ctx context.Context) error { return c.s.Close(ctx) }
 // redactURL is an address without the credentials it may carry.
 func redactURL(address string) string {
 	u, err := url.Parse(address)
-	if err != nil {
+	if err != nil || u.Host == "" { // "user:password@host" parses, with a scheme and no host, and prints as it came
 		return "(an address)"
 	}
-	u.User = nil
+	u.User, u.RawQuery, u.Fragment, u.RawFragment = nil, "", "", ""
 	return u.String()
 }

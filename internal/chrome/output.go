@@ -16,9 +16,8 @@ type Page struct {
 	Selected bool
 }
 
-// pageLine matches "2: Fake chat (http://127.0.0.1:51008/) [selected]". The
-// title may hold parentheses itself, so the URL is the last group.
-var pageLine = regexp.MustCompile(`^(\d+): (.*?)\s*(?:\(([^()\s]*)\))?(\s+\[selected\])?$`)
+// pageLine matches "2: Fake chat (http://127.0.0.1:51008/) [selected]": the id, then what is left for splitAddress.
+var pageLine = regexp.MustCompile(`^(\d+): (.*?)(\s+\[selected\])?$`)
 
 // ParsePages reads the "## Pages" list that list_pages, new_page and several
 // other tools print.
@@ -29,14 +28,44 @@ func ParsePages(text string) []Page {
 		if m == nil {
 			continue
 		}
-		id, _ := strconv.Atoi(m[1]) // the pattern only lets digits through
-		p := Page{ID: id, Title: m[2], URL: m[3], Selected: m[4] != ""}
+		id, err := strconv.Atoi(m[1])
+		if err != nil { // more digits than a number holds: not a page of this browser
+			continue
+		}
+		p := Page{ID: id, Selected: m[3] != ""}
+		p.Title, p.URL = splitAddress(m[2])
 		if p.URL == "" && strings.Contains(p.Title, ":") && !strings.Contains(p.Title, " ") {
 			p.URL, p.Title = p.Title, "" // "1: about:blank" has a URL and no title
 		}
 		pages = append(pages, p)
 	}
 	return pages
+}
+
+// splitAddress splits "title (address)". Both may hold parentheses, so the address is what the last closing parenthesis closes:
+// a title like "Docs (beta)" is not one, and nor is a group that has no scheme or has white space in it.
+func splitAddress(rest string) (title, address string) {
+	rest = strings.TrimSpace(rest)
+	if !strings.HasSuffix(rest, ")") {
+		return rest, ""
+	}
+	depth := 0
+	for i := len(rest) - 1; i >= 0; i-- {
+		switch rest[i] {
+		case ')':
+			depth++
+		case '(':
+			if depth--; depth > 0 {
+				continue
+			}
+			candidate := rest[i+1 : len(rest)-1]
+			if !strings.Contains(candidate, ":") || strings.ContainsAny(candidate, " \t") {
+				return rest, ""
+			}
+			return strings.TrimSpace(rest[:i]), candidate
+		}
+	}
+	return rest, ""
 }
 
 // SelectedPage is the page the tools act on by default.

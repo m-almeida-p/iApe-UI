@@ -1,6 +1,7 @@
 package chrome
 
 import (
+	"context"
 	"os/exec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,3 +22,16 @@ func NewTailBuffer(max int) *TailBuffer { return &tailBuffer{max: max} }
 
 // OutputOf exposes what an error says of the output the server left behind.
 func OutputOf(t *TailBuffer) string { return outputOf(t) }
+
+// Shorten, Ending, ScriptName, PinnedPackage and RedactURL expose the small helpers whose rules the tests pin.
+func Shorten(text string, n int) string   { return shorten(text, n) }
+func Ending(text string, n int) string    { return ending(text, n) }
+func ScriptName(function string) string   { return scriptName(function) }
+func PinnedPackage(command []string) bool { return pinnedPackage(command) }
+func RedactURL(address string) string     { return redactURL(address) }
+func IsStale(err error) bool              { return isStale(err) }
+
+// Navigate goes to url on the tab, with an init script.
+func Navigate(c *Chrome, ctx context.Context, url, initScript string) error {
+	return c.tab.navigate(ctx, url, initScript)
+}

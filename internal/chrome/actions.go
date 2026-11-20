@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -16,6 +17,10 @@ type tab struct {
 }
 
 func (t *tab) call(ctx context.Context, tool string, args map[string]any, opts ...CallOption) (Result, error) {
+	if t.id == 0 {
+		return Result{}, fmt.Errorf("%w (calling %s)", ErrNoTab, tool)
+	}
+	args = maps.Clone(args) // the caller's map is theirs: it may go to another tab next
 	if args == nil {
 		args = map[string]any{}
 	}

@@ -100,6 +100,13 @@ func runFakeServer(args []string) int {
 	case behaviours["exit-at-start"]:
 		fmt.Fprintln(os.Stderr, "fatal: refusing to start")
 		return 3
+	case behaviours["garbage"]:
+		fmt.Fprintf(os.Stderr, "pid=%d\n", os.Getpid())
+		fmt.Println("this is not JSON-RPC")
+		fmt.Println(`{"jsonrpc":"2.0","id":"x"`)
+		fmt.Println("\x00\x01\x02")
+		time.Sleep(time.Hour) // and never answers the handshake
+		return 0
 	case behaviours["silent"]:
 		fmt.Fprintf(os.Stderr, "pid=%d\n", os.Getpid())
 		time.Sleep(time.Hour) // never answers the handshake

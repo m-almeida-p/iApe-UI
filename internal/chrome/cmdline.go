@@ -49,17 +49,19 @@ var childEnvNames = map[string]bool{
 
 var childEnvPrefixes = []string{"LC_", "XDG_", "NODE_", "NPM_", "NVM_", "FNM_", "VOLTA_", "ASDF_", "PNPM_", "CHROME_", "PUPPETEER_"}
 
-// secretName matches variable names that hold secrets, which never pass.
-var secretName = regexp.MustCompile(`(?i)(password|passwd|secret|token|credential|api[_-]?key|private[_-]?key|cookie)`)
+// secretName matches variable names that hold secrets, which never pass. "auth" is a word of its own: npm's _auth setting holds a
+// user and password, and XAUTHORITY, which the display needs, does not.
+var secretName = regexp.MustCompile(`(?i)(password|passwd|passphrase|secret|token|credential|bearer|api[_-]?key|private[_-]?key|cookie|(^|[_-])auth($|[_-]))`)
 
 // ChildEnv keeps, from an environment in the form os.Environ gives, what
 // Chrome DevTools MCP needs. The server is a package fetched from a registry and
 // it drives a browser; it has no use for the Hugging Face token, the Web UI
 // password or the database settings the evaluator's own environment holds, so it
 // does not get them. A name that looks like a secret is dropped even when it
-// would otherwise pass.
+// would otherwise pass. The result is never nil: a nil Env makes the process inherit this one's whole environment, which is what
+// all this is there to prevent, and an environment with nothing the server needs would be exactly that.
 func ChildEnv(environ []string) []string {
-	var out []string
+	out := []string{}
 	for _, kv := range environ {
 		name, _, ok := strings.Cut(kv, "=")
 		if !ok || name == "" || secretName.MatchString(name) {
@@ -94,5 +96,6 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 func (t *tailBuffer) String() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return strings.TrimSpace(string(t.buf))
+	// Keeping the end can cut a character in half at the start, and a write can stop in the middle of one at the end.
+	return strings.TrimSpace(strings.ToValidUTF8(string(t.buf), "\uFFFD"))
 }

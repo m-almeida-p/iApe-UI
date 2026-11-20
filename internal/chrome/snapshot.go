@@ -70,8 +70,11 @@ func (q Query) matches(n Node) bool {
 
 func (q Query) String() string {
 	var parts []string
-	if q.Role != "" {
+	switch {
+	case q.Role != "":
 		parts = append(parts, q.Role)
+	case q.Name != "" || q.NameContains != "" || q.NameMatches != nil || q.Flag != "":
+		parts = append(parts, "element") // "named Go" alone does not read
 	}
 	if q.Name != "" {
 		parts = append(parts, fmt.Sprintf("named %q", q.Name))
@@ -130,12 +133,13 @@ func (s Snapshot) RequireNth(q Query, skip int) (Node, error) {
 }
 
 // namesOfRole lists the nodes of a role (or every named node), to help whoever
-// reads the error.
+// reads the error. A name is cut: the message is logged and shown, and a page
+// can hold a name as long as its text.
 func (s Snapshot) namesOfRole(role string) []string {
 	var out []string
 	for _, n := range s.Nodes {
 		if (role == "" || n.Role == role) && n.Name != "" && len(out) < 12 {
-			out = append(out, n.String())
+			out = append(out, fmt.Sprintf("%s %q", n.Role, shorten(n.Name, 60)))
 		}
 	}
 	return out
@@ -157,7 +161,7 @@ func (e *NotFoundError) Error() string {
 }
 
 // nodeLine matches the start of a snapshot line: indentation, uid and role.
-var nodeLine = regexp.MustCompile(`^ *uid=(\S+) (\S+)(.*)$`)
+var nodeLine = regexp.MustCompile(`^[ \t]*uid=(\S+) (\S+)(.*)$`)
 
 // ParseSnapshot reads the text take_snapshot returns. Lines that are not
 // elements (the heading, a note about truncation) are ignored. The result has no

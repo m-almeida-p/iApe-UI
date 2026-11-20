@@ -156,8 +156,15 @@ type CallOption func(*callConfig)
 type callConfig struct{ timeout time.Duration }
 
 // WithTimeout gives one call more (or less) time than the session's default,
-// for tools that are slow by nature, such as a Lighthouse audit.
-func WithTimeout(d time.Duration) CallOption { return func(c *callConfig) { c.timeout = d } }
+// for tools that are slow by nature, such as a Lighthouse audit. A time that is not positive changes nothing: a call that has no time
+// at all would fail before it was made, and the session would take that for a lost browser.
+func WithTimeout(d time.Duration) CallOption {
+	return func(c *callConfig) {
+		if d > 0 {
+			c.timeout = d
+		}
+	}
+}
 
 // Call runs a tool.
 //
@@ -228,7 +235,7 @@ func toResult(tool string, res *mcp.CallToolResult) (Result, error) {
 	}
 	r.Text = strings.Join(texts, "\n")
 	if res.IsError {
-		return r, &ToolError{Tool: tool, Message: shorten(strings.TrimPrefix(strings.TrimSpace(r.Text), "Error: "), 500)}
+		return r, &ToolError{Tool: tool, Message: shorten(strings.TrimPrefix(strings.TrimSpace(r.Text), "Error:"), 500)}
 	}
 	return r, nil
 }

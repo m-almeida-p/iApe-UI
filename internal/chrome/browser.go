@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"iape-ui/internal/explore"
@@ -75,8 +76,12 @@ func (b *Browser) Send(ctx context.Context) error {
 // roles are what a step may press, in the order they are looked for: a card's buttons, the picker's options, links.
 var roles = []string{"button", "option", "link"}
 
-// Click implements explore.Browser.
+// Click implements explore.Browser. Text that says nothing is refused here, whatever the step parser does: it would press the first button
+// of the page, which may be any.
 func (b *Browser) Click(ctx context.Context, text string) (bool, error) {
+	if strings.TrimSpace(text) == "" {
+		return false, errors.New("nothing to press: the text of the button is empty")
+	}
 	for _, role := range roles {
 		err := b.Driver.Click(ctx, Query{Role: role, NameContains: text})
 		if err == nil {
@@ -101,13 +106,13 @@ func (b *Browser) Pick(ctx context.Context, text string) error {
 		if _, missing := errors.AsType[*NotFoundError](err); !missing {
 			return fmt.Errorf("choosing a contact in the picker: %w", err)
 		}
-		if time.Now().After(deadline) {
+		if !time.Now().Before(deadline) {
 			if text == "" {
 				return fmt.Errorf("the contact picker showed no contact within %s", within)
 			}
 			return fmt.Errorf("the contact picker did not show %q within %s", text, within)
 		}
-		if err := pause(ctx, b.poll()); err != nil {
+		if err := pauseBefore(ctx, b.poll(), deadline); err != nil {
 			return err
 		}
 	}
@@ -148,10 +153,10 @@ func (b *Browser) Settle(ctx context.Context) error {
 		} else if idle++; idle >= quiet {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if !time.Now().Before(deadline) {
 			return fmt.Errorf("the page still shows a reply being written after %s", limit)
 		}
-		if err := pause(ctx, b.poll()); err != nil {
+		if err := pauseBefore(ctx, b.poll(), deadline); err != nil {
 			return err
 		}
 	}
@@ -188,6 +193,11 @@ func (b *Browser) Requests(ctx context.Context) (string, error) {
 // Screenshot implements explore.Browser.
 func (b *Browser) Screenshot(ctx context.Context, path string) error {
 	return b.Driver.Screenshot(ctx, path)
+}
+
+// pauseBefore is pause, cut short at the deadline: a poll longer than the time a wait is given must not make it longer.
+func pauseBefore(ctx context.Context, d time.Duration, deadline time.Time) error {
+	return pause(ctx, max(0, min(d, time.Until(deadline))))
 }
 
 func pause(ctx context.Context, d time.Duration) error {
