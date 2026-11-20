@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/stretchr/testify/assert"
@@ -33,7 +34,8 @@ type harness struct {
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{msgs: mocks.NewMessageStore(t), actions: mocks.NewActionGateway(t), logs: &bytes.Buffer{}}
-	h.svc = interaction.NewService(interaction.Dependencies{Messages: h.msgs, Actions: h.actions, Logger: slog.New(slog.NewTextHandler(h.logs, nil))})
+	h.svc = interaction.NewService(interaction.Dependencies{Messages: h.msgs, Actions: h.actions, Logger: slog.New(slog.NewTextHandler(h.logs, nil)),
+		Now: func() time.Time { return started }, NewClaimID: func() string { return "claim-1" }})
 	return h
 }
 
@@ -60,11 +62,41 @@ func (h *harness) expectGet(m domain.Message) {
 	h.msgs.On("Get", mock.Anything, userID, convID, replyID).Return(m, nil).Once()
 }
 
-// expectSave expects the new card to be saved from state, with a context that is still usable.
+// expectClaim expects the card, as the reply has it in state from, to be claimed before the service is asked.
+func (h *harness) expectClaim(from domain.InteractionState) domain.Interaction {
+	return h.expectClaimOf(*cardIn(from))
+}
+
+// expectClaimOf expects card, as the reply has it, to be claimed before the service is asked.
+func (h *harness) expectClaimOf(card domain.Interaction) domain.Interaction {
+	claimed, _ := card.Claim("claim-1", started)
+	h.expectSaveOf(card, claimed, nil)
+	return claimed
+}
+
+// expectSave expects the card to be claimed and then, once the service answered, saved as want.
 func (h *harness) expectSave(from domain.InteractionState, want domain.Interaction, err error) {
+	h.expectSaveFrom(*cardIn(from), want, err)
+}
+
+// expectSaveFrom is expectSave for a card that is not the approval of cardIn.
+func (h *harness) expectSaveFrom(card, want domain.Interaction, err error) {
+	h.expectSaveOf(h.expectClaimOf(card), want, err)
+}
+
+// expectRelease expects the claim to be given back: the card goes back to what it was in state from.
+func (h *harness) expectRelease(from domain.InteractionState) { h.expectReleaseOf(*cardIn(from)) }
+
+// expectReleaseOf expects card to be claimed and the claim to be given back, so the card is as it was.
+func (h *harness) expectReleaseOf(card domain.Interaction) {
+	h.expectSaveOf(h.expectClaimOf(card), card, nil)
+}
+
+// expectSaveOf expects one save, with a context that is still usable.
+func (h *harness) expectSaveOf(from, to domain.Interaction, err error) {
 	h.msgs.On("SaveInteraction",
 		mock.MatchedBy(func(ctx context.Context) bool { return ctx.Err() == nil }),
-		userID, convID, replyID, from, want).Return(err).Once()
+		userID, convID, replyID, from, to).Return(err).Once()
 }
 
 func TestApprove(t *testing.T) {
@@ -146,6 +178,7 @@ func TestApprove(t *testing.T) {
 		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
 		refusal := &domain.ActionError{Message: "Transfer is no longer open"}
 		h.actions.On("Approve", mock.Anything, *cardIn(domain.InteractionPending)).Return(domain.ActionResult{}, refusal).Once()
+		h.expectRelease(domain.InteractionPending)
 
 		got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
 
@@ -158,7 +191,8 @@ func TestApprove(t *testing.T) {
 	t.Run("the agent being down leaves the card as it was and says so", func(t *testing.T) {
 		h := newHarness(t)
 		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
-		h.actions.On("Approve", mock.Anything, *cardIn(domain.InteractionPending)).Return(domain.ActionResult{}, domain.ErrAgentUnavailable).Once()
+		h.actions.On("Approve", mock.Anything, *cardIn(domain.InteractionPending)).Return(domain.ActionResult{}, errNotSent).Once()
+		h.expectRelease(domain.InteractionPending)
 
 		got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
 
@@ -248,6 +282,7 @@ func TestConfirmOTP(t *testing.T) {
 		h.expectGet(asking())
 		h.actions.On("ConfirmOTP", mock.Anything, *cardIn(domain.InteractionOTPRequired), "000000").
 			Return(domain.ActionResult{}, &domain.ActionError{Message: "OTP verification failed"}).Once()
+		h.expectRelease(domain.InteractionOTPRequired)
 
 		got, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, "000000")
 
@@ -284,6 +319,7 @@ func TestConfirmOTP(t *testing.T) {
 		h.expectGet(asking())
 		boom := errors.New("boom")
 		h.actions.On("ConfirmOTP", mock.Anything, *cardIn(domain.InteractionOTPRequired), "123456").Return(domain.ActionResult{}, boom).Once()
+		h.expectClaim(domain.InteractionOTPRequired) // it may have gone through: the card stays claimed
 
 		_, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, "123456")
 
@@ -303,7 +339,7 @@ func TestChooseContact(t *testing.T) {
 		h.expectGet(contactReply(domain.InteractionPending))
 		h.actions.On("ConfirmContact", mock.Anything, "Maria", maria).Return(nil).Once()
 		want := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionConfirmed, RequestID: "req-1", RunID: "run-1", Query: "Maria", Contact: maria}
-		h.expectSave(domain.InteractionPending, want, nil)
+		h.expectSaveFrom(*contactReply(domain.InteractionPending).Meta.Interaction, want, nil)
 
 		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 
@@ -340,6 +376,7 @@ func TestChooseContact(t *testing.T) {
 		h := newHarness(t)
 		h.expectGet(contactReply(domain.InteractionPending))
 		h.actions.On("ConfirmContact", mock.Anything, "Maria", maria).Return(&domain.ActionError{Message: "no such contact"}).Once()
+		h.expectReleaseOf(*contactReply(domain.InteractionPending).Meta.Interaction)
 
 		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 

@@ -20,6 +20,7 @@ type cardView struct {
 	CanPay      bool   // pending, and it says how much and to whom: Pay and Reject
 	Unpayable   bool   // pending, but it does not say how much or to whom: Reject only
 	AsksForCode bool   // the bank asked for a code: the field, and Reject
+	Processing  bool   // the answer is on its way to the service: nothing is offered
 	Amount      string
 	Name, Phone string
 	Message     string
@@ -61,6 +62,7 @@ func newCardView(m domain.Message) *cardView {
 		CanPay:      pending && payable(card.Transfer),
 		Unpayable:   pending && !payable(card.Transfer),
 		AsksForCode: card.State == domain.InteractionOTPRequired,
+		Processing:  card.State == domain.InteractionProcessing,
 		Amount:      amountText(card.Transfer),
 		Name:        plain(card.Transfer.DestinationName),
 		Phone:       plain(card.Transfer.DestinationPhone),
@@ -74,7 +76,7 @@ func newCardView(m domain.Message) *cardView {
 
 // newContactView draws a contact card: the candidates while it is pending, whom the user chose once it is confirmed.
 func newContactView(card *domain.Interaction, base string) *cardView {
-	v := &cardView{State: string(card.State), Open: card.Open(), IsContact: true, ContactURL: base + "contact"}
+	v := &cardView{State: string(card.State), Open: card.Open(), Processing: card.State == domain.InteractionProcessing, IsContact: true, ContactURL: base + "contact"}
 	if card.State == domain.InteractionPending {
 		for i, c := range domain.Candidates(card.Query) {
 			v.Candidates = append(v.Candidates, candidateView{Name: c.Name, Phone: c.Phone, Choice: strconv.Itoa(i)})

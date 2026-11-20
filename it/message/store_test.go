@@ -649,7 +649,7 @@ func TestSaveInteraction(t *testing.T) {
 		paid, err := before.Meta.Interaction.Approved("Transfer paid successfully. TxnID: OP-1", "")
 		require.NoError(t, err)
 
-		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid))
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), paid))
 
 		after, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
 		require.NoError(t, err)
@@ -669,7 +669,7 @@ func TestSaveInteraction(t *testing.T) {
 		var wg sync.WaitGroup
 		for range callers {
 			wg.Go(func() {
-				results <- f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+				results <- f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), card)
 			})
 		}
 		wg.Wait()
@@ -694,7 +694,7 @@ func TestSaveInteraction(t *testing.T) {
 		conv := f.conversation(t, f.alice)
 		reply := f.cardReply(t, f.alice, conv, domain.InteractionPaid)
 
-		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending,
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending),
 			domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionRejected, ApprovalID: "appr_1"})
 
 		require.ErrorIs(t, err, domain.ErrInvalidState)
@@ -707,7 +707,7 @@ func TestSaveInteraction(t *testing.T) {
 		conv := f.conversation(t, f.alice)
 		_, reply := f.turn(t, f.alice, conv, "hi", "hello")
 
-		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending,
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending),
 			domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionPaid})
 
 		require.ErrorIs(t, err, domain.ErrInvalidState)
@@ -718,8 +718,8 @@ func TestSaveInteraction(t *testing.T) {
 		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
 		card := domain.Interaction{Kind: domain.InteractionApproval, State: domain.InteractionRejected, ApprovalID: "appr_1"}
 
-		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.bob, conv, reply.ID, domain.InteractionPending, card), domain.ErrNotFound)
-		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, uuid.NewV7(), domain.InteractionPending, card), domain.ErrNotFound)
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.bob, conv, reply.ID, at(domain.InteractionPending), card), domain.ErrNotFound)
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, uuid.NewV7(), at(domain.InteractionPending), card), domain.ErrNotFound)
 		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
 		require.NoError(t, err)
 		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
@@ -796,7 +796,7 @@ func TestSaveInteraction_RepliesThatCannotBeAnswered(t *testing.T) {
 			reply := f.replyIn(t, f.alice, conv, status, approval(domain.InteractionPending))
 			before := f.rowOf(t, reply.ID)
 
-			err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid)
+			err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), paid)
 
 			require.ErrorIs(t, err, domain.ErrInvalidState)
 			assert.Equal(t, before, f.rowOf(t, reply.ID), "nothing changed, not even updated_at")
@@ -809,7 +809,7 @@ func TestSaveInteraction_RepliesThatCannotBeAnswered(t *testing.T) {
 		f.setMeta(t, user.ID, fmt.Sprintf(`{"interaction": %s}`, mustJSON(t, approval(domain.InteractionPending))))
 		before := f.rowOf(t, user.ID)
 
-		err = f.messages.SaveInteraction(ctx, f.alice, conv, user.ID, domain.InteractionPending, paid)
+		err = f.messages.SaveInteraction(ctx, f.alice, conv, user.ID, at(domain.InteractionPending), paid)
 
 		require.ErrorIs(t, err, domain.ErrInvalidState)
 		assert.Equal(t, before, f.rowOf(t, user.ID))
@@ -827,7 +827,7 @@ func TestSaveInteraction_RepliesThatCannotBeAnswered(t *testing.T) {
 			f.setMeta(t, reply.ID, meta)
 			before := f.rowOf(t, reply.ID)
 
-			err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid)
+			err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), paid)
 
 			require.ErrorIs(t, err, domain.ErrInvalidState, name)
 			assert.Equal(t, before, f.rowOf(t, reply.ID), name)
@@ -844,7 +844,7 @@ func TestSaveInteraction_TheCheckIsOnTheStateAlone(t *testing.T) {
 	contact := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionPending, RequestID: "req_1", Query: "Rosa"}
 	reply := f.replyIn(t, f.alice, conv, domain.StatusComplete, contact)
 
-	require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+	require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), approval(domain.InteractionPaid)))
 
 	got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
 	require.NoError(t, err)
@@ -867,7 +867,7 @@ func TestSaveInteraction_ManyAtOnce(t *testing.T) {
 				card := approval(domain.InteractionPaid)
 				card.Result = fmt.Sprint("answer ", i)
 				<-start
-				results <- f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+				results <- f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), card)
 			})
 		}
 		close(start)
@@ -899,11 +899,11 @@ func TestSaveInteraction_ManyAtOnce(t *testing.T) {
 		needsCode.ChallengeID = "chal_1"
 		paid := approval(domain.InteractionPaid)
 
-		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, needsCode))
-		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid), domain.ErrInvalidState,
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), needsCode))
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), paid), domain.ErrInvalidState,
 			"the one who still saw it pending is late")
-		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionOTPRequired, paid))
-		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionOTPRequired, paid), domain.ErrInvalidState,
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionOTPRequired), paid))
+		require.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionOTPRequired), paid), domain.ErrInvalidState,
 			"and so is the one who saw it ask for the code")
 
 		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
@@ -918,7 +918,7 @@ func TestSaveInteraction_ManyAtOnce(t *testing.T) {
 		errs := make([]error, 2)
 		for i, id := range []uuid.UUID{first.ID, second.ID} {
 			wg.Go(func() {
-				errs[i] = f.messages.SaveInteraction(ctx, f.alice, conv, id, domain.InteractionPending, approval(domain.InteractionRejected))
+				errs[i] = f.messages.SaveInteraction(ctx, f.alice, conv, id, at(domain.InteractionPending), approval(domain.InteractionRejected))
 			})
 		}
 		wg.Wait()
@@ -949,7 +949,7 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 			card.Transfer.Message = result
 			card.Prompt = result
 
-			require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card), name)
+			require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), card), name)
 
 			got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
 			require.NoError(t, err, name)
@@ -965,7 +965,7 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 
 		var err error
 		require.NotPanics(t, func() {
-			err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+			err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), card)
 		})
 
 		require.Error(t, err)
@@ -984,7 +984,7 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 		card := approval(domain.InteractionPaid)
 		card.Result = "bad \xff\xfe bytes"
 
-		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), card)
 
 		require.ErrorContains(t, err, "encoding the card")
 		assert.Equal(t, before, f.rowOf(t, reply.ID))
@@ -996,7 +996,7 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 		card := approval(domain.InteractionPaid)
 		card.Transfer.Amount = math.NaN()
 
-		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, card)
+		err := f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), card)
 
 		require.ErrorContains(t, err, "encoding the card")
 		assert.Equal(t, before, f.rowOf(t, reply.ID))
@@ -1008,7 +1008,7 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 
 		var err error
 		require.NotPanics(t, func() {
-			err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, "pend\x00ing", approval(domain.InteractionPaid))
+			err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at("pend\x00ing"), approval(domain.InteractionPaid))
 		})
 
 		require.Error(t, err)
@@ -1020,12 +1020,12 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
 
 		// Its state is empty, so nobody can answer it again: from "pending" is not "".
-		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, domain.Interaction{}))
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), domain.Interaction{}))
 
 		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
 		require.NoError(t, err)
 		assert.Equal(t, domain.Interaction{}, *got.Meta.Interaction)
-		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)), domain.ErrInvalidState)
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), approval(domain.InteractionPaid)), domain.ErrInvalidState)
 	})
 	t.Run("the rest of the reply is as it was", func(t *testing.T) {
 		conv := f.conversation(t, f.alice)
@@ -1043,7 +1043,7 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 		}
 		keysBefore, before := others(), f.rowOf(t, reply.ID)
 
-		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), approval(domain.InteractionPaid)))
 
 		assert.Equal(t, keysBefore, others(), "every other key is as it was, the unknown ones too")
 		after := f.rowOf(t, reply.ID)
@@ -1065,7 +1065,7 @@ func TestSaveInteraction_WhatItWrites(t *testing.T) {
 		beforeConv, err := f.conversations.Get(ctx, f.alice, conv)
 		require.NoError(t, err)
 
-		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), approval(domain.InteractionPaid)))
 
 		assert.Equal(t, beforeOther, f.rowOf(t, other.ID))
 		afterConv, err := f.conversations.Get(ctx, f.alice, conv)
@@ -1086,7 +1086,7 @@ func TestSaveInteraction_WhoseMessageItIs(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, f.conversations.Delete(ctx, f.alice, conv))
 
-		err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, domain.InteractionPending, paid)
+		err = f.messages.SaveInteraction(ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), paid)
 
 		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
@@ -1095,7 +1095,7 @@ func TestSaveInteraction_WhoseMessageItIs(t *testing.T) {
 		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
 		before := f.rowOf(t, reply.ID)
 
-		err := f.messages.SaveInteraction(ctx, f.bob, conv, reply.ID, domain.InteractionPending, paid)
+		err := f.messages.SaveInteraction(ctx, f.bob, conv, reply.ID, at(domain.InteractionPending), paid)
 
 		require.ErrorIs(t, err, domain.ErrNotFound)
 		assert.Equal(t, before, f.rowOf(t, reply.ID))
@@ -1106,7 +1106,7 @@ func TestSaveInteraction_WhoseMessageItIs(t *testing.T) {
 		elsewhere := f.conversation(t, f.alice)
 		before := f.rowOf(t, reply.ID)
 
-		err := f.messages.SaveInteraction(ctx, f.alice, elsewhere, reply.ID, domain.InteractionPending, paid)
+		err := f.messages.SaveInteraction(ctx, f.alice, elsewhere, reply.ID, at(domain.InteractionPending), paid)
 
 		require.ErrorIs(t, err, domain.ErrNotFound)
 		assert.Equal(t, before, f.rowOf(t, reply.ID))
@@ -1116,7 +1116,7 @@ func TestSaveInteraction_WhoseMessageItIs(t *testing.T) {
 		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
 		bobs := f.conversation(t, f.bob)
 
-		err := f.messages.SaveInteraction(ctx, f.bob, bobs, reply.ID, domain.InteractionPending, paid)
+		err := f.messages.SaveInteraction(ctx, f.bob, bobs, reply.ID, at(domain.InteractionPending), paid)
 
 		require.ErrorIs(t, err, domain.ErrNotFound)
 	})
@@ -1124,9 +1124,9 @@ func TestSaveInteraction_WhoseMessageItIs(t *testing.T) {
 		conv := f.conversation(t, f.alice)
 		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
 
-		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, uuid.NewV7(), reply.ID, domain.InteractionPending, paid), domain.ErrNotFound)
-		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, uuid.NewV7(), conv, reply.ID, domain.InteractionPending, paid), domain.ErrNotFound)
-		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, uuid.Nil(), domain.InteractionPending, paid), domain.ErrNotFound)
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, uuid.NewV7(), reply.ID, at(domain.InteractionPending), paid), domain.ErrNotFound)
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, uuid.NewV7(), conv, reply.ID, at(domain.InteractionPending), paid), domain.ErrNotFound)
+		assert.ErrorIs(t, f.messages.SaveInteraction(ctx, f.alice, conv, uuid.Nil(), at(domain.InteractionPending), paid), domain.ErrNotFound)
 	})
 }
 
@@ -1148,7 +1148,7 @@ func TestSaveInteraction_AContextThatEnds(t *testing.T) {
 		"a deadline passed": {past, context.DeadlineExceeded},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := f.messages.SaveInteraction(tc.ctx, f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid))
+			err := f.messages.SaveInteraction(tc.ctx, f.alice, conv, reply.ID, at(domain.InteractionPending), approval(domain.InteractionPaid))
 
 			require.ErrorIs(t, err, tc.want)
 			assert.NotErrorIs(t, err, domain.ErrInvalidState, "a card is not refused because the caller gave up")
@@ -1157,7 +1157,7 @@ func TestSaveInteraction_AContextThatEnds(t *testing.T) {
 		})
 	}
 	t.Run("the same call on a live context works", func(t *testing.T) {
-		require.NoError(t, f.messages.SaveInteraction(t.Context(), f.alice, conv, reply.ID, domain.InteractionPending, approval(domain.InteractionPaid)))
+		require.NoError(t, f.messages.SaveInteraction(t.Context(), f.alice, conv, reply.ID, at(domain.InteractionPending), approval(domain.InteractionPaid)))
 	})
 }
 
@@ -1208,5 +1208,138 @@ func TestFinish_StoresACardAndGetReadsItBack(t *testing.T) {
 		var hasKey bool
 		require.NoError(t, f.pool.QueryRow(ctx, `SELECT meta ? 'interaction' FROM messages WHERE id = $1`, reply.ID).Scan(&hasKey))
 		assert.False(t, hasKey)
+	})
+}
+
+// at is a card as it is read in a state, under no claim: what a caller that read it passes to SaveInteraction as from.
+func at(state domain.InteractionState) domain.Interaction { return domain.Interaction{State: state} }
+
+func TestSaveInteraction_TheClaimOfACard(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	now := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	newCard := func(t *testing.T) (uuid.UUID, uuid.UUID, domain.Interaction) {
+		t.Helper()
+		conv := f.conversation(t, f.alice)
+		reply := f.cardReply(t, f.alice, conv, domain.InteractionPending)
+		got, err := f.messages.Get(ctx, f.alice, conv, reply.ID)
+		require.NoError(t, err)
+		return conv, reply.ID, *got.Meta.Interaction
+	}
+	read := func(t *testing.T, conv, id uuid.UUID) domain.Interaction {
+		t.Helper()
+		got, err := f.messages.Get(ctx, f.alice, conv, id)
+		require.NoError(t, err)
+		require.NotNil(t, got.Meta.Interaction)
+		return *got.Meta.Interaction
+	}
+
+	t.Run("a card is claimed, and finished by the one that holds the claim", func(t *testing.T) {
+		conv, id, card := newCard(t)
+		claimed, err := card.Claim("claim-1", now)
+		require.NoError(t, err)
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, card, claimed))
+		assert.Equal(t, claimed, read(t, conv, id), "the claim is saved with its id, its time and the state to go back to")
+
+		paid, err := card.Approved("Paid", "")
+		require.NoError(t, err)
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, claimed, paid))
+		assert.Equal(t, paid, read(t, conv, id))
+		assert.Empty(t, read(t, conv, id).ClaimID, "a finished card carries no claim")
+	})
+
+	t.Run("a claim is given back, and the card is as it was", func(t *testing.T) {
+		conv, id, card := newCard(t)
+		claimed, err := card.Claim("claim-1", now)
+		require.NoError(t, err)
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, card, claimed))
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, claimed, claimed.Base()))
+
+		assert.Equal(t, card, read(t, conv, id))
+	})
+
+	t.Run("the claim of another cannot finish a card", func(t *testing.T) {
+		conv, id, card := newCard(t)
+		claimed, err := card.Claim("claim-1", now)
+		require.NoError(t, err)
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, card, claimed))
+		paid, err := card.Approved("Paid", "")
+		require.NoError(t, err)
+		other := claimed
+		other.ClaimID = "claim-2"
+
+		err = f.messages.SaveInteraction(ctx, f.alice, conv, id, other, paid)
+
+		require.ErrorIs(t, err, domain.ErrInvalidState)
+		assert.Equal(t, claimed, read(t, conv, id), "nothing changed")
+	})
+
+	t.Run("a card that is claimed is not claimed again by one that read it before", func(t *testing.T) {
+		conv, id, card := newCard(t)
+		first, err := card.Claim("claim-1", now)
+		require.NoError(t, err)
+		second, err := card.Claim("claim-2", now)
+		require.NoError(t, err)
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, card, first))
+		err = f.messages.SaveInteraction(ctx, f.alice, conv, id, card, second)
+
+		require.ErrorIs(t, err, domain.ErrInvalidState)
+		assert.Equal(t, "claim-1", read(t, conv, id).ClaimID)
+	})
+
+	t.Run("a stale claim is taken over by one, and the old holder loses", func(t *testing.T) {
+		conv, id, card := newCard(t)
+		old, err := card.Claim("claim-1", now)
+		require.NoError(t, err)
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, card, old))
+		later := now.Add(domain.ClaimTTL)
+		taken, err := old.Reclaim("claim-2", later)
+		require.NoError(t, err)
+
+		require.NoError(t, f.messages.SaveInteraction(ctx, f.alice, conv, id, old, taken))
+
+		assert.Equal(t, "claim-2", read(t, conv, id).ClaimID)
+		paid, err := card.Approved("Paid", "")
+		require.NoError(t, err)
+		err = f.messages.SaveInteraction(ctx, f.alice, conv, id, old, paid)
+		require.ErrorIs(t, err, domain.ErrInvalidState, "the holder of the old claim is too late to finish it")
+		assert.Equal(t, "claim-2", read(t, conv, id).ClaimID)
+	})
+
+	t.Run("of fifty that claim the same card exactly one holds it", func(t *testing.T) {
+		conv, id, card := newCard(t)
+		const callers = 50
+		results := make(chan error, callers)
+		var wg sync.WaitGroup
+		for i := range callers {
+			wg.Go(func() {
+				claimed, err := card.Claim(fmt.Sprintf("claim-%d", i), now)
+				if err != nil {
+					results <- err
+					return
+				}
+				results <- f.messages.SaveInteraction(ctx, f.alice, conv, id, card, claimed)
+			})
+		}
+		wg.Wait()
+		close(results)
+
+		wins, refused := 0, 0
+		for err := range results {
+			switch {
+			case err == nil:
+				wins++
+			case errors.Is(err, domain.ErrInvalidState):
+				refused++
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}
+		assert.Equal(t, 1, wins)
+		assert.Equal(t, callers-1, refused)
+		assert.Equal(t, domain.InteractionProcessing, read(t, conv, id).State)
 	})
 }

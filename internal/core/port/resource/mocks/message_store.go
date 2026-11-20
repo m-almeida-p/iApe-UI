@@ -216,7 +216,7 @@ func (_m *MessageStore) ReplaceLastAssistant(ctx context.Context, userID uuid.UU
 }
 
 // SaveInteraction provides a mock function with given fields: ctx, userID, convID, msgID, from, card
-func (_m *MessageStore) SaveInteraction(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID, from domain.InteractionState, card domain.Interaction) error {
+func (_m *MessageStore) SaveInteraction(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID, from domain.Interaction, card domain.Interaction) error {
 	ret := _m.Called(ctx, userID, convID, msgID, from, card)
 
 	if len(ret) == 0 {
@@ -224,7 +224,7 @@ func (_m *MessageStore) SaveInteraction(ctx context.Context, userID uuid.UUID, c
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.InteractionState, domain.Interaction) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.Interaction, domain.Interaction) error); ok {
 		r0 = rf(ctx, userID, convID, msgID, from, card)
 	} else {
 		r0 = ret.Error(0)

@@ -4,6 +4,7 @@ package interaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -30,11 +31,13 @@ func plausibleCode(code string) bool {
 		!strings.ContainsFunc(code, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
 }
 
-// Dependencies are what the service needs.
+// Dependencies are what the service needs. Now and NewClaimID are for tests: they default to the clock and to a new id each.
 type Dependencies struct {
-	Messages resource.MessageStore
-	Actions  resource.ActionGateway
-	Logger   *slog.Logger
+	Messages   resource.MessageStore
+	Actions    resource.ActionGateway
+	Logger     *slog.Logger
+	Now        func() time.Time
+	NewClaimID func() string
 }
 
 // Service implements service.Interactions.
@@ -43,13 +46,21 @@ type Service struct{ deps Dependencies }
 var _ service.Interactions = (*Service)(nil)
 
 // NewService returns the service.
-func NewService(d Dependencies) *Service { return &Service{deps: d} }
+func NewService(d Dependencies) *Service {
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	if d.NewClaimID == nil {
+		d.NewClaimID = func() string { return uuid.NewV7().String() }
+	}
+	return &Service{deps: d}
+}
 
 // Approve implements service.Interactions.
 func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
 	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool {
 		return card.Kind == domain.InteractionApproval && card.State == domain.InteractionPending
-	},
+	}, nil,
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			res, err := s.deps.Actions.Approve(ctx, card)
 			if err != nil {
@@ -62,7 +73,7 @@ func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) 
 // Reject implements service.Interactions.
 func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
 	return s.answer(ctx, userID, convID, msgID,
-		func(card domain.Interaction) bool { return card.Kind == domain.InteractionApproval && card.Open() },
+		func(card domain.Interaction) bool { return card.Kind == domain.InteractionApproval && card.Open() }, nil,
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			res, err := s.deps.Actions.Reject(ctx, card)
 			if err != nil {
@@ -78,10 +89,13 @@ func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUI
 	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool {
 		return card.Kind == domain.InteractionApproval && card.State == domain.InteractionOTPRequired
 	},
-		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
+		func(domain.Interaction) error {
 			if !plausibleCode(code) {
-				return card, &domain.ActionError{Message: "Enter the code the bank sent you."}
+				return &domain.ActionError{Message: "Enter the code the bank sent you."}
 			}
+			return nil
+		},
+		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			res, err := s.deps.Actions.ConfirmOTP(ctx, card, code)
 			if err != nil {
 				return card, err
@@ -95,6 +109,12 @@ func (s *Service) ChooseContact(ctx context.Context, userID, convID, msgID uuid.
 	return s.answer(ctx, userID, convID, msgID,
 		func(card domain.Interaction) bool {
 			return card.Kind == domain.InteractionContact && card.State == domain.InteractionPending
+		},
+		func(card domain.Interaction) error {
+			if choice < 0 || choice >= len(domain.Candidates(card.Query)) {
+				return &domain.ActionError{Message: "Choose one of the contacts."}
+			}
+			return nil
 		},
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			contact, err := s.confirm(ctx, card.Query, choice)
@@ -131,12 +151,20 @@ func (s *Service) confirm(ctx context.Context, reference string, choice int) (do
 	return candidates[choice], nil
 }
 
-// answer is what the three answers share: load the card, check it takes the answer, let the service act, and save the card in
-// its new state only if it is still in the state that was read (the compare-and-set). An action that did not go through (a refusal, the agent down) returns the
-// reply with the card as it was, along with the error.
+// answer is what the answers share. The card is claimed (saved as processing, with the compare-and-set) BEFORE the service is
+// asked, so that of several answers to the same card (a double tap, a second tab, the retries of a phone's network) only the one that
+// holds the claim reaches the service. Then:
+//   - the service acted: the card is saved in its new state, from the claim;
+//   - the service said no, or the request certainly never left (domain.ErrNotSent): nothing was done, so the claim is given back and
+//     the card is as it was, with the reason;
+//   - anything else (a timeout, a dropped connection, a gateway error): the service may have acted, so the card stays claimed, and
+//     shows as being answered, until its claim goes stale (domain.ClaimTTL) and someone answers again.
+//
+// accepts says which cards take the answer; check (it may be nil) refuses an answer that cannot be right before anything is claimed.
 func (s *Service) answer(
 	ctx context.Context, userID, convID, msgID uuid.UUID,
 	accepts func(domain.Interaction) bool,
+	check func(domain.Interaction) error,
 	act func(context.Context, domain.Interaction) (domain.Interaction, error),
 ) (domain.Message, error) {
 	msg, err := s.deps.Messages.Get(ctx, userID, convID, msgID)
@@ -144,25 +172,66 @@ func (s *Service) answer(
 		return domain.Message{}, err
 	}
 	card := msg.Meta.Interaction
-	// Only a finished reply has a card that can be answered: the save below is refused for any other, by when the service has
-	// acted already. A reply that failed or was stopped keeps its text, and its card is not for paying.
-	if msg.Role != domain.RoleAssistant || msg.Status != domain.StatusComplete || card == nil || !accepts(*card) {
+	now := s.deps.Now()
+	// Only a finished reply has a card that can be answered. A reply that failed or was stopped keeps its text, and its card is not
+	// for paying. A card that is being answered is not answered again, unless its claim went stale.
+	if msg.Role != domain.RoleAssistant || msg.Status != domain.StatusComplete || card == nil ||
+		(card.State == domain.InteractionProcessing && !card.Stale(now)) || !accepts(card.Base()) {
 		return domain.Message{}, fmt.Errorf("the message has no card that takes this answer: %w", domain.ErrInvalidState)
 	}
+	base := card.Base()
+	if check != nil {
+		if err := check(base); err != nil {
+			return msg, err // a mistake of the user is not worth a claim
+		}
+	}
 
-	next, err := act(ctx, *card)
+	claim := card.Claim
+	if card.State == domain.InteractionProcessing {
+		claim = card.Reclaim
+	}
+	claimed, err := claim(s.deps.NewClaimID(), now)
 	if err != nil {
-		return msg, err // the card is as it was: the page can show it again with the reason
+		return domain.Message{}, err
+	}
+	if err := s.deps.Messages.SaveInteraction(ctx, userID, convID, msgID, *card, claimed); err != nil {
+		return domain.Message{}, err // someone else claimed it first, or the store failed: the service is not asked
+	}
+
+	next, err := act(ctx, base)
+	if err != nil {
+		msg.Meta.Interaction = &claimed
+		if !untouched(err) {
+			return msg, err // it may have gone through: the card stays claimed
+		}
+		if releaseErr := s.save(ctx, userID, convID, msgID, claimed, base); releaseErr != nil {
+			s.deps.Logger.ErrorContext(ctx, "a card was claimed, the service refused it, and the claim was not given back",
+				"approval_id", base.ApprovalID, "error", releaseErr)
+			return msg, err
+		}
+		msg.Meta.Interaction = &base
+		return msg, err // the page shows the card again with the reason
 	}
 
 	// The service has acted: save the answer even if the request is gone.
-	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveTimeout)
-	defer cancel()
-	if err := s.deps.Messages.SaveInteraction(saveCtx, userID, convID, msgID, card.State, next); err != nil {
+	if err := s.save(ctx, userID, convID, msgID, claimed, next); err != nil {
 		s.deps.Logger.ErrorContext(ctx, "the service answered a card but its answer was not saved",
-			"approval_id", card.ApprovalID, "from", card.State, "to", next.State, "error", err)
+			"approval_id", base.ApprovalID, "from", base.State, "to", next.State, "error", err)
 		return domain.Message{}, err
 	}
 	msg.Meta.Interaction = &next
 	return msg, nil
+}
+
+// save writes the card even if the request is gone: what the service did must be on the card.
+func (s *Service) save(ctx context.Context, userID, convID, msgID uuid.UUID, from, card domain.Interaction) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveTimeout)
+	defer cancel()
+	return s.deps.Messages.SaveInteraction(ctx, userID, convID, msgID, from, card)
+}
+
+// untouched reports whether a failed answer certainly did nothing at the service: it said no, or the request never reached it.
+func untouched(err error) bool {
+	_, refused := errors.AsType[*domain.ActionError](err)
+	return refused || errors.Is(err, domain.ErrNotSent)
 }

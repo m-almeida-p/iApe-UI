@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // InteractionKind says what a card asks of the user.
@@ -31,7 +32,14 @@ const (
 	InteractionRejected InteractionState = "rejected"
 	// InteractionConfirmed is closed: the user chose the contact.
 	InteractionConfirmed InteractionState = "confirmed"
+	// InteractionProcessing is an answer on its way to the agent's service: someone claimed the card before asking, so that no other
+	// answer to it is sent too. The card's state before the claim is in Resume.
+	InteractionProcessing InteractionState = "processing"
 )
+
+// ClaimTTL is how long an answer is given to come back before its claim can be taken over: a server that died in the middle of a call
+// must not leave a card nobody can answer.
+const ClaimTTL = 2 * time.Minute
 
 // Transfer is what an approval card shows. The amount is for display, it is never computed with.
 type Transfer struct {
@@ -69,6 +77,12 @@ type Interaction struct {
 	Prompt    string `json:"prompt,omitempty"`
 	// Contact is whom the user chose, once they did.
 	Contact Contact `json:"contact,omitzero"`
+
+	// ClaimID, ClaimedAt and Resume are the claim of a card in state processing: who holds it, since when, and the state it goes back to
+	// if the answer is refused.
+	ClaimID   string           `json:"claim_id,omitempty"`
+	ClaimedAt time.Time        `json:"claimed_at,omitzero"`
+	Resume    InteractionState `json:"resume,omitempty"`
 }
 
 // Open reports whether the card still waits for the user.
@@ -135,4 +149,42 @@ func (i Interaction) ContactChosen(c Contact) (Interaction, error) {
 	}
 	i.State, i.Contact = InteractionConfirmed, c
 	return i, nil
+}
+
+// Claim marks the card as being answered, by the claim named id at now. The service is asked only by whoever holds the claim, so a
+// double tap, a second tab or a retry of the phone's network cannot send the same answer twice. A card that cannot be answered (closed,
+// or already claimed) is ErrInvalidState: take over a stale claim with Reclaim.
+func (i Interaction) Claim(id string, now time.Time) (Interaction, error) {
+	if id == "" || (i.State != InteractionPending && i.State != InteractionOTPRequired) {
+		return i, fmt.Errorf("claiming a %s card that is %s: %w", i.Kind, i.State, ErrInvalidState)
+	}
+	return i.claimed(id, now, i.State), nil
+}
+
+func (i Interaction) claimed(id string, now time.Time, resume InteractionState) Interaction {
+	i.State, i.ClaimID, i.ClaimedAt, i.Resume = InteractionProcessing, id, now, resume
+	return i
+}
+
+// Stale reports whether the claim on the card has had its time (ClaimTTL) at now.
+func (i Interaction) Stale(now time.Time) bool {
+	return i.State == InteractionProcessing && !now.Before(i.ClaimedAt.Add(ClaimTTL))
+}
+
+// Reclaim takes over a stale claim for the claim named id, which keeps the state the card goes back to. A card whose claim is still
+// within its time, or that is not claimed, is ErrInvalidState.
+func (i Interaction) Reclaim(id string, now time.Time) (Interaction, error) {
+	if id == "" || !i.Stale(now) {
+		return i, fmt.Errorf("taking over a %s card that is %s: %w", i.Kind, i.State, ErrInvalidState)
+	}
+	return i.claimed(id, now, i.Resume), nil
+}
+
+// Base is the card as it was before it was claimed; a card that was not claimed is its own base.
+func (i Interaction) Base() Interaction {
+	if i.State != InteractionProcessing {
+		return i
+	}
+	i.State, i.ClaimID, i.ClaimedAt, i.Resume = i.Resume, "", time.Time{}, ""
+	return i
 }

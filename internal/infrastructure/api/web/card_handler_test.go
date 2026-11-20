@@ -1081,3 +1081,44 @@ func TestChooseContact_IsLimitedLikeASend(t *testing.T) {
 		}
 	})
 }
+
+// A card that is being answered (someone claimed it before asking the service) offers nothing: the answer is on its way, and
+// answering again is what the claim is there to prevent.
+func TestCard_BeingAnsweredOffersNothing(t *testing.T) {
+	for name, base := range map[string]domain.InteractionState{"a payment": domain.InteractionPending, "a code": domain.InteractionOTPRequired} {
+		t.Run(name, func(t *testing.T) {
+			h := newChatHarness(t)
+			m := cardReply(base)
+			claimed, err := m.Meta.Interaction.Claim("claim-1", time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC))
+			require.NoError(t, err)
+			m.Meta.Interaction = &claimed
+			h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(m, nil)
+
+			rec := h.do(http.MethodPost, stopPath(), nil, htmx)
+			root := parseHTML(t, rec.Body.String())
+
+			assert.Equal(t, "processing", attrOf(byTestID(root, "card")[0], "data-state"))
+			assert.Len(t, byTestID(root, "card-processing"), 1, "it says the answer is on its way")
+			for _, id := range []string{"card-pay", "card-reject", "card-otp-input", "card-otp-submit"} {
+				assert.Empty(t, byTestID(root, id), "%s is not offered while the card is being answered", id)
+			}
+			assert.Contains(t, textContent(byTestID(root, "card-amount")[0]), "20.00", "the transfer is still shown")
+		})
+	}
+}
+
+func TestContactCard_BeingAnsweredOffersNoCandidates(t *testing.T) {
+	h := newChatHarness(t)
+	m := reply(domain.StatusComplete, "Who is Maria?")
+	card := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionPending, RequestID: "req-1", RunID: "run-1", Query: "Maria"}
+	claimed, err := card.Claim("claim-1", time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	m.Meta.Interaction = &claimed
+	h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(m, nil)
+
+	root := parseHTML(t, h.do(http.MethodPost, stopPath(), nil, htmx).Body.String())
+
+	assert.Equal(t, "processing", attrOf(byTestID(root, "card")[0], "data-state"))
+	assert.Len(t, byTestID(root, "card-processing"), 1)
+	assert.Empty(t, byTestID(root, "card-contact"), "no candidate can be chosen twice")
+}

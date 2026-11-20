@@ -88,5 +88,27 @@ Edge-case tests found these, and they are choices more than bugs, so they stay a
 - **A graceful close of Chrome DevTools MCP** does not kill its process group, so a Chrome helper that outlives the server would survive it.
 - **A secret split across two lines** is not found by the explorer's filter. The accessibility tree is one element a line, and the password is
   only typed in the sign-in page, from which nothing is recorded.
-- Several answers to one card may each reach the service (the gateway is called before the compare-and-set save): exactly one save wins, the
-  others get `ErrInvalidState`, but the service's own idempotency is what keeps a double click from paying twice.
+
+## One answer per card (the claim)
+
+The agent's service is reached from phones too, where retries and double taps are normal, so the Web UI does not leave idempotency to the
+service alone. A card is **claimed before the service is asked**: `Pay`, `Reject`, the code and the contact choice first save the card as
+`processing` (same compare-and-set as every save, now also on the claim's id), and only the caller that won that save calls the service.
+Fifty simultaneous answers ask the service once; the rest get `ErrInvalidState`.
+
+What becomes of the claim, by what the service did:
+
+| The service... | The card |
+|---|---|
+| acted | saved in its new state (`paid`, `rejected`, `otp_required`, `confirmed`) |
+| said no (`ActionError`), or the request never left (`domain.ErrNotSent`: no token, connection refused, 401 that cannot be renewed) | given back, as it was, with the reason |
+| did not answer in time, dropped the connection, or failed at the gateway (502/503/504) | **stays `processing`**: the payment may have gone through, so no one may answer it again for `domain.ClaimTTL` (2 minutes) |
+
+After the time a stale claim is taken over by one caller (the old holder's save is then refused) and the card goes back to the state it had.
+Nothing in the schema changed: the claim (`claim_id`, `claimed_at`, `resume`) lives in the card's JSON in `messages.meta`. A
+`processing` card shows no buttons. Pinned by: `internal/core/domain/claim_test.go`, `internal/core/interaction/claim_test.go` (including
+50 concurrent callers), `it/message/store_test.go` (`TestSaveInteraction_TheClaimOfACard`, against PostgreSQL) and the `ErrNotSent`
+tests of the BFF client.
+
+Not done: nothing re-reads a `processing` card by itself, so the page says to reload; a card whose payment went through but whose answer
+was lost stays `processing` until the claim is stale and someone answers again (the service then says whether the transfer was paid).

@@ -202,12 +202,12 @@ func (s *MessageStore) Finish(ctx context.Context, msgID uuid.UUID, out resource
 // SaveInteraction implements resource.MessageStore.
 //
 // Pattern: Compare-and-Set Claim
-func (s *MessageStore) SaveInteraction(ctx context.Context, userID, convID, msgID uuid.UUID, from domain.InteractionState, card domain.Interaction) error {
+func (s *MessageStore) SaveInteraction(ctx context.Context, userID, convID, msgID uuid.UUID, from, card domain.Interaction) error {
 	encoded, err := json.Marshal(card)
 	if err != nil {
 		return fmt.Errorf("encoding the card: %w", err)
 	}
-	tag, err := s.pool.Exec(ctx, s.sql.saveInteraction, userID, convID, msgID, string(from), string(encoded))
+	tag, err := s.pool.Exec(ctx, s.sql.saveInteraction, userID, convID, msgID, string(from.State), string(encoded), from.ClaimID)
 	if err != nil {
 		return fmt.Errorf("saving the card: %w", err)
 	}
@@ -217,7 +217,7 @@ func (s *MessageStore) SaveInteraction(ctx context.Context, userID, convID, msgI
 	if _, err := s.Get(ctx, userID, convID, msgID); err != nil {
 		return err // domain.ErrNotFound, or the failure itself
 	}
-	return fmt.Errorf("the card is not in state %q: %w", from, domain.ErrInvalidState)
+	return fmt.Errorf("the card is not in state %q under claim %q: %w", from.State, from.ClaimID, domain.ErrInvalidState)
 }
 
 // ReplaceLastAssistant implements resource.MessageStore.

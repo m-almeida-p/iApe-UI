@@ -3,31 +3,23 @@ package interaction_test
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
+	"fmt"
 	"math"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
-	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"iape-ui/internal/core/domain"
-	"iape-ui/internal/core/interaction"
-	"iape-ui/internal/core/port/resource"
 )
 
-func newService(messages resource.MessageStore, actions resource.ActionGateway) *interaction.Service {
-	return interaction.NewService(interaction.Dependencies{Messages: messages, Actions: actions, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-}
+// errNotSent is a failure of the request before it left: the card is given back.
+var errNotSent = fmt.Errorf("%w: %w: no VPN", domain.ErrAgentUnavailable, domain.ErrNotSent)
 
-// A card takes the answer of its own kind, and only on a reply that is finished: the agent's service is asked first and the
-// answer saved after, and the save is refused for a card of another kind or on a reply that did not complete, by which time
-// the money would have moved.
+// A card takes the answer of its own kind, and only on a reply that is finished: the card is claimed before the agent's service
+// is asked, and the claim is refused for a card of another kind or on a reply that did not complete, so the money never moves.
 func TestAnswer_OnlyTheRightCardOnAFinishedReplyIsAnswered(t *testing.T) {
 	answers := map[string]func(*harness) error{
 		"approve": func(h *harness) error { _, err := h.svc.Approve(t.Context(), userID, convID, replyID); return err },
@@ -175,32 +167,32 @@ func TestApprove_TheServiceAndTheStoreAnswerOddly(t *testing.T) {
 		assert.Equal(t, domain.Message{}, got)
 	})
 
-	t.Run("the request ending while the agent is unreachable saves nothing", func(t *testing.T) {
+	t.Run("the request ending while the agent is unreachable still gives the claim back", func(t *testing.T) {
 		h := newHarness(t)
 		ctx, cancel := context.WithCancel(t.Context())
 		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
 		h.actions.On("Approve", mock.Anything, *cardIn(domain.InteractionPending)).
-			Run(func(mock.Arguments) { cancel() }).Return(domain.ActionResult{}, domain.ErrAgentUnavailable).Once()
+			Run(func(mock.Arguments) { cancel() }).Return(domain.ActionResult{}, errNotSent).Once()
+		h.expectRelease(domain.InteractionPending) // the claim is given back with a context that is alive, though the request is gone
 
 		got, err := h.svc.Approve(ctx, userID, convID, replyID)
 
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State, "the card is as it was")
-		h.msgs.AssertNotCalled(t, "SaveInteraction")
 	})
 
-	t.Run("the request ending while the agent refuses saves nothing", func(t *testing.T) {
+	t.Run("the request ending while the agent refuses still gives the claim back", func(t *testing.T) {
 		h := newHarness(t)
 		ctx, cancel := context.WithCancel(t.Context())
 		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
 		h.actions.On("Approve", mock.Anything, *cardIn(domain.InteractionPending)).
 			Run(func(mock.Arguments) { cancel() }).Return(domain.ActionResult{}, &domain.ActionError{Message: "closed"}).Once()
+		h.expectRelease(domain.InteractionPending)
 
 		_, err := h.svc.Approve(ctx, userID, convID, replyID)
 
 		var refused *domain.ActionError
 		require.ErrorAs(t, err, &refused)
-		h.msgs.AssertNotCalled(t, "SaveInteraction")
 	})
 
 	t.Run("the card handed to the store is the one that was answered, and the reply is the one that was read", func(t *testing.T) {
@@ -220,89 +212,6 @@ func TestApprove_TheServiceAndTheStoreAnswerOddly(t *testing.T) {
 		assert.Equal(t, replyID, got.ID)
 		assert.Equal(t, domain.InteractionPending, read.Meta.Interaction.State, "the card that was read is not edited in place")
 	})
-}
-
-// memoryStore is a message store with the compare-and-set of the real one, behind a lock.
-type memoryStore struct {
-	resource.MessageStore // the methods the service does not use
-
-	mu    sync.Mutex
-	msg   domain.Message
-	saves int
-}
-
-func (s *memoryStore) Get(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (domain.Message, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m := s.msg
-	card := *m.Meta.Interaction
-	m.Meta.Interaction = &card
-	return m, nil
-}
-
-func (s *memoryStore) SaveInteraction(_ context.Context, _, _, _ uuid.UUID, from domain.InteractionState, card domain.Interaction) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.msg.Meta.Interaction.State != from {
-		return domain.ErrInvalidState
-	}
-	s.msg.Meta.Interaction = &card
-	s.saves++
-	return nil
-}
-
-// gate is an action gateway that holds every caller until all of them have arrived, so that all of them have read the card
-// as pending before any answer is saved.
-type gate struct {
-	resource.ActionGateway
-
-	want    int32
-	entered atomic.Int32
-	calls   atomic.Int32
-	open    chan struct{}
-}
-
-func (g *gate) Approve(context.Context, domain.Interaction) (domain.ActionResult, error) {
-	g.calls.Add(1)
-	if g.entered.Add(1) == g.want {
-		close(g.open)
-	}
-	<-g.open
-	return domain.ActionResult{Message: "paid"}, nil
-}
-
-// Two requests for the same card, from two tabs or two servers, both read it as pending and both ask the service: the
-// service is idempotent about a transfer that is paid already (it is its own to refuse the second), so the Web UI does not
-// lock around the call. What it guarantees is the save: one wins and the rest are told the card was answered.
-func TestApprove_ManyAtOnceOneSaveWins(t *testing.T) {
-	const callers = 50
-	store := &memoryStore{msg: replyWith(cardIn(domain.InteractionPending))}
-	actions := &gate{want: callers, open: make(chan struct{})}
-	svc := newService(store, actions)
-
-	var wg sync.WaitGroup
-	var won, lost, other atomic.Int32
-	for range callers {
-		wg.Go(func() {
-			_, err := svc.Approve(t.Context(), userID, convID, replyID)
-			switch {
-			case err == nil:
-				won.Add(1)
-			case errors.Is(err, domain.ErrInvalidState):
-				lost.Add(1)
-			default:
-				other.Add(1)
-			}
-		})
-	}
-	wg.Wait()
-
-	assert.Equal(t, int32(callers), actions.calls.Load(), "the service was asked by every caller that read the card as pending")
-	assert.Equal(t, int32(1), won.Load(), "exactly one answer is saved")
-	assert.Equal(t, int32(callers-1), lost.Load(), "the rest are told the card was answered")
-	assert.Zero(t, other.Load())
-	assert.Equal(t, 1, store.saves)
-	assert.Equal(t, domain.InteractionPaid, store.msg.Meta.Interaction.State)
 }
 
 func TestConfirmOTP_WhatIsTakenForACode(t *testing.T) {
@@ -329,6 +238,7 @@ func TestConfirmOTP_WhatIsTakenForACode(t *testing.T) {
 			h.expectGet(asking())
 			h.actions.On("ConfirmOTP", mock.Anything, *cardIn(domain.InteractionOTPRequired), tc.sent).
 				Return(domain.ActionResult{}, &domain.ActionError{Message: "refused by the bank"}).Once()
+			h.expectRelease(domain.InteractionOTPRequired)
 
 			_, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, tc.typed)
 
@@ -430,7 +340,7 @@ func TestChooseContact_TheChoiceMustBeOneOfTheCandidates(t *testing.T) {
 			h.actions.On("ConfirmContact", mock.Anything, "", want).Return(nil).Once()
 			chosen := *card
 			chosen.State, chosen.Contact = domain.InteractionConfirmed, want
-			h.expectSave(domain.InteractionPending, chosen, nil)
+			h.expectSaveFrom(*card, chosen, nil)
 
 			got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, i)
 
@@ -459,7 +369,7 @@ func TestChooseContact_TheChoiceMustBeOneOfTheCandidates(t *testing.T) {
 		h.actions.On("ConfirmContact", mock.Anything, reference, want).Return(nil).Once()
 		chosen := *card
 		chosen.State, chosen.Contact = domain.InteractionConfirmed, want
-		h.expectSave(domain.InteractionPending, chosen, nil)
+		h.expectSaveFrom(*card, chosen, nil)
 
 		_, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 
@@ -469,7 +379,8 @@ func TestChooseContact_TheChoiceMustBeOneOfTheCandidates(t *testing.T) {
 	t.Run("the agent being down leaves the card pending and nothing is saved", func(t *testing.T) {
 		h := newHarness(t)
 		h.expectGet(contactReply(domain.InteractionPending))
-		h.actions.On("ConfirmContact", mock.Anything, "Maria", domain.Candidates("Maria")[0]).Return(domain.ErrAgentUnavailable).Once()
+		h.actions.On("ConfirmContact", mock.Anything, "Maria", domain.Candidates("Maria")[0]).Return(errNotSent).Once()
+		h.expectReleaseOf(*contactReply(domain.InteractionPending).Meta.Interaction)
 
 		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 
@@ -483,7 +394,9 @@ func TestChooseContact_TheChoiceMustBeOneOfTheCandidates(t *testing.T) {
 		h.expectGet(contactReply(domain.InteractionPending))
 		maria := domain.Candidates("Maria")[0]
 		h.actions.On("ConfirmContact", mock.Anything, "Maria", maria).Return(nil).Once()
-		h.msgs.On("SaveInteraction", mock.Anything, userID, convID, replyID, domain.InteractionPending, mock.Anything).Return(domain.ErrInvalidState).Once()
+		lost := *contactReply(domain.InteractionPending).Meta.Interaction
+		lost.State, lost.Contact = domain.InteractionConfirmed, maria
+		h.expectSaveFrom(*contactReply(domain.InteractionPending).Meta.Interaction, lost, domain.ErrInvalidState) // the claim was won, the finish lost to a takeover
 
 		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 
