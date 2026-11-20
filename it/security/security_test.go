@@ -277,7 +277,7 @@ func TestSecuritySuite(t *testing.T) {
 		bobs := finished(t, bob, secret+"bob")
 		missing := ids{uuid.New().String(), uuid.New().String()}
 		before := snapshot(t, s)
-		runs := s.Model.Probe().Runs()
+		runs := s.BFF.Probe().Runs()
 
 		for _, r := range routes {
 			if !strings.Contains(r.pattern, "{id}") {
@@ -302,7 +302,7 @@ func TestSecuritySuite(t *testing.T) {
 		}
 
 		assert.Equal(t, before, snapshot(t, s), "the other user's data is as it was")
-		assert.Equal(t, runs, s.Model.Probe().Runs(), "and the agent was not asked anything")
+		assert.Equal(t, runs, s.BFF.Probe().Runs(), "and the agent was not asked anything")
 		assert.NotContains(t, alice.Get("/").Body, secret+"bob", "it is not listed either")
 		kept := bob.Messages(bobs.conv)
 		require.Len(t, kept, 2)

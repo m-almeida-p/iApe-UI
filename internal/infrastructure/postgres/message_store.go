@@ -59,12 +59,13 @@ type lastMessage struct {
 	seq    int
 	role   domain.Role
 	status domain.Status
+	card   domain.InteractionState // the state of its card, empty when it has none
 }
 
 // latestMessage returns the highest-numbered message, or ok=false when the
 // conversation has none.
 func (s *MessageStore) latestMessage(ctx context.Context, tx pgx.Tx, convID uuid.UUID) (last lastMessage, ok bool, err error) {
-	err = tx.QueryRow(ctx, s.sql.latest, convID).Scan(&last.id, &last.seq, &last.role, &last.status)
+	err = tx.QueryRow(ctx, s.sql.latest, convID).Scan(&last.id, &last.seq, &last.role, &last.status, &last.card)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lastMessage{}, false, nil
 	}
@@ -199,6 +200,27 @@ func (s *MessageStore) Finish(ctx context.Context, msgID uuid.UUID, out resource
 	return fmt.Errorf("only a streaming reply can finish: %w", domain.ErrInvalidState)
 }
 
+// SaveInteraction implements resource.MessageStore.
+//
+// Pattern: Compare-and-Set Claim
+func (s *MessageStore) SaveInteraction(ctx context.Context, userID, convID, msgID uuid.UUID, from, card domain.Interaction) error {
+	encoded, err := json.Marshal(card)
+	if err != nil {
+		return fmt.Errorf("encoding the card: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx, s.sql.saveInteraction, userID, convID, msgID, string(from.State), string(encoded), from.ClaimID)
+	if err != nil {
+		return fmt.Errorf("saving the card: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	if _, err := s.Get(ctx, userID, convID, msgID); err != nil {
+		return err // domain.ErrNotFound, or the failure itself
+	}
+	return fmt.Errorf("the card is not in state %q under claim %q: %w", from.State, from.ClaimID, domain.ErrInvalidState)
+}
+
 // ReplaceLastAssistant implements resource.MessageStore.
 func (s *MessageStore) ReplaceLastAssistant(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
 	var fresh domain.Message
@@ -223,6 +245,9 @@ func (s *MessageStore) ReplaceLastAssistant(ctx context.Context, userID, convID,
 		}
 		if last.role != domain.RoleAssistant || !last.status.Terminal() {
 			return fmt.Errorf("there is no finished reply to replace: %w", domain.ErrInvalidState)
+		}
+		if (domain.Interaction{State: last.card}).HoldsPayment() {
+			return fmt.Errorf("the reply holds a payment (its card is %s): %w", last.card, domain.ErrInvalidState)
 		}
 		if _, err := tx.Exec(ctx, s.sql.remove, last.id); err != nil {
 			return err

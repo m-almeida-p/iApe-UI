@@ -16,7 +16,7 @@ npm registry first; stay on htmx 2.x (htmx 4 is still pre-release).
 | htmx-ext-sse-2.2.4/sse.min.js | htmx-ext-sse 2.2.4 | see LICENSE | 98a46496de0c3605fbffdce9167ba427bdd9553184f83f149c261891a92c0136 | unmodified |
 
 Why the source map comments were removed: browsers and DevTools fetch the `.map`
-file, which would show up as a failed request in the evaluator's network checks.
+file, which would show up as a failed request in the explorer's network records.
 
 htmx contains `eval` and `new Function` code paths. They stay unused because the
 page sets `allowEval: false` (see `base.html`), which matters under our CSP

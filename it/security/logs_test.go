@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"iape-ui/internal/testagent"
+	"iape-ui/internal/testbff"
 	"iape-ui/it/internal/stack"
 )
 
@@ -27,8 +27,7 @@ func TestLogs_NeverHoldWhatPeopleWrite(t *testing.T) {
 	var logs bytes.Buffer
 	// A #slow reply takes 300 ms and the agent's server lets a reply stream for
 	// 150, so that one of them can be cut off with some of its text written.
-	s := stack.Start(t, stack.WithLogs(&logs), stack.WithModel(testagent.WithSlow(10*time.Millisecond, 30)),
-		stack.WithAgentServer(testagent.WithSSEWriteTimeout(150*time.Millisecond)))
+	s := stack.Start(t, stack.WithLogs(&logs), stack.WithBFF(testbff.WithSlow(10*time.Millisecond, 30), testbff.WithCutAfter(150*time.Millisecond)))
 	c := s.SignedIn()
 	ctx := t.Context()
 

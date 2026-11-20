@@ -31,7 +31,7 @@ func TestRenderer_Page(t *testing.T) {
 			name:   "a normal request gets the full document",
 			status: http.StatusOK,
 			wantContains: []string{
-				"<!doctype html>", `<body data-ui-contract="1"`, "<title>Sign in · Agent Web UI</title>",
+				"<!doctype html>", `<body class=`, "<title>Sign in · Agent Web UI</title>",
 				"/static/vendor/bootstrap-5.3.8/bootstrap.min.css", `rel="icon"`, "Agent Web UI",
 			},
 		},

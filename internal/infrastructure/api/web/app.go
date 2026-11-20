@@ -19,12 +19,15 @@ type Services struct {
 	Auth          service.Auth
 	Chat          service.Chat
 	Conversations service.Conversation
+	Interactions  service.Interactions
 }
 
 // Options are the settings the handlers need.
 type Options struct {
 	// SecureCookies adds the Secure attribute to the session cookie (https).
 	SecureCookies bool
+	// Now is the clock; it is time.Now when nil. A card whose answer got no reply is offered again once its claim is stale.
+	Now func() time.Time
 	// FlushInterval is the shortest time between streamed updates.
 	FlushInterval time.Duration
 	// RateLimitRPS and RateLimitBurst set the token bucket for sending messages
@@ -50,9 +53,10 @@ type App struct {
 	opts     Options
 	md       *render.Markdown
 
-	sends  *rateLimiter // nil when limiting is off
-	logins *rateLimiter
-	ready  readyCache
+	sends   *rateLimiter // nil when limiting is off
+	answers *rateLimiter // the answers to cards: each is a call to the payment service
+	logins  *rateLimiter
+	ready   readyCache
 
 	// streams is done once the server starts shutting down; see EndStreams.
 	streams    context.Context
@@ -71,9 +75,13 @@ func NewApp(log *slog.Logger, files fs.FS, svc Services, opts Options) (*App, er
 		return nil, err
 	}
 	streams, endStreams := context.WithCancel(context.Background())
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
 	return &App{
 		log: log, renderer: renderer, static: static, svc: svc, opts: opts, md: render.NewMarkdown(),
 		sends:   newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
+		answers: newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		logins:  newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		streams: streams, endStreams: endStreams,
 	}, nil

@@ -6,7 +6,7 @@
 # at the top of the script you're curious about.
 
 web_binary  = agent-web-ui
-eval_binary = agent-eval
+explore_binary = iape-explore
 bin_dir     = bin
 
 # ==================================================================================== #
@@ -99,13 +99,13 @@ tidy:
 	go mod tidy -v
 	go fmt ./...
 
-## build: build agent-web-ui and agent-eval into bin/
+## build: build agent-web-ui and iape-explore into bin/
 .PHONY: build
 build:
 	go build -o=${bin_dir}/${web_binary} ./cmd/web
-	go build -o=${bin_dir}/${eval_binary} ./cmd/eval
+	go build -o=${bin_dir}/${explore_binary} ./cmd/iape-explore
 
-## up: start PostgreSQL and the test agent only, to run the web server from source
+## up: start PostgreSQL and the scripted BFF only, to run the web server from source
 .PHONY: up
 up:
 	docker compose up -d --wait
@@ -124,41 +124,6 @@ run:
 .PHONY: stop
 stop:
 	scripts/stop.sh
-
-## full/up: start the whole stack in Docker - PostgreSQL, the test agent, the web server
-.PHONY: full/up
-full/up:
-	docker compose --profile full up -d --wait
-
-## full/down: stop the stack started with `make full/up` (add ARGS=-v to also delete the database)
-.PHONY: full/down
-full/down:
-	docker compose --profile full down ${ARGS}
-
-## yape-agent/check: ask for a gateway token and list the MCP tools, without starting anything (scripts/yape-agent.sh check)
-.PHONY: yape-agent/check
-yape-agent/check:
-	scripts/yape-agent.sh check
-
-## yape-agent/up: start the Yape agent - gateway models and the history's MCP tools - on this computer (scripts/yape-agent.sh)
-.PHONY: yape-agent/up
-yape-agent/up:
-	scripts/yape-agent.sh
-
-## yape-agent/down: stop the Yape agent
-.PHONY: yape-agent/down
-yape-agent/down:
-	scripts/yape-agent.sh stop
-
-## cluster/up: start the web server in Docker on the Yape cluster, with its database in yape-postgres (scripts/cluster.sh)
-.PHONY: cluster/up
-cluster/up:
-	scripts/cluster.sh
-
-## cluster/down: stop the web server started with `make cluster/up`; its database stays in the cluster
-.PHONY: cluster/down
-cluster/down:
-	scripts/cluster.sh down
 
 # ==================================================================================== #
 #

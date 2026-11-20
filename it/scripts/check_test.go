@@ -78,9 +78,8 @@ COVER_EXEMPT="internal/app cmd/web"
 
 // The three kinds of file the floors tell apart.
 const (
-	gateUseCase     = "internal/core/chat/stream.go"
-	gateEvalUseCase = "internal/eval/core/run/batch.go"
-	gateAdapter     = "internal/infrastructure/config/config.go"
+	gateUseCase = "internal/core/chat/stream.go"
+	gateAdapter = "internal/infrastructure/config/config.go"
 )
 
 // newGateRig makes a rig whose programs all succeed and whose unit tests cover
@@ -108,7 +107,7 @@ func newGateRig(t *testing.T) *gateRig {
 	r.write(".env.example", gateSettings, 0o600)
 	r.write("answers", "", 0o600)
 	require.NoError(t, os.Mkdir(filepath.Join(r.dir, "tmp"), 0o700))
-	r.cover(gateCover{gateUseCase, 90, 100}, gateCover{gateEvalUseCase, 90, 100}, gateCover{gateAdapter, 70, 100})
+	r.cover(gateCover{gateUseCase, 90, 100}, gateCover{gateAdapter, 70, 100})
 	return r
 }
 
@@ -321,7 +320,7 @@ func TestCheck_AStepThatFailsStopsIt(t *testing.T) {
 // count nowhere, and a package named in COVER_EXEMPT is not held to the third.
 func TestCheck_CoverageFloors(t *testing.T) {
 	const (
-		useCases   = "use cases (internal/core, internal/eval/core):  %s%% (target 85%%)\n"
+		useCases   = "use cases (internal/core):  %s%% (target 85%%)\n"
 		everything = "everything under internal/ and cmd/, no mocks: %s%% (target 70%%)\n"
 		packages   = "every package is at 50% or above, except the ones named in COVER_EXEMPT\n"
 	)
@@ -332,22 +331,19 @@ func TestCheck_CoverageFloors(t *testing.T) {
 		says  []string
 	}{
 		{"every floor is met",
-			[]gateCover{{gateUseCase, 90, 100}, {gateEvalUseCase, 90, 100}, {gateAdapter, 70, 100}, {"cmd/eval/main.go", 60, 100}}, 0,
-			[]string{fmt.Sprintf(useCases, "90.0"), fmt.Sprintf(everything, "77.5"), packages}},
+			[]gateCover{{gateUseCase, 90, 100}, {gateAdapter, 70, 100}, {"cmd/iape-explore/main.go", 60, 100}}, 0,
+			[]string{fmt.Sprintf(useCases, "90.0"), fmt.Sprintf(everything, "73.3"), packages}},
 		{"the use cases exactly at their floor",
 			[]gateCover{{gateUseCase, 85, 100}, {gateAdapter, 100, 100}}, 0,
 			[]string{fmt.Sprintf(useCases, "85.0"), packages}},
 		{"the use cases under their floor",
 			[]gateCover{{gateUseCase, 84, 100}, {gateAdapter, 100, 100}}, 1,
 			[]string{fmt.Sprintf(useCases, "84.0"), "check.sh: the use cases are below 85%\n"}},
-		{"the evaluator's use cases are counted with the Web UI's",
-			[]gateCover{{gateUseCase, 100, 100}, {gateEvalUseCase, 60, 100}, {gateAdapter, 100, 100}}, 1,
-			[]string{fmt.Sprintf(useCases, "80.0"), "check.sh: the use cases are below 85%\n"}},
 		{"everything exactly at its floor, and a package at its own",
 			[]gateCover{{gateUseCase, 90, 100}, {gateAdapter, 50, 100}}, 0,
 			[]string{fmt.Sprintf(everything, "70.0"), packages}},
 		{"everything under its floor",
-			[]gateCover{{gateUseCase, 90, 100}, {gateAdapter, 50, 100}, {"cmd/eval/main.go", 50, 100}}, 1,
+			[]gateCover{{gateUseCase, 90, 100}, {gateAdapter, 50, 100}, {"cmd/iape-explore/main.go", 50, 100}}, 1,
 			[]string{fmt.Sprintf(everything, "63.3"), "check.sh: internal/ and cmd/ are below 70%\n"}},
 		{"a package under its floor while both totals are met",
 			[]gateCover{{gateUseCase, 100, 100}, {gateAdapter, 100, 100}, {"internal/infrastructure/auth/argon2.go", 49, 100}}, 1,
@@ -409,7 +405,7 @@ func TestCheck_TheCoverageReadsTheSameInEveryLocale(t *testing.T) {
 		says  string
 	}{
 		{"the totals", []gateCover{{gateUseCase, 2124, 2500}, {gateAdapter, 100, 100}},
-			"use cases (internal/core, internal/eval/core):  84.9% (target 85%)\neverything under internal/ and cmd/, no mocks: 85.5% (target 70%)\ncheck.sh: the use cases are below 85%\n"},
+			"use cases (internal/core):  84.9% (target 85%)\neverything under internal/ and cmd/, no mocks: 85.5% (target 70%)\ncheck.sh: the use cases are below 85%\n"},
 		{"a package", []gateCover{{gateUseCase, 5000, 5000}, {"internal/infrastructure/auth/argon2.go", 1249, 2500}},
 			"  internal/infrastructure/auth: 49.9%\n"},
 	}
@@ -667,4 +663,19 @@ func TestCI_RunsTheScripts(t *testing.T) {
 
 	assert.Regexp(t, `(?m)^\s+run: scripts/check\.sh$`, gate, "the gate job runs the whole gate, with no option")
 	assert.Regexp(t, `(?m)^\s+run: scripts/pr-check\.sh `, pullRequest, "the pull request job runs the title and size check")
+}
+
+// withoutSecrets is an environment without the variables whose value is a secret of the developer's: they must not reach a test, as
+// the result would depend on the machine and a failed comparison could print one. (A test that needs one adds it to rig.env.)
+func withoutSecrets(env []string) []string {
+	var kept []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		switch name {
+		case "ADMIN_PASSWORD", "EXPLORE_USER_PASSWORD", "DB_URL":
+			continue
+		}
+		kept = append(kept, kv)
+	}
+	return kept
 }

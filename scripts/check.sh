@@ -15,7 +15,7 @@
 #   --quick    skip the race detector and the vulnerability scan.
 #
 # Coverage targets, in .env (unit tests only; generated mocks are left out):
-#   COVER_CORE_MIN  the use cases, internal/core and internal/eval/core  (85)
+#   COVER_CORE_MIN  the use cases, internal/core                         (85)
 #   COVER_ALL_MIN   everything under internal/ and cmd/                  (70)
 #   COVER_PKG_MIN   each package on its own                              (50)
 # A package the unit tests cannot reach by design is named in COVER_EXEMPT, and
@@ -118,12 +118,12 @@ totals="$(LC_ALL=C awk -F'[: ]' -v core_min="$COVER_CORE_MIN" -v all_min="$COVER
   function shown(covered, statements) { return statements ? int(1000 * covered / statements) / 10 : 0 }
   NR == 1 || $1 ~ /\/mocks\// { next }
   { all += $3; if ($4 > 0) allHit += $3 }
-  $1 ~ /\/internal\/core\// || $1 ~ /\/internal\/eval\/core\// { core += $3; if ($4 > 0) coreHit += $3 }
+  $1 ~ /\/internal\/core\// { core += $3; if ($4 > 0) coreHit += $3 }
   END { printf "%.1f %d %.1f %d\n", shown(coreHit, core), meets(coreHit, core, core_min), shown(allHit, all), meets(allHit, all, all_min) }
 ' "$profile")" || fail "could not read the coverage profile"
 read -r core_pct core_met all_pct all_met <<<"$totals"
 [ -n "${core_pct:-}" ] && [ -n "${all_met:-}" ] || fail "could not read the coverage profile (got: '$totals')"
-printf 'use cases (internal/core, internal/eval/core):  %s%% (target %s%%)\n' "$core_pct" "$COVER_CORE_MIN"
+printf 'use cases (internal/core):  %s%% (target %s%%)\n' "$core_pct" "$COVER_CORE_MIN"
 printf 'everything under internal/ and cmd/, no mocks: %s%% (target %s%%)\n' "$all_pct" "$COVER_ALL_MIN"
 [ "$core_met" -eq 1 ] || fail "the use cases are below ${COVER_CORE_MIN}%"
 [ "$all_met" -eq 1 ] || fail "internal/ and cmd/ are below ${COVER_ALL_MIN}%"

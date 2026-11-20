@@ -1,10 +1,10 @@
 // Package stack runs the whole Web UI for integration tests, the way the
-// program does: a real PostgreSQL (see pgenv), the scripted ADK agent behind a
+// program does: a real PostgreSQL (see pgenv), the scripted BFF of the agent service behind a
 // switch that can make it vanish, and the application served by the production
 // server type, so that starting and shutting down are tested too.
 //
 // Tests talk to it over HTTP with a Client. They can also look into the
-// database through Pool, and at what the agent saw through Model.
+// database through Pool, and at what the agent saw through BFF.
 //
 // It needs Docker (for PostgreSQL).
 package stack
@@ -17,6 +17,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -31,15 +33,24 @@ import (
 	"iape-ui/internal/infrastructure/config"
 	"iape-ui/internal/infrastructure/logging"
 	"iape-ui/internal/infrastructure/postgres"
-	"iape-ui/internal/testagent"
+	"iape-ui/internal/testbff"
 	"iape-ui/it/internal/pgenv"
 )
 
-// The first user of every stack.
+// The first user of every stack, and the Yape account its BFF is asked as.
 const (
 	Email    = "owner@example.com"
 	Password = "a-long-enough-password"
+	Account  = "25906ac5-9f18-4099-b3fd-e1b74d8549a4"
 )
+
+// tokenProgram is a program that prints a token, as yape-token does, for the Web UI to ask the BFF with.
+func tokenProgram(t testing.TB) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "yape-token")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\necho test-token\n"), 0o700))
+	return path
+}
 
 // Stack is a running Web UI.
 type Stack struct {
@@ -47,10 +58,10 @@ type Stack struct {
 	URL string
 	// Config is what the application was built from.
 	Config config.Config
-	// Agent is the scripted agent behind the Web UI. It can be taken down.
+	// Agent is the scripted BFF behind the Web UI. It can be taken down.
 	Agent *Agent
-	// Model is the model the agent runs, for assertions on what it saw.
-	Model *testagent.Model
+	// BFF is what the Web UI talks to, for assertions on what it saw (see BFF.Probe).
+	BFF *testbff.Handler
 	// Pool reads the database the Web UI writes.
 	Pool *pgxpool.Pool
 
@@ -64,11 +75,10 @@ type Stack struct {
 }
 
 type settings struct {
-	model  []testagent.Option
-	agent  []testagent.HandlerOption
+	bff    []testbff.Option
 	values map[string]string
-	// agentURL, when set, is a real agent to use instead of the scripted one.
-	agentURL, appName string
+	// agentURL, when set, is a real BFF to use instead of the scripted one.
+	agentURL string
 	// logs, when set, receives the application's log at its most talkative.
 	logs io.Writer
 }
@@ -76,22 +86,16 @@ type settings struct {
 // Option customizes a Stack.
 type Option func(*settings)
 
-// WithModel sets the pace and script of the scripted agent.
-func WithModel(opts ...testagent.Option) Option {
-	return func(s *settings) { s.model = append(s.model, opts...) }
+// WithBFF sets the pace of the scripted BFF.
+func WithBFF(opts ...testbff.Option) Option {
+	return func(s *settings) { s.bff = append(s.bff, opts...) }
 }
 
-// WithAgentServer sets how the scripted agent's server behaves, such as how long
-// it lets one reply stream.
-func WithAgentServer(opts ...testagent.HandlerOption) Option {
-	return func(s *settings) { s.agent = append(s.agent, opts...) }
-}
-
-// WithExternalAgent uses a real agent (its ADK REST base URL, such as
-// http://localhost:9093/api, and its application name) instead of the scripted
-// one. Agent and Model are then nil.
-func WithExternalAgent(baseURL, appName string) Option {
-	return func(s *settings) { s.agentURL, s.appName = baseURL, appName }
+// WithExternalAgent uses a real BFF (its base URL, such as http://localhost:4000) instead of the
+// scripted one. Agent and BFF are then nil, and the settings that name the account and the program
+// that prints its token (YAPE_ACCOUNT_ID, YAPE_TOKEN_BIN) are the caller's, with WithSetting.
+func WithExternalAgent(baseURL string) Option {
+	return func(s *settings) { s.agentURL = baseURL }
 }
 
 // WithLogs sends the application's log to w, as the program's own logger would
@@ -112,7 +116,7 @@ func WithSetting(key, value string) Option {
 func Start(t testing.TB, opts ...Option) *Stack {
 	t.Helper()
 	s := &settings{
-		model: []testagent.Option{testagent.WithWordDelay(2 * time.Millisecond)},
+		bff: []testbff.Option{testbff.WithWordDelay(2 * time.Millisecond)},
 		// Longer than the five seconds the server waits for a connection that has
 		// not sent a request yet before it counts it as idle (see closeClientConnections).
 		values: map[string]string{"APP_SHUTDOWN_GRACE": "10s"},
@@ -123,18 +127,15 @@ func Start(t testing.TB, opts ...Option) *Stack {
 	dbURL := pgenv.NewDatabase(t)
 
 	var (
-		model    *testagent.Model
+		bff      *testbff.Handler
 		agent    *Agent
 		agentURL = s.agentURL
-		agentApp = s.appName
 	)
 	if agentURL == "" {
-		model = testagent.NewModel(s.model...)
-		handler, err := testagent.NewHandler(model, s.agent...)
-		require.NoError(t, err)
-		agent = newAgent(handler)
+		bff = testbff.NewHandler(s.bff...)
+		agent = newAgent(bff)
 		t.Cleanup(agent.Close)
-		agentURL, agentApp = agent.URL+"/api", testagent.AppName
+		agentURL = agent.URL
 	}
 
 	// The Web UI is told its own address (it decides on secure cookies from it),
@@ -144,12 +145,13 @@ func Start(t testing.TB, opts ...Option) *Stack {
 	base := "http://" + ln.Addr().String()
 
 	values := map[string]string{
-		"DB_URL":         dbURL,
-		"AGENT_BASE_URL": agentURL,
-		"AGENT_APP_NAME": agentApp,
-		"ADMIN_EMAIL":    Email,
-		"ADMIN_PASSWORD": Password,
-		"APP_BASE_URL":   base,
+		"DB_URL":          dbURL,
+		"AGENT_BASE_URL":  agentURL,
+		"YAPE_ACCOUNT_ID": Account,
+		"YAPE_TOKEN_BIN":  tokenProgram(t),
+		"ADMIN_EMAIL":     Email,
+		"ADMIN_PASSWORD":  Password,
+		"APP_BASE_URL":    base,
 	}
 	maps.Copy(values, s.values)
 	cfg, err := config.Load(func(k string) (string, bool) { v, ok := values[k]; return v, ok })
@@ -169,7 +171,7 @@ func Start(t testing.TB, opts ...Option) *Stack {
 	go func() { served <- app.Serve(ctx, cfg, log, ln) }()
 	waitUntilServing(t, base, served)
 
-	st := &Stack{URL: base, Config: cfg, Agent: agent, Model: model, Pool: pool, t: t, cancel: cancel, served: served}
+	st := &Stack{URL: base, Config: cfg, Agent: agent, BFF: bff, Pool: pool, t: t, cancel: cancel, served: served}
 	var stopped atomic.Pointer[time.Duration]
 	st.shutdown = func() time.Duration {
 		if d := stopped.Load(); d != nil {

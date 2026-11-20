@@ -1,0 +1,10 @@
+{{- /*
+  The WHERE clause is the compare-and-set: of several callers at the same time only one still sees the card in the state
+  $4 under the claim $6 (empty: none). Only the key "interaction" of meta is replaced.
+*/ -}}
+UPDATE messages m SET meta = jsonb_set(m.meta, '{interaction}', $5::jsonb), updated_at = now()
+FROM conversations c
+WHERE m.id = $3 AND m.conversation_id = $2 AND c.id = m.conversation_id AND c.user_id = $1
+  AND m.role = 'assistant' AND m.status = 'complete'
+  AND m.meta -> 'interaction' ->> 'state' = $4
+  AND COALESCE(m.meta -> 'interaction' ->> 'claim_id', '') = $6

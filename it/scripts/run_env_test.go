@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"iape-ui/internal/platform/envcfg"
 )
 
 // fakeWebUI is a stand-in for agent-web-ui. It listens where its environment
@@ -107,4 +109,19 @@ func TestRun_StartsTheServerWithTheSettingsFileItIsTold(t *testing.T) {
 			assert.Equal(t, tc.want, string(args))
 		})
 	}
+}
+
+// goCommand is the go command to build the stand-ins with: the one .env says (GO), or the one on the path.
+func goCommand(t *testing.T) string {
+	t.Helper()
+	if lookup, err := envcfg.EnvLookup("../../.env"); err == nil {
+		if path, ok := lookup("GO"); ok && path != "" {
+			return path
+		}
+	}
+	path, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("there is no go command to build the stand-in with")
+	}
+	return path
 }

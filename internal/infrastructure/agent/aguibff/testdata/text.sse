@@ -1,0 +1,10 @@
+data: {"type":"RUN_STARTED","threadId":"e7a0b8aa-4965-4e03-a386-2d81f32b3cb3","runId":"2fb0e08d-b026-44f5-be73-5aa95ed7c309","timestamp":1795129693301}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"6ad85120-edd8-4b20-b550-b7e7a16d2d34","role":"assistant","timestamp":1795129693306}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"6ad85120-edd8-4b20-b550-b7e7a16d2d34","delta":"¡Hola! ¿En qué te ayudo?\nTe dejo algunas opciones para comenzar:\nYapeos\nPago de servicios\nCobro individual\nCobros pendientes\nAsesoría financiera","timestamp":1795129693306}
+
+data: {"type":"RUN_FINISHED","threadId":"e7a0b8aa-4965-4e03-a386-2d81f32b3cb3","runId":"2fb0e08d-b026-44f5-be73-5aa95ed7c309","timestamp":1795129693306}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"6ad85120-edd8-4b20-b550-b7e7a16d2d34","timestamp":1795129693308}
+

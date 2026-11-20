@@ -10,6 +10,8 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +24,7 @@ import (
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/infrastructure/config"
 	"iape-ui/internal/infrastructure/postgres"
-	"iape-ui/internal/testagent"
+	"iape-ui/internal/testbff"
 	"iape-ui/it/internal/pgenv"
 )
 
@@ -34,25 +36,32 @@ const (
 func testConfig(t *testing.T, dbURL, agentURL string) config.Config {
 	t.Helper()
 	env := map[string]string{
-		"DB_URL":         dbURL,
-		"AGENT_BASE_URL": agentURL + "/api",
-		"AGENT_APP_NAME": testagent.AppName,
-		"ADMIN_EMAIL":    adminEmail,
-		"ADMIN_PASSWORD": adminPassword,
-		"APP_BASE_URL":   "http://localhost:8300",
+		"DB_URL":          dbURL,
+		"AGENT_BASE_URL":  agentURL,
+		"YAPE_ACCOUNT_ID": "25906ac5-9f18-4099-b3fd-e1b74d8549a4",
+		"YAPE_TOKEN_BIN":  tokenProgram(t),
+		"ADMIN_EMAIL":     adminEmail,
+		"ADMIN_PASSWORD":  adminPassword,
+		"APP_BASE_URL":    "http://localhost:8300",
 	}
 	cfg, err := config.Load(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
 	require.NoError(t, err)
 	return cfg
 }
 
+// tokenProgram is a program that prints a token, as yape-token does.
+func tokenProgram(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "yape-token")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\necho test-token\n"), 0o700))
+	return path
+}
+
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 func startAgent(t *testing.T) *httptest.Server {
 	t.Helper()
-	h, err := testagent.NewHandler(testagent.NewModel(testagent.WithWordDelay(0)))
-	require.NoError(t, err)
-	srv := httptest.NewServer(h)
+	srv := httptest.NewServer(testbff.NewHandler(testbff.WithWordDelay(0)))
 	t.Cleanup(srv.Close)
 	return srv
 }

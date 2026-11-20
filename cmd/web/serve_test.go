@@ -23,10 +23,10 @@ func TestServe_TakesThePortBeforeTouchingTheDatabase(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = taken.Close() })
 	env := map[string]string{
-		"APP_HTTP_ADDR":  taken.Addr().String(),
-		"DB_URL":         "postgres://u:p@127.0.0.1:1/db", // nothing listens there
-		"AGENT_BASE_URL": "http://127.0.0.1:1/api",
-		"AGENT_APP_NAME": "ui_agent",
+		"APP_HTTP_ADDR":   taken.Addr().String(),
+		"DB_URL":          "postgres://u:p@127.0.0.1:1/db", // nothing listens there
+		"AGENT_BASE_URL":  "http://127.0.0.1:1",
+		"YAPE_ACCOUNT_ID": "25906ac5-9f18-4099-b3fd-e1b74d8549a4",
 	}
 	cfg, err := config.Load(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
 	require.NoError(t, err)

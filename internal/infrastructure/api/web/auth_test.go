@@ -49,7 +49,7 @@ func serve(t *testing.T, authMock *mocks.Auth, opts Options, req *http.Request) 
 }
 
 func TestLoginForm(t *testing.T) {
-	t.Run("shows the form with the hooks the evaluator uses", func(t *testing.T) {
+	t.Run("shows the form with the hooks the explorer uses", func(t *testing.T) {
 		rec := serve(t, mocks.NewAuth(t), Options{}, httptest.NewRequest(http.MethodGet, "/login?next=%2Fc%2F123", nil))
 
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -307,7 +307,7 @@ func TestAuthenticateMiddleware(t *testing.T) {
 	})
 
 	// A redirect is for a person following a link. A script that fetches the raw
-	// text of a reply (the Copy button, the evaluator) follows it to the sign-in
+	// text of a reply (the Copy button, the explorer) follows it to the sign-in
 	// page, gets a 200, and takes the page's HTML for the reply.
 	t.Run("a script's request is told it is not signed in, not sent to the sign-in page", func(t *testing.T) {
 		tests := []struct {

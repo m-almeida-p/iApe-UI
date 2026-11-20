@@ -27,6 +27,8 @@ const (
 	AgentUsage AgentEventKind = "usage"
 	// AgentToolCall says the agent called a tool.
 	AgentToolCall AgentEventKind = "tool_call"
+	// AgentInteraction says the agent put a card in the reply for the user to answer.
+	AgentInteraction AgentEventKind = "interaction"
 )
 
 // AgentEvent is one thing the agent did while producing a reply. Reasoning
@@ -36,7 +38,14 @@ type AgentEvent struct {
 	Text  string // AgentDelta, AgentFinal
 	Usage Usage  // AgentUsage
 	Tool  string // AgentToolCall
+	// Interaction is the card of an AgentInteraction.
+	Interaction Interaction
 }
+
+// ErrNotSent says that a request to the agent's service certainly did not reach it (the token could not be had, the connection was
+// refused, the token was refused before anything was done): nothing was done there, so a card can be given back to be answered
+// again. An error without it may have reached the service, and what it was asked may have been done.
+var ErrNotSent = errors.New("the request did not reach the agent's service")
 
 // ErrIncompleteStream means the agent's stream ended without a complete reply.
 var ErrIncompleteStream = errors.New("agent stream ended before the reply was complete")

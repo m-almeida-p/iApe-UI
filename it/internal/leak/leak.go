@@ -15,7 +15,6 @@ import (
 var ours = []string{
 	"iape-ui/internal/",
 	"iape-ui/cmd/",
-	"google.golang.org/adk/",
 	"github.com/jackc/pgx/",
 }
 

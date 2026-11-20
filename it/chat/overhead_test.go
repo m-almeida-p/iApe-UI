@@ -22,7 +22,7 @@ import (
 // from the moment it asked the agent), and the client knows when the first update
 // reached it. The difference is the work the Web UI did around the agent: the
 // database, the session, the rendering, the flush. A browser adds its own time
-// on top; the evaluator's U-05 check measures that part with a real one.
+// on top, which this test does not measure.
 func TestUIOverhead(t *testing.T) {
 	leak.Check(t)
 	const (

@@ -1,8 +1,8 @@
 // Package architecture_test holds the rules about which package may import which.
-// The two programs, the Web UI and the evaluator, are each built as a hexagon:
+// The Web UI is built as a hexagon, and the explorer that accepts it is a smaller one:
 // the use cases at the middle know nothing of HTTP, SQL, browsers or files, and
-// the adapters around them plug into the ports the use cases define. Neither
-// program knows the other exists. A change that breaks one of these rules fails
+// the adapters around them plug into the ports the use cases define. The
+// explorer knows nothing of the Web UI. A change that breaks one of these rules fails
 // here, with the file and the import.
 //
 // The package holds two more rules that only reading the code can keep, both
@@ -61,25 +61,21 @@ var rules = []rule{
 		under:    []string{"internal/app", "cmd/web", "assets"},
 		internal: []string{"internal/core", "internal/infrastructure", "internal/platform", "internal/app", "assets"}, thirdParty: true},
 
-	{what: "the evaluator's use cases know only themselves, and nothing of HTTP, SQL or files",
-		under: []string{"internal/eval/core"}, internal: []string{"internal/eval/core"}, noStd: outside},
-	{what: "the evaluator's adapters plug into its use cases",
-		under: []string{"internal/eval/infrastructure"}, internal: []string{"internal/eval", "internal/platform"}, thirdParty: true},
-	{what: "the evaluator is put together from its own parts",
-		under: []string{"cmd/eval"}, internal: []string{"internal/eval", "internal/platform"}, thirdParty: true},
+	{what: "the explorer's logic knows only itself, and nothing of HTTP, SQL or files",
+		under: []string{"internal/explore"}, internal: []string{"internal/explore"}, noStd: outside},
+	{what: "the explorer's browser plugs into its logic",
+		under: []string{"internal/chrome"}, internal: []string{"internal/chrome", "internal/explore"}, thirdParty: true},
+	{what: "the explorer is put together from its logic and its browser, with the settings every program reads",
+		under: []string{"cmd/iape-explore"}, internal: []string{"internal/explore", "internal/chrome", "internal/platform"}, thirdParty: true},
 
 	{what: "what both programs share knows neither of them",
 		under: []string{"internal/platform"}, thirdParty: true},
 	{what: "the view of a struct for a log is made with the standard library alone",
 		under: []string{"internal/platform/redact"}},
-	{what: "the scripted agent and the UI contract know neither program",
-		under: []string{"internal/testagent", "internal/contract"}, thirdParty: true},
-	{what: "the scripted agent's command is the scripted agent, with the settings every program reads",
-		under: []string{"cmd/test-agent"}, internal: []string{"internal/testagent", "internal/platform"}, thirdParty: true},
-	{what: "the Yape agent (the gateway model and the history's MCP tools) knows neither program, only the settings every program reads",
-		under: []string{"internal/yapeagent"}, internal: []string{"internal/platform"}, thirdParty: true},
-	{what: "the Yape agent's command is the Yape agent, with the settings every program reads",
-		under: []string{"cmd/yape-agent"}, internal: []string{"internal/yapeagent", "internal/platform"}, thirdParty: true},
+	{what: "the scripted BFF knows nothing of the programs it stands in for, only the standard library",
+		under: []string{"internal/testbff"}},
+	{what: "the scripted BFF's command is the scripted BFF, with the settings every program reads",
+		under: []string{"cmd/test-bff"}, internal: []string{"internal/testbff", "internal/platform"}, thirdParty: true},
 }
 
 func under(dir, parent string) bool { return dir == parent || strings.HasPrefix(dir, parent+"/") }
@@ -117,14 +113,14 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 	ours := func(dir string) string { return module + "/" + dir }
 
 	const (
-		webUseCase   = "a use case of the Web UI"
-		webAdapter   = "an adapter of the Web UI"
-		webRoot      = "the composition root of the Web UI"
-		evalUseCase  = "a use case of the evaluator"
-		evalAdapter  = "an adapter of the evaluator"
-		evalCommand  = "the evaluator's command"
-		shared       = "what both programs share"
-		agentCommand = "the scripted agent's command"
+		webUseCase    = "a use case of the Web UI"
+		webAdapter    = "an adapter of the Web UI"
+		webRoot       = "the composition root of the Web UI"
+		shared        = "what both programs share"
+		exploreLogic  = "the explorer's logic"
+		exploreChrome = "the explorer's browser"
+		exploreCmd    = "the explorer's command"
+		testBFF       = "the scripted BFF"
 	)
 	type importCase struct {
 		who  string
@@ -141,58 +137,51 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 		{webUseCase, "internal/core/auth", "the composition root", ours("internal/app"), false},
 		{webUseCase, "internal/core/auth", "what both programs share", ours("internal/platform/envcfg"), false},
 		{webUseCase, "internal/core/domain", "another module", "github.com/jackc/pgx/v5", false},
-		{webUseCase, "internal/core/conversation", "the evaluator", ours("internal/eval/core/domain"), false},
 
 		{webAdapter, "internal/infrastructure/postgres", "the domain", ours("internal/core/domain"), true},
 		{webAdapter, "internal/infrastructure/api/web", "a port", ours("internal/core/port/service"), true},
-		{webAdapter, "internal/infrastructure/agent/adkrest", "the settings, which the adapters share", ours("internal/infrastructure/config"), true},
 		{webAdapter, "internal/infrastructure/config", "what both programs share", ours("internal/platform/redact"), true},
 		{webAdapter, "internal/infrastructure/postgres", "another module", "github.com/jackc/pgx/v5", true},
 		{webAdapter, "internal/infrastructure/api/web", "a use case", ours("internal/core/chat"), false},
 		{webAdapter, "internal/infrastructure/api/web", "the composition root", ours("internal/app"), false},
-		{webAdapter, "internal/infrastructure/config", "the evaluator", ours("internal/eval/infrastructure/config"), false},
 
 		{webRoot, "internal/app", "a use case", ours("internal/core/chat"), true},
 		{webRoot, "internal/app", "an adapter", ours("internal/infrastructure/postgres"), true},
 		{webRoot, "internal/app", "the embedded files", ours("assets"), true},
-		{webRoot, "cmd/web", "the evaluator", ours("internal/eval/infrastructure/config"), false},
-
-		{evalUseCase, "internal/eval/core/run", "the domain", ours("internal/eval/core/domain"), true},
-		{evalUseCase, "internal/eval/core/probe", "a port", ours("internal/eval/core/port/resource"), true},
-		{evalUseCase, "internal/eval/core/run", "another use case", ours("internal/eval/core/report"), true},
-		{evalUseCase, "internal/eval/core/run", "an adapter", ours("internal/eval/infrastructure/store"), false},
-		{evalUseCase, "internal/eval/core/run", "what both programs share", ours("internal/platform/envcfg"), false},
-		{evalUseCase, "internal/eval/core/score", "another module", "github.com/parquet-go/parquet-go", false},
-		{evalUseCase, "internal/eval/core/domain", "the Web UI", ours("internal/core/domain"), false},
-
-		{evalAdapter, "internal/eval/infrastructure/devtools", "a use case", ours("internal/eval/core/probe"), true},
-		{evalAdapter, "internal/eval/infrastructure/synthetic", "another adapter", ours("internal/eval/infrastructure/gaia"), true},
-		{evalAdapter, "internal/eval/infrastructure/config", "what both programs share", ours("internal/platform/envcfg"), true},
-		{evalAdapter, "internal/eval/infrastructure/devtools", "another module", "github.com/modelcontextprotocol/go-sdk/mcp", true},
-		{evalAdapter, "internal/eval/infrastructure/devtools", "the Web UI", ours("internal/infrastructure/config"), false},
-		{evalAdapter, "internal/eval/infrastructure/devtools", "the UI contract", ours("internal/contract"), false},
-		{evalCommand, "cmd/eval", "a use case", ours("internal/eval/core/run"), true},
-		{evalCommand, "cmd/eval", "what both programs share", ours("internal/platform/envcfg"), true},
-		{evalCommand, "cmd/eval", "the Web UI", ours("internal/core/domain"), false},
 
 		{shared, "internal/platform/envcfg", "another module", "github.com/joho/godotenv", true},
 		{shared, "internal/platform/envcfg", "the Web UI", ours("internal/core/domain"), false},
-		{shared, "internal/platform/redact", "the evaluator", ours("internal/eval/core/domain"), false},
 		{"the view of a struct", "internal/platform/redact", "the standard library", "reflect", true},
 		{"the view of a struct", "internal/platform/redact", "another module", "github.com/joho/godotenv", false},
 		{"the view of a struct", "internal/platform/redact", "the settings reader beside it", ours("internal/platform/envcfg"), false},
-		{"the UI contract", "internal/contract", "the Web UI", ours("internal/infrastructure/api/web"), false},
-		{"the scripted agent", "internal/testagent", "the evaluator", ours("internal/eval/core/domain"), false},
-		{agentCommand, "cmd/test-agent", "the scripted agent", ours("internal/testagent"), true},
-		{agentCommand, "cmd/test-agent", "the Web UI", ours("internal/infrastructure/config"), false},
+		{exploreLogic, "internal/explore", "the Web UI", ours("internal/core/domain"), false},
+		{exploreLogic, "internal/explore", "a file", "os", false},
+		{exploreLogic, "internal/explore", "the network", "net/http", false},
+		{exploreLogic, "internal/explore", "another module", "github.com/stretchr/testify/assert", false},
+		{exploreChrome, "internal/chrome", "the explorer's logic", ours("internal/explore"), true},
+		{exploreChrome, "internal/chrome", "a file", "os", true},
+		{exploreChrome, "internal/chrome", "a process", "os/exec", true},
+		{exploreChrome, "internal/chrome", "another module", "github.com/modelcontextprotocol/go-sdk/mcp", true},
+		{exploreChrome, "internal/chrome", "the Web UI", ours("internal/core/domain"), false},
+		{exploreChrome, "internal/chrome", "the settings every program reads", ours("internal/platform/envcfg"), false},
+		{exploreCmd, "cmd/iape-explore", "the explorer's logic", ours("internal/explore"), true},
+		{exploreCmd, "cmd/iape-explore", "the explorer's browser", ours("internal/chrome"), true},
+		{exploreCmd, "cmd/iape-explore", "what both programs share", ours("internal/platform/envcfg"), true},
+		{exploreCmd, "cmd/iape-explore", "the Web UI", ours("internal/core/domain"), false},
 
+		{testBFF, "internal/testbff", "the Web UI", ours("internal/core/domain"), false},
+		{testBFF, "internal/testbff", "the BFF's adapter", ours("internal/infrastructure/agent/aguibff"), false},
+		{testBFF, "internal/testbff", "another module", "github.com/stretchr/testify/assert", false},
+		{testBFF, "internal/testbff", "the network", "net/http", true},
+		{testBFF, "cmd/test-bff", "the scripted BFF", ours("internal/testbff"), true},
+		{testBFF, "cmd/test-bff", "what both programs share", ours("internal/platform/envcfg"), true},
+		{testBFF, "cmd/test-bff", "the Web UI", ours("internal/core/domain"), false},
 		{webAdapter, "internal/infrastructure/api/web", "net/http", "net/http", true},
 		{webAdapter, "internal/infrastructure/postgres", "database/sql", "database/sql", true},
-		{evalAdapter, "internal/eval/infrastructure/store", "os", "os", true},
 	}
 	// Of the standard library a core may import all but the packages that reach
 	// out of the process, and what is below them.
-	for _, core := range []importCase{{who: webUseCase, from: "internal/core/chat"}, {who: evalUseCase, from: "internal/eval/core/run"}} {
+	for _, core := range []importCase{{who: webUseCase, from: "internal/core/chat"}, {who: exploreLogic, from: "internal/explore"}} {
 		for _, std := range []string{"net/http", "net/http/httputil", "database/sql", "database/sql/driver", "os", "os/exec", "io/fs"} {
 			tests = append(tests, importCase{core.who, core.from, std, std, false})
 		}

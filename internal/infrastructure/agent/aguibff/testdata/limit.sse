@@ -1,0 +1,26 @@
+data: {"type":"RUN_STARTED","threadId":"3c8e60e7-3a30-4bd0-b3d2-aac10b3113b3","runId":"64ed00bb-2351-4a05-803e-ede30c2bb1dc","timestamp":1795129700063}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_call_zUNKr5tpHiEkqz3LHyYFArcl","toolCallName":"transfer_to_agent","timestamp":1795129701293}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_call_zUNKr5tpHiEkqz3LHyYFArcl","delta":"{\"agent_name\":\"p2p_workflow\"}","timestamp":1795129701293}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_call_zUNKr5tpHiEkqz3LHyYFArcl","timestamp":1795129701293}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_0dc1f97b-2888-4c34-b7c1-42a810bdd50e","toolCallId":"tc_call_zUNKr5tpHiEkqz3LHyYFArcl","content":"{\"id\":\"call_zUNKr5tpHiEkqz3LHyYFArcl\",\"name\":\"transfer_to_agent\"}","role":"tool","timestamp":1795129701307}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_e-7b7aac21-311b-43fb-b422-a4ffeeec53d4:747d2928-ddef-4035-8381-75ed24b793ea:validate_p2p_amount","toolCallName":"validate_p2p_amount","timestamp":1795129703311}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_e-7b7aac21-311b-43fb-b422-a4ffeeec53d4:747d2928-ddef-4035-8381-75ed24b793ea:validate_p2p_amount","delta":"{\"amount_text\":\"600.00 soles\"}","timestamp":1795129703311}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_e-7b7aac21-311b-43fb-b422-a4ffeeec53d4:747d2928-ddef-4035-8381-75ed24b793ea:validate_p2p_amount","timestamp":1795129703311}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_747a4517-e8f7-4698-9fef-aac26646dc01","toolCallId":"tc_e-7b7aac21-311b-43fb-b422-a4ffeeec53d4:747d2928-ddef-4035-8381-75ed24b793ea:validate_p2p_amount","content":"{\"id\":\"e-7b7aac21-311b-43fb-b422-a4ffeeec53d4:747d2928-ddef-4035-8381-75ed24b793ea:validate_p2p_amount\",\"name\":\"validate_p2p_amount\",\"response\":{\"error\":\"individual amount exceeds maximum allowed amount of 500.00 PEN\",\"message\":\"El máximo para cualquier usuario es S/500; indícame un monto de hasta S/500.\",\"state\":\"AMOUNT_OVER_LIMIT\"}}","role":"tool","timestamp":1795129703325}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"0da7d940-f36a-4206-a9e5-cb17b32eed0b","role":"assistant","timestamp":1795129703333}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"0da7d940-f36a-4206-a9e5-cb17b32eed0b","delta":"El máximo para cualquier usuario es S/500; indícame un monto de hasta S/500.","timestamp":1795129703333}
+
+data: {"type":"RUN_FINISHED","threadId":"3c8e60e7-3a30-4bd0-b3d2-aac10b3113b3","runId":"64ed00bb-2351-4a05-803e-ede30c2bb1dc","timestamp":1795129703334}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"0da7d940-f36a-4206-a9e5-cb17b32eed0b","timestamp":1795129703334}
+

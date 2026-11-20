@@ -17,7 +17,8 @@ import (
 	authcore "iape-ui/internal/core/auth"
 	"iape-ui/internal/core/chat"
 	"iape-ui/internal/core/conversation"
-	"iape-ui/internal/infrastructure/agent/adkrest"
+	"iape-ui/internal/core/interaction"
+	"iape-ui/internal/infrastructure/agent/aguibff"
 	"iape-ui/internal/infrastructure/api/web"
 	authinfra "iape-ui/internal/infrastructure/auth"
 	"iape-ui/internal/infrastructure/config"
@@ -91,7 +92,9 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 		}
 	}
 
-	agent := adkrest.NewClient(cfg.Agent, nil)
+	// The BFF of the Yape agent service is the agent and answers the cards of its replies. Its token comes from a program, once
+	// for each turn: that program caches it until it expires.
+	agent := aguibff.NewClient(cfg.Agent, aguibff.CommandToken{Bin: cfg.Agent.BearerBin, AccountID: cfg.Agent.AccountID}, nil)
 	chatSvc := chat.NewService(chat.Dependencies{
 		Conversations:   conversations,
 		Messages:        messages,
@@ -99,6 +102,7 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 		Logger:          log,
 		MaxMessageChars: cfg.Chat.MaxMessageChars,
 	})
+	interactionSvc := interaction.NewService(interaction.Dependencies{Messages: messages, Actions: agent, Logger: log})
 	conversationSvc := conversation.NewService(conversation.Dependencies{
 		Conversations: conversations,
 		Messages:      messages,
@@ -106,7 +110,7 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 	})
 
 	webApp, err := web.NewApp(log, assets.EmbeddedFiles,
-		web.Services{Auth: authSvc, Chat: chatSvc, Conversations: conversationSvc},
+		web.Services{Auth: authSvc, Chat: chatSvc, Conversations: conversationSvc, Interactions: interactionSvc},
 		web.Options{
 			SecureCookies:  cfg.SecureCookies(),
 			FlushInterval:  cfg.Chat.StreamFlushInterval,

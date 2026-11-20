@@ -1,7 +1,6 @@
 // The container images, built from their Dockerfiles and run together on one
-// network the way docker-compose.yml runs them: PostgreSQL, the scripted agent
-// and the web server. One chat goes through all three, and the web server is
-// stopped the way `docker stop` stops it.
+// network: PostgreSQL, the scripted BFF and the web server, which asks the BFF if it is ready.
+// The web server is stopped the way `docker stop` stops it.
 //
 // Group A: needs Docker, and builds two images (the first build downloads the Go
 // modules, so it takes a few minutes; later builds reuse Docker's cache). Skipped
@@ -10,7 +9,9 @@ package container_test
 
 import (
 	"context"
+	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,7 +26,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"iape-ui/internal/testagent"
 	"iape-ui/it/internal/pgenv"
 	"iape-ui/it/internal/stack"
 )
@@ -63,6 +63,20 @@ func built(ctx context.Context, t *testing.T, dockerfile string, req testcontain
 		t.Fatalf("building and starting %s: %v", dockerfile, err)
 	}
 	return ctr
+}
+
+// copyOut copies a file out of a container into a temporary file of the host, and returns its path.
+func copyOut(ctx context.Context, t *testing.T, ctr testcontainers.Container, path string) string {
+	t.Helper()
+	r, err := ctr.CopyFileFromContainer(ctx, path)
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+	out := filepath.Join(t.TempDir(), filepath.Base(path))
+	f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY, 0o755)
+	require.NoError(t, err)
+	_, err = io.Copy(f, r)
+	require.NoError(t, errors.Join(err, f.Close()))
+	return out
 }
 
 func logsOf(ctx context.Context, ctr testcontainers.Container) string {
@@ -107,23 +121,32 @@ func TestContainersSmoke(t *testing.T) {
 		network.WithNetwork([]string{"postgres"}, nw))
 	testcontainers.CleanupContainer(t, db)
 	require.NoError(t, err)
+	// The program creates no table: it expects its schema, as the migrations leave it.
+	hostURL, err := db.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	pgenv.ApplySchema(t, hostURL)
 
-	agent := built(ctx, t, "Dockerfile.testagent", testcontainers.ContainerRequest{
+	agent := built(ctx, t, "Dockerfile.testbff", testcontainers.ContainerRequest{
 		Networks:       []string{nw.Name},
 		NetworkAliases: map[string][]string{nw.Name: {"agent"}},
 		// Distroless has no shell or curl: the binary asks itself, as Compose does.
-		WaitingFor: wait.ForExec([]string{"/test-agent", "healthcheck"}).WithStartupTimeout(2 * time.Minute),
+		WaitingFor: wait.ForExec([]string{"/test-bff", "healthcheck"}).WithStartupTimeout(2 * time.Minute),
 	})
+	// A chat needs the program that prints a token (yape-token), which belongs to the computer the Web UI runs on. The scripted BFF
+	// is such a program too (test-bff --account ID), so its binary is copied into the web image.
+	tokenBin := copyOut(ctx, t, agent, "/test-bff")
 	web := built(ctx, t, "Dockerfile", testcontainers.ContainerRequest{
+		Files:          []testcontainers.ContainerFile{{HostFilePath: tokenBin, ContainerFilePath: "/yape-token", FileMode: 0o755}},
 		Networks:       []string{nw.Name},
 		NetworkAliases: map[string][]string{nw.Name: {"web"}},
 		ExposedPorts:   []string{"8300/tcp"},
 		Env: map[string]string{
 			"APP_ENV":            "development",
 			"APP_BASE_URL":       "http://localhost:8300",
-			"DB_URL":             "postgres://agentwebui:pg-secret-1@postgres:5432/agentwebui?sslmode=disable",
-			"AGENT_BASE_URL":     "http://agent:9093/api",
-			"AGENT_APP_NAME":     testagent.AppName,
+			"DB_URL":             "postgres://agentwebui:pg-secret-1@postgres:5432/agentwebui?sslmode=disable&search_path=web_ui",
+			"AGENT_BASE_URL":     "http://agent:9093",
+			"YAPE_ACCOUNT_ID":    "25906ac5-9f18-4099-b3fd-e1b74d8549a4",
+			"YAPE_TOKEN_BIN":     "/yape-token",
 			"ADMIN_EMAIL":        adminEmail,
 			"ADMIN_PASSWORD":     adminPassword,
 			"APP_SHUTDOWN_GRACE": "10s",
@@ -152,7 +175,7 @@ func TestContainersSmoke(t *testing.T) {
 			cmd  []string
 		}{
 			{"web", web, []string{"/agent-web-ui", "healthcheck"}},
-			{"agent", agent, []string{"/test-agent", "healthcheck"}},
+			{"agent", agent, []string{"/test-bff", "healthcheck"}},
 		} {
 			code, out, err := probe.ctr.Exec(ctx, probe.cmd)
 			require.NoError(t, err)
@@ -161,7 +184,7 @@ func TestContainersSmoke(t *testing.T) {
 		}
 	})
 
-	t.Run("a chat goes through the web server, the agent and the database", func(t *testing.T) {
+	t.Run("a chat goes through the web server, the scripted BFF and the database", func(t *testing.T) {
 		host, err := web.Host(ctx)
 		require.NoError(t, err)
 		port, err := web.MappedPort(ctx, "8300/tcp")
@@ -178,9 +201,19 @@ func TestContainersSmoke(t *testing.T) {
 		saved := c.Raw(conv, reply)
 		assert.Equal(t, 200, saved.Status)
 		assert.Equal(t, "You said: hello from the containers", saved.Body)
-		page := c.Messages(conv)
-		require.Len(t, page, 2)
-		assert.Equal(t, "complete", page[1].Status)
+	})
+
+	t.Run("the web server signs in and serves the start page and its assets", func(t *testing.T) {
+		host, err := web.Host(ctx)
+		require.NoError(t, err)
+		port, err := web.MappedPort(ctx, "8300/tcp")
+		require.NoError(t, err)
+		c := stack.NewClient(t, "http://"+host+":"+port.Port()).SignIn(adminEmail, adminPassword)
+
+		start := c.Get("/")
+
+		assert.Equal(t, 200, start.Status)
+		assert.Contains(t, start.Body, "composer-input", "the page has its composer")
 		css := c.Get("/static/css/app.css")
 		assert.Equal(t, 200, css.Status, "the assets embedded in the binary are served")
 		assert.Contains(t, css.Header.Get("Content-Type"), "text/css")
@@ -191,14 +224,14 @@ func TestContainersSmoke(t *testing.T) {
 
 		assert.NotZero(t, code)
 		assert.Contains(t, output, "missing required configuration")
-		for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "AGENT_APP_NAME"} {
+		for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID"} {
 			assert.Contains(t, output, key)
 		}
 	})
 
 	t.Run("a web server with settings that make no sense stops, and says what is wrong (SC-15)", func(t *testing.T) {
 		code, output := runToTheEnd(ctx, t, map[string]string{
-			"DB_URL": "postgres://u:p@postgres:5432/db", "AGENT_BASE_URL": "not-a-url", "AGENT_APP_NAME": "a",
+			"DB_URL": "postgres://u:p@postgres:5432/db", "AGENT_BASE_URL": "not-a-url", "YAPE_ACCOUNT_ID": "25906ac5-9f18-4099-b3fd-e1b74d8549a4",
 			"ADMIN_EMAIL": "not-an-email", "ADMIN_PASSWORD": "short",
 		})
 
@@ -242,7 +275,7 @@ func TestContainersSmoke(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = conn.Close(ctx) }()
 		var status, content string
-		require.NoError(t, conn.QueryRow(ctx, `SELECT status, content FROM messages WHERE id = $1`, reply).Scan(&status, &content))
+		require.NoError(t, conn.QueryRow(ctx, `SELECT status, content FROM web_ui.messages WHERE id = $1`, reply).Scan(&status, &content))
 		assert.Equal(t, "stopped", status, "the reply was ended by the shutdown, not left streaming or cut by the exit")
 		assert.Contains(t, content, "tick", "and the text so far was saved")
 	})

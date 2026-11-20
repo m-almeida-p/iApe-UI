@@ -1,0 +1,52 @@
+data: {"type":"RUN_STARTED","threadId":"4ebaf0b2-dfec-4193-8239-67d2cb7aa9ec","runId":"28df4c1f-77a3-499a-a310-e5bd9b359dbf","timestamp":1795129709590}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_call_fIazEqf93QVeOf13PnWIBHBh","toolCallName":"transfer_to_agent","timestamp":1795129710749}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_call_fIazEqf93QVeOf13PnWIBHBh","delta":"{\"agent_name\":\"p2p_workflow\"}","timestamp":1795129710749}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_call_fIazEqf93QVeOf13PnWIBHBh","timestamp":1795129710749}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_b0e444ed-e3a1-4634-a770-3346b5b9c313","toolCallId":"tc_call_fIazEqf93QVeOf13PnWIBHBh","content":"{\"id\":\"call_fIazEqf93QVeOf13PnWIBHBh\",\"name\":\"transfer_to_agent\"}","role":"tool","timestamp":1795129710750}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:451fe7cb-ed87-4e02-8ceb-c9327bdda98a:validate_p2p_amount","toolCallName":"validate_p2p_amount","timestamp":1795129712144}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:451fe7cb-ed87-4e02-8ceb-c9327bdda98a:validate_p2p_amount","delta":"{\"amount_text\":\"20.00 soles\"}","timestamp":1795129712144}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:451fe7cb-ed87-4e02-8ceb-c9327bdda98a:validate_p2p_amount","timestamp":1795129712144}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_ad541d32-a9d5-4d0f-b1b4-d91e80c39a05","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:451fe7cb-ed87-4e02-8ceb-c9327bdda98a:validate_p2p_amount","content":"{\"id\":\"e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:451fe7cb-ed87-4e02-8ceb-c9327bdda98a:validate_p2p_amount\",\"name\":\"validate_p2p_amount\",\"response\":{\"amount_text\":\"20.00 soles\",\"state\":\"VALID\"}}","role":"tool","timestamp":1795129712154}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:9b893d31-9d73-4e73-a70f-a02f5e14624e:request_contact_from_client","toolCallName":"request_contact_from_client","timestamp":1795129712182}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:9b893d31-9d73-4e73-a70f-a02f5e14624e:request_contact_from_client","delta":"{\"query\":\"Juan Perez\"}","timestamp":1795129712182}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:9b893d31-9d73-4e73-a70f-a02f5e14624e:request_contact_from_client","timestamp":1795129712182}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_c7583d03-47f5-44d9-9499-807258179ceb","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:9b893d31-9d73-4e73-a70f-a02f5e14624e:request_contact_from_client","content":"{\"agent_reference\":\"Juan Perez\",\"message\":\"El contacto ya está confirmado.\",\"query\":\"Juan Perez\",\"type\":\"done\"}","role":"tool","timestamp":1795129712190}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:45fe307c-fa24-4386-88ec-ef6ec60b297e:draft_transfer","toolCallName":"draft_transfer","timestamp":1795129712196}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:45fe307c-fa24-4386-88ec-ef6ec60b297e:draft_transfer","delta":"{\"amount_text\":\"20.00 soles\",\"query\":\"Juan Perez\"}","timestamp":1795129712196}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:45fe307c-fa24-4386-88ec-ef6ec60b297e:draft_transfer","timestamp":1795129712196}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_c3da616b-af05-41d6-8e6c-eb0a726afce9","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:45fe307c-fa24-4386-88ec-ef6ec60b297e:draft_transfer","content":"{\"id\":\"e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:45fe307c-fa24-4386-88ec-ef6ec60b297e:draft_transfer\",\"name\":\"draft_transfer\",\"response\":{\"draft_id\":\"trf_draft_910fbec9-641b-4aab-bd64-d9f30da367ef\",\"missing_fields\":[],\"state\":\"READY_TO_CONFIRM\"}}","role":"tool","timestamp":1795129712208}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:1e1ea870-cd84-41e6-9b10-2169e5733a67:request_transfer_approval","toolCallName":"request_transfer_approval","timestamp":1795129712221}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:1e1ea870-cd84-41e6-9b10-2169e5733a67:request_transfer_approval","delta":"{\"draft_id\":\"trf_draft_910fbec9-641b-4aab-bd64-d9f30da367ef\"}","timestamp":1795129712221}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:1e1ea870-cd84-41e6-9b10-2169e5733a67:request_transfer_approval","timestamp":1795129712221}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_7a3c8f93-35cc-4788-84c5-b4196502019f","toolCallId":"tc_e-9d8b8e72-1e31-40ae-99fb-05d1ffed465e:1e1ea870-cd84-41e6-9b10-2169e5733a67:request_transfer_approval","content":"{\"approval_id\":\"appr_28006196-bd87-4d46-931e-0f74a46b2c57\",\"preview\":{\"amount\":20,\"currency\":\"PEN\",\"destination_name\":\"Rosa Diaz\",\"destination_phone\":\"987654321\"},\"state\":\"AWAITING_APPROVAL\"}","role":"tool","timestamp":1795129712436}
+
+data: {"type":"CUSTOM","name":"ACTION_REQUEST","value":{"actionType":"approval","approvalId":"appr_28006196-bd87-4d46-931e-0f74a46b2c57","runId":"28df4c1f-77a3-499a-a310-e5bd9b359dbf","preview":{"destinationPhone":"987654321","destinationName":"Rosa Diaz","amount":20,"currency":"PEN","message":"","summary":""},"actions":[{"label":"Pay","method":"POST","url":"/bff/approvals/appr_28006196-bd87-4d46-931e-0f74a46b2c57/approve","style":"primary"},{"label":"Reject","method":"POST","url":"/bff/approvals/appr_28006196-bd87-4d46-931e-0f74a46b2c57/reject","style":"danger"}]},"timestamp":1795129712436}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"43a43df6-939a-48db-a540-8e510e93ddac","role":"assistant","timestamp":1795129712445}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"43a43df6-939a-48db-a540-8e510e93ddac","delta":"Revisa tu yapeo y confirma si todo está bien. Si necesitas, puedes cambiar los datos.","timestamp":1795129712445}
+
+data: {"type":"RUN_FINISHED","threadId":"4ebaf0b2-dfec-4193-8239-67d2cb7aa9ec","runId":"28df4c1f-77a3-499a-a310-e5bd9b359dbf","timestamp":1795129712446}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"43a43df6-939a-48db-a540-8e510e93ddac","timestamp":1795129712446}
+

@@ -1,0 +1,44 @@
+data: {"type":"RUN_STARTED","threadId":"95a6b816-740d-4a85-afdb-a263f65b2877","runId":"fd92d122-4d82-402f-9572-772a8efb6b12","timestamp":1795131320270}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_call_xkaNfcIOYAqqAsubXPC1g3ex","toolCallName":"transfer_to_agent","timestamp":1795131321507}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_call_xkaNfcIOYAqqAsubXPC1g3ex","delta":"{\"agent_name\":\"p2p_agent\"}","timestamp":1795131321507}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_call_xkaNfcIOYAqqAsubXPC1g3ex","timestamp":1795131321507}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_16acc769-d8a6-427c-a97f-72aff3e17464","toolCallId":"tc_call_xkaNfcIOYAqqAsubXPC1g3ex","content":"{\"id\":\"call_xkaNfcIOYAqqAsubXPC1g3ex\",\"name\":\"transfer_to_agent\"}","role":"tool","timestamp":1795131321510}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_call_ZjY02qsm5JfxJgiAjdE3RSUV","toolCallName":"transfer_to_agent","timestamp":1795131322764}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_call_ZjY02qsm5JfxJgiAjdE3RSUV","delta":"{\"agent_name\":\"p2p_workflow\"}","timestamp":1795131322764}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_call_ZjY02qsm5JfxJgiAjdE3RSUV","timestamp":1795131322764}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_0b41ea10-0dd3-422b-ab15-80e138be1fbb","toolCallId":"tc_call_ZjY02qsm5JfxJgiAjdE3RSUV","content":"{\"id\":\"call_ZjY02qsm5JfxJgiAjdE3RSUV\",\"name\":\"transfer_to_agent\"}","role":"tool","timestamp":1795131322770}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:3344423b-d900-4e56-9290-ddee8b5dcbb9:validate_p2p_amount","toolCallName":"validate_p2p_amount","timestamp":1795131324646}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:3344423b-d900-4e56-9290-ddee8b5dcbb9:validate_p2p_amount","delta":"{\"amount_text\":\"20.00 soles\"}","timestamp":1795131324646}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:3344423b-d900-4e56-9290-ddee8b5dcbb9:validate_p2p_amount","timestamp":1795131324646}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_fe11dede-dedc-46e7-96f9-e5e6f8e9aa0d","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:3344423b-d900-4e56-9290-ddee8b5dcbb9:validate_p2p_amount","content":"{\"id\":\"e-e99876d3-4db6-48df-89bf-df08d0bd2669:3344423b-d900-4e56-9290-ddee8b5dcbb9:validate_p2p_amount\",\"name\":\"validate_p2p_amount\",\"response\":{\"amount_text\":\"20.00 soles\",\"state\":\"VALID\"}}","role":"tool","timestamp":1795131324654}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:6806ee84-6777-435d-a84b-0d78af8f0af9:request_contact_from_client","toolCallName":"request_contact_from_client","timestamp":1795131324662}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:6806ee84-6777-435d-a84b-0d78af8f0af9:request_contact_from_client","delta":"{\"query\":\"Maria\"}","timestamp":1795131324662}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:6806ee84-6777-435d-a84b-0d78af8f0af9:request_contact_from_client","timestamp":1795131324662}
+
+data: {"type":"TOOL_CALL_RESULT","messageId":"tcr_9137dfbd-277b-4cf4-9f55-341fdd5cc27c","toolCallId":"tc_e-e99876d3-4db6-48df-89bf-df08d0bd2669:6806ee84-6777-435d-a84b-0d78af8f0af9:request_contact_from_client","content":"{\"agent_reference\":\"Maria\",\"message\":\"Confirma que sea la persona correcta antes de yapearle.\",\"query\":\"Maria\",\"type\":\"contact_request\"}","role":"tool","timestamp":1795131324669}
+
+data: {"type":"CUSTOM","name":"CONTACT_REQUEST","value":{"requestId":"4a2569dc-090d-42ec-a2aa-bc107ad724d2","query":"Maria","agentReference":"Maria","message":"Confirma que sea la persona correcta antes de yapearle.","confirmUrl":"/bff/contacts/confirm"},"timestamp":1795131324669}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"3be37166-1eed-44ca-a339-97224fce7949","role":"assistant","timestamp":1795131324680}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"3be37166-1eed-44ca-a339-97224fce7949","delta":"Confirma que sea la persona correcta antes de yapearle.","timestamp":1795131324680}
+
+data: {"type":"RUN_FINISHED","threadId":"95a6b816-740d-4a85-afdb-a263f65b2877","runId":"fd92d122-4d82-402f-9572-772a8efb6b12","timestamp":1795131324681}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"3be37166-1eed-44ca-a339-97224fce7949","timestamp":1795131324681}
+

@@ -6,7 +6,5 @@
 !.env.example
 bin
 logs
-results
-datasets
 temp
 **/*.test

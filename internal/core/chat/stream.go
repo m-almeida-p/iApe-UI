@@ -121,6 +121,11 @@ func (s *Service) run(ctx context.Context, userID, convID uuid.UUID, claimed res
 		Usage:      acc.usage,
 		ToolCalls:  acc.tools,
 	}
+	// A card is for paying or choosing on a reply that completed. On any other the agent's service has a transfer waiting that
+	// the page would offer to pay on a reply that says it failed, so the card is not kept.
+	if status == domain.StatusComplete {
+		meta.Interaction = acc.card
+	}
 
 	// The request may be gone, so save on a context that outlives it.
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
@@ -202,9 +207,11 @@ type accumulator struct {
 	finished int // bytes in segments
 	current  strings.Builder
 	tools    []string
-	usage    domain.Usage
-	ttft     time.Duration
-	hasText  bool
+	// card is the last card the agent put in the reply.
+	card    *domain.Interaction
+	usage   domain.Usage
+	ttft    time.Duration
+	hasText bool
 }
 
 // size is how many bytes of text the reply has so far.
@@ -228,6 +235,12 @@ func (a *accumulator) apply(ev domain.AgentEvent, start time.Time) bool {
 		a.usage.Completion += ev.Usage.Completion
 	case domain.AgentToolCall:
 		a.tools = append(a.tools, ev.Tool)
+	case domain.AgentInteraction:
+		// A card of no kind, or of one this version does not know, can be neither drawn nor answered: it is not kept, and it
+		// does not take the place of one that was.
+		if k := ev.Interaction.Kind; k == domain.InteractionApproval || k == domain.InteractionContact {
+			a.card = &ev.Interaction
+		}
 	}
 	return false
 }

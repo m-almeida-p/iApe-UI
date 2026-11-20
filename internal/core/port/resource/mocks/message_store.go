@@ -4,9 +4,9 @@ package mocks
 
 import (
 	context "context"
+	domain "iape-ui/internal/core/domain"
 
 	mock "github.com/stretchr/testify/mock"
-	domain "iape-ui/internal/core/domain"
 
 	resource "iape-ui/internal/core/port/resource"
 
@@ -213,6 +213,24 @@ func (_m *MessageStore) ReplaceLastAssistant(ctx context.Context, userID uuid.UU
 	}
 
 	return r0, r1
+}
+
+// SaveInteraction provides a mock function with given fields: ctx, userID, convID, msgID, from, card
+func (_m *MessageStore) SaveInteraction(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID, from domain.Interaction, card domain.Interaction) error {
+	ret := _m.Called(ctx, userID, convID, msgID, from, card)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SaveInteraction")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.Interaction, domain.Interaction) error); ok {
+		r0 = rf(ctx, userID, convID, msgID, from, card)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // NewMessageStore creates a new instance of MessageStore. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

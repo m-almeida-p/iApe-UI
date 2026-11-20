@@ -25,13 +25,14 @@ func TestRun_ReadsTheFileItIsTold(t *testing.T) {
 	taken, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = taken.Close() })
-	settings := func(appName string) string {
+	settings := func(account string) string {
 		return "APP_HTTP_ADDR=" + taken.Addr().String() + "\n" +
 			"DB_URL=postgres://u:p@127.0.0.1:1/db\n" + // nothing listens there
-			"AGENT_BASE_URL=http://127.0.0.1:1/api\n" +
-			"AGENT_APP_NAME=" + appName + "\n"
+			"AGENT_BASE_URL=http://127.0.0.1:1\n" +
+			"YAPE_ACCOUNT_ID=" + account + "\n"
 	}
-	const noAppName = "missing required configuration: AGENT_APP_NAME"
+	const noAccount = "missing required configuration: YAPE_ACCOUNT_ID"
+	const account = "25906ac5-9f18-4099-b3fd-e1b74d8549a4"
 	listening := "listen on " + taken.Addr().String()
 
 	tests := []struct {
@@ -41,9 +42,9 @@ func TestRun_ReadsTheFileItIsTold(t *testing.T) {
 		want   string
 		not    string
 	}{
-		{"a key the named file leaves empty is not taken from the .env beside it", settings("ui_agent"), settings(""), noAppName, listening},
-		{"what the named file says is what the server gets", settings(""), settings("ui_agent"), listening, noAppName},
-		{"with no file named, it is the .env beside it", settings("ui_agent"), "", listening, noAppName},
+		{"a key the named file leaves empty is not taken from the .env beside it", settings(account), settings(""), noAccount, listening},
+		{"what the named file says is what the server gets", settings(""), settings(account), listening, noAccount},
+		{"with no file named, it is the .env beside it", settings(account), "", listening, noAccount},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,7 +157,7 @@ func TestArguments(t *testing.T) {
 // the health check included: the settings would be the environment's alone.
 func TestCommand_AWrongCommandLineStartsNothing(t *testing.T) {
 	t.Chdir(t.TempDir())
-	for _, key := range []string{"APP_HTTP_ADDR", "DB_URL", "AGENT_BASE_URL", "AGENT_APP_NAME"} {
+	for _, key := range []string{"APP_HTTP_ADDR", "DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID"} {
 		t.Setenv(key, "") // an empty value counts as unset
 	}
 	tests := []struct {

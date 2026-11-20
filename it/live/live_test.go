@@ -4,7 +4,7 @@
 //
 //	go test ./it/live/
 //
-// The agent is the one in .env (AGENT_BASE_URL, AGENT_APP_NAME); a variable in the
+// The agent is the BFF in .env (AGENT_BASE_URL, YAPE_ACCOUNT_ID, YAPE_TOKEN_BIN); a variable in the
 // environment wins. Docker is needed for PostgreSQL.
 package live_test
 
@@ -25,17 +25,20 @@ func TestLiveSuite(t *testing.T) {
 	lookup, err := envcfg.EnvLookup("../../.env")
 	require.NoError(t, err)
 	if live, _ := lookup("AGENT_LIVE"); live != "1" {
-		t.Skip("set AGENT_LIVE=1 in .env to talk to the real agent named there (AGENT_BASE_URL, AGENT_APP_NAME)")
+		t.Skip("set AGENT_LIVE=1 in .env to talk to the real BFF named there (AGENT_BASE_URL, YAPE_ACCOUNT_ID, YAPE_TOKEN_BIN)")
 	}
 	agentURL, _ := lookup("AGENT_BASE_URL")
-	appName, _ := lookup("AGENT_APP_NAME")
+	account, _ := lookup("YAPE_ACCOUNT_ID")
 	require.NotEmpty(t, agentURL, "AGENT_BASE_URL is not set")
-	require.NotEmpty(t, appName, "AGENT_APP_NAME is not set")
-	settings := []stack.Option{stack.WithExternalAgent(agentURL, appName)}
+	require.NotEmpty(t, account, "YAPE_ACCOUNT_ID is not set")
+	settings := []stack.Option{stack.WithExternalAgent(agentURL), stack.WithSetting("YAPE_ACCOUNT_ID", account)}
+	if bin, ok := lookup("YAPE_TOKEN_BIN"); ok {
+		settings = append(settings, stack.WithSetting("YAPE_TOKEN_BIN", bin))
+	}
 	if timeout, ok := lookup("AGENT_REQUEST_TIMEOUT"); ok {
 		settings = append(settings, stack.WithSetting("AGENT_REQUEST_TIMEOUT", timeout))
 	}
-	t.Logf("agent: %s, application %q", agentURL, appName)
+	t.Logf("agent: %s", agentURL)
 	s := stack.Start(t, settings...)
 	c := s.SignedIn()
 	patient := func() context.Context {

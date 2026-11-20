@@ -1,0 +1,145 @@
+# Talking to the agent service: what was found
+
+What building the Web UI against the Yape agent service's BFF taught us, and that the code or its tests could not say. Each entry
+says how it was seen and what the code does about it. Nothing here is a secret: the one password that appears is the fixed
+development password of the cluster's Redis, which is in that repository's own `docker-compose.yml`.
+
+## The protocol
+
+| Finding | What the code does |
+|---|---|
+| `POST /agent` answers **201**, not 200 (a NestJS POST). `curl` does not show it. The first live run failed on it | The client accepts any 2xx, and checks `Content-Type: text/event-stream` |
+| `RUN_FINISHED` can arrive **before the last `TEXT_MESSAGE_END`** | The decoder reads to the end of the stream, not to `RUN_FINISHED`, so it keeps the last text |
+| A stream cut after some text is an answer that stopped short; one cut before any is an agent that did not answer | `ErrIncompleteStream` (the text is kept, with a Retry) and `ErrAgentUnavailable` |
+| After approve, reject or the code, **the BFF itself** tells the agent (`notifyPaymentCardSync`). That notice is not in the stream the page reads | Nothing: the page shows the `displayMessage` of the action |
+| An action that is refused answers 4xx with the reason in `message` (a string, or a list) | `*domain.ActionError`: the card stays as it was and shows the reason |
+| The approve response asks for a code with `otp_required` and `transfer_id`; the code is confirmed against that `transfer_id` | The card keeps it as `ChallengeID`. `otp/confirm` without it is a 400 |
+| The stream carries **no token counts** | The page shows the times and no tokens (`data-prompt-tokens` is empty) |
+| A 401 means the token expired | The token program is asked again with `--refresh`, once |
+
+## The cards and the mock bank
+
+- **Over 500 PEN** the agent refuses on its own (`validate_p2p_amount`), before any card. **Over 100 PEN**, or a message with `[otp]`,
+  needs a code; anything else is paid at once.
+- **The mock bank accepts any code** (`000000` paid). The path of a wrong code is tested with the scripted BFF (`internal/testbff`),
+  not live.
+- **The BFF remembers the contacts that were confirmed**, per account. A name that was used once never asks for confirmation again, so
+  a test of the contact card needs a name that is new on each run (the explorer makes one).
+- The picker of the BFF's own page sends the **chosen contact's name** as `query` to `POST /bff/contacts/confirm`, not what was typed
+  after the `@`: with only an `@` the query is empty and the BFF answers `Missing required fields: query, phone`.
+- The destination's name on the transfer card comes from the agent's mock (it said "Rosa Diaz", then "Usuario"), whoever you chose. The
+  phone is the chosen contact's.
+- The candidates of a contact card are made up by the Web UI (`domain.Candidates`), as the BFF's page does. There is no address book.
+- Asking for a contact with a name nobody made up is not steady: an LLM sometimes does not take a bare invented name as the payee.
+  "quiero yapearle 20 soles a <name>" is.
+
+## The guardrail and the ban
+
+The agent service's prompt guard counts a blocked message against the account (a circuit breaker per account, in Redis). In a development
+`.env` of the service it is set hard:
+
+```
+CIRCUIT_BREAKER_MAX_BLOCKS_PER_WINDOW=2        # (default 10)
+CIRCUIT_BREAKER_MAX_WINDOW_SECONDS=300
+CIRCUIT_BREAKER_BAN_DURATION_SECONDS=2600000   # about 30 days (default 300)
+```
+
+So **two blocked messages in five minutes ban the account for a month**, and every message then answers *"Por seguridad, limitamos tu
+acceso al asistente. Podrás intentarlo de nuevo más adelante."* That is what a run of the explorer's `guard` path (a prompt injection) does,
+and it happened: the next paths all failed with that text, which looks like a bug of the page and is not.
+
+- The explorer's `-all` leaves out `guard` unless `-with-guard` is given, and running it says what it costs.
+- To lift a ban, delete its key in the cluster's Redis (`requirepass` is set; the development password is the one in
+  `cluster/docker-compose.yml` of the Yape repositories). The account is the one in `YAPE_ACCOUNT_ID`:
+
+  ```sh
+  docker exec -e REDISCLI_AUTH='<that password>' yape-redis redis-cli TTL promptguard:cb:banned:<account>   # seconds left; -2 if none
+  docker exec -e REDISCLI_AUTH='<that password>' yape-redis redis-cli DEL promptguard:cb:banned:<account> promptguard:cb:blocks:<account>
+  ```
+
+- For tests, soften the service's settings (50 blocks, 60 s of ban, say) rather than lifting the ban each time.
+
+## The environment
+
+- The **QA AI gateway** sometimes answers 503 or 429. The agent then serves its fallback text, and a run of the flows looks broken for
+  that reason alone (the service's log says `api_error_status_503/429`). Wait and run again.
+- `yape-token` needs the VPN and its own configuration. It prints the token to stdout only, caches it (mode 0600) and takes `--account`
+  and `--refresh`. The Web UI never writes, logs or returns the token.
+- **A container cannot run `yape-token`**: it belongs to the computer the Web UI runs on. So Compose runs only PostgreSQL and the
+  scripted BFF, and the container test copies `test-bff` into the image as its token program (`test-bff --account ID` prints a token).
+- The **explorer's Chrome** starts through Chrome DevTools MCP, with a window by default (a fresh, isolated profile: it is not your
+  Chrome). `-headless` runs it without one. Either way `--isolated` and the flags that keep usage statistics off are required. `npx`
+  needs a recent Node (20.19+, 22.12+ or 23+).
+
+## What the Web UI does not do yet
+
+- A reply whose card is closed (paid, rejected, confirmed) still offers **Regenerate**; regenerating would ask the agent for another card.
+- A card answered from another tab gives the first tab a 409, and that tab shows the old card until it is reloaded.
+- A Web UI that runs against the real BFF needs the token program on its own computer; there is no static token setting, on purpose.
+## Decisions the tests pinned and did not change
+
+Edge-case tests found these, and they are choices more than bugs, so they stay as they are until someone decides:
+
+- **A 2xx answer to a card's action whose body is empty or unreadable is an error** ("reading the BFF's answer"), even though the action may
+  have gone through at the service. After a payment, how to show a success that cannot be told is a product decision.
+- **A zero, negative or absurd amount on a transfer card** offers Reject only; the service has the last word on whether it can be paid.
+- **`AGENT_REQUEST_TIMEOUT` has no floor or ceiling** (`1ns` makes every call time out; `999h` is accepted). A turn of the agent keeps it as it is; an answer to a card is cut to `ClaimTTL/2` (60 s), so that the call is over before its claim can be taken over.
+- **A refusal on a request without htmx** redirects to the conversation and loses its reason; only the htmx answer shows it on the card.
+- **A graceful close of Chrome DevTools MCP** does not kill its process group, so a Chrome helper that outlives the server would survive it.
+- **A secret split across two lines** is not found by the explorer's filter. The accessibility tree is one element a line, and the password is
+  only typed in the sign-in page, from which nothing is recorded.
+
+## One answer per card (the claim)
+
+The agent's service is reached from phones too, where retries and double taps are normal, so the Web UI does not leave idempotency to the
+service alone. A card is **claimed before the service is asked**: `Pay`, `Reject`, the code and the contact choice first save the card as
+`processing` (same compare-and-set as every save, now also on the claim's id), and only the caller that won that save calls the service.
+Fifty simultaneous answers ask the service once; the rest get `ErrInvalidState`.
+
+What becomes of the claim, by what the service did:
+
+| The service... | The card |
+|---|---|
+| acted | saved in its new state (`paid`, `rejected`, `otp_required`, `confirmed`) |
+| said no (`ActionError`), or the request never left (`domain.ErrNotSent`: no token, connection refused, 401 that cannot be renewed) | given back, as it was, with the reason |
+| did not answer in time, dropped the connection, or failed at the gateway (502/503/504) | **stays `processing`**: the payment may have gone through, so no one may answer it again for `domain.ClaimTTL` (2 minutes) |
+
+After the time a stale claim is taken over by one caller (the old holder's save is then refused) and the card goes back to the state it had.
+Nothing in the schema changed: the claim (`claim_id`, `claimed_at`, `resume`) lives in the card's JSON in `messages.meta`.
+
+On the page a `processing` card shows no buttons and **asks `GET /c/{id}/m/{mid}/card` every 3 seconds** (htmx), replacing the reply; the
+new reply has no poll once the card is in another state, so it stops by itself. Once the claim is stale the card is drawn as what it
+was (Pay and Reject, the code field, the candidates) with a note, so the user can answer again.
+
+**Answering again is safe: checked against the real BFF.** A second `approve` of the same approval is `400 {"error":"approval already
+resolved: APPROVED"}` (also for a third), not a second payment. The BFF explains a refusal in `message` (NestJS) or in `error` (the
+approvals' own); the client reads both (an `error` that is only the status name, as in `"Bad Request"`, explains nothing) and sets
+`ActionError.Resolved` to the word after `already resolved:`. For `Approve` and `Reject` the service takes that as the answer: `APPROVED`
+leaves the card `paid` ("This transfer was already approved. Its result is in your history.") and `REJECTED` leaves it `rejected`. That
+is how a payment whose reply was lost finds out what became of it. Any other word (`EXPIRED`), or an approval that cannot become that
+(a rejection of a card that waits for a code, whose approval is `APPROVED`), is given back with the reason.
+
+Caveat: `APPROVED` does not say whether the transfer was paid or still waits for its code (the first reply, with the transfer id the code
+needs, is the one that was lost), so the card says "approved" and sends the user to the history for the result.
+
+Pinned by: `internal/core/domain/claim_test.go`, `internal/core/interaction/claim_test.go` (including 50 concurrent callers),
+`it/message/store_test.go` (`TestSaveInteraction_TheClaimOfACard`, against PostgreSQL), the `ErrNotSent` and refusal tests of the BFF
+client, and the card tests of the web layer.
+
+### What the review added (phase 5)
+
+- **A reply that holds a payment is not regenerated.** `ReplaceLastAssistant` refuses (`ErrInvalidState`) a reply whose card is `processing`,
+  `otp_required` or `paid` (`domain.Interaction.HoldsPayment`), and the page offers no Regenerate or Retry there. Before, the row was deleted
+  while the BFF had approved, and the new turn could ask for the same transfer again.
+- **Losing the race to answer a card does not wipe the reply.** htmx swaps a 409 over the whole reply, so the page is given the reply as it
+  is now; if it cannot be read, the 409 carries `HX-Reswap: none`. A card that stays claimed after a timeout shows no "try again".
+- **A 2xx that does not confirm the transfer is not paid.** An answer to approve or the code with `success: false`, or an `execution.status`
+  that is not `SUCCESS`, is an answer that may or may not have gone through: the card stays claimed. A BFF that says nothing about
+  success (a reject, an older BFF) is taken at its word.
+- **The card routes are limited per user** (`approve`, `reject`, `otp` and `/contacts/confirm`, in a bucket of their own, apart from the
+  messages'): each is a call to the payment service and runs the token program. There is **no cap of wrong codes** on a card: the bank owns
+  its attempts, and the mock bank accepts any code.
+- **A poll that cannot read its card stops** (status 286, for which `base.html` swaps nothing). The picker confirms only the person shown
+  (`name` and the query the list was drawn for are posted; the server checks them). The client does not follow redirects, and the token
+  program does not get `DB_URL`, `DATABASE_URL`, `ADMIN_PASSWORD` or `POSTGRES_PASSWORD`. The explorer's `report.md` and failure text go
+  through the same secret filter as its records.

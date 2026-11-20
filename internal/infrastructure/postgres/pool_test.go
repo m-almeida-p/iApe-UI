@@ -46,7 +46,7 @@ func TestDBURL_TheDriverReadsWhatLoadTakesAsLoadDoes(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			settings := map[string]string{"DB_URL": tc.dbURL, "AGENT_BASE_URL": "http://agent.internal/api", "AGENT_APP_NAME": "ui_agent"}
+			settings := map[string]string{"DB_URL": tc.dbURL, "AGENT_BASE_URL": "http://agent.internal", "YAPE_ACCOUNT_ID": "25906ac5-9f18-4099-b3fd-e1b74d8549a4"}
 
 			cfg, err := config.Load(func(key string) (string, bool) { value, ok := settings[key]; return value, ok })
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"uuid"
 
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/platform/envcfg"
@@ -61,11 +62,15 @@ type DB struct {
 	MaxConns int
 }
 
-// Agent holds the upstream agent settings.
+// Agent holds the settings of the agent the Web UI talks to: the AG-UI BFF of the Yape agent service.
 type Agent struct {
+	// BaseURL is the BFF, such as http://localhost:4000.
 	BaseURL        string
-	AppName        string
 	RequestTimeout time.Duration
+	// AccountID is the Yape account the BFF is asked as, in its canonical form.
+	AccountID string
+	// BearerBin is the program that prints the account's bearer token (yape-token).
+	BearerBin string
 }
 
 // Chat holds chat behavior settings.
@@ -171,8 +176,8 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 			MaxConns: r.positive("DB_MAX_CONNS", 10, strconv.Atoi),
 		},
 		Agent: Agent{
-			AppName:        r.required("AGENT_APP_NAME"),
 			RequestTimeout: r.positive("AGENT_REQUEST_TIMEOUT", 120*time.Second, time.ParseDuration),
+			BearerBin:      r.str("YAPE_TOKEN_BIN", "yape-token"),
 		},
 		Chat: Chat{
 			MaxMessageChars:     r.positive("CHAT_MAX_MESSAGE_CHARS", 8000, strconv.Atoi),
@@ -190,7 +195,9 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 
 	c.App.BaseURL = strings.TrimRight(r.absoluteURL("APP_BASE_URL", r.str("APP_BASE_URL", "http://localhost:8300"), "http", "https"), "/")
 	c.DB.URL = envcfg.Secret(r.databaseURL("DB_URL", r.required("DB_URL")))
-	c.Agent.BaseURL = strings.TrimRight(r.absoluteURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
+	c.Agent.BaseURL = strings.TrimRight(r.baseURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
+	r.required("YAPE_ACCOUNT_ID") // names the key when it is missing; the value is read, and checked, next
+	c.Agent.AccountID = r.uuidString("YAPE_ACCOUNT_ID")
 	c.Admin = r.admin()
 
 	// The checks that compare keys run only when each key is sound by itself, so
@@ -274,6 +281,21 @@ func (r *reader) positive[T cmp.Ordered](key string, def T, conv func(string) (T
 	return v
 }
 
+// uuidString is a UUID setting in its canonical lower-case form, or "" when it is not set. A value that is not a UUID is
+// refused without being echoed: an account is an identifier of a person.
+func (r *reader) uuidString(key string) string {
+	v := r.str(key, "")
+	if v == "" {
+		return ""
+	}
+	id, err := uuid.Parse(v)
+	if err != nil || id == uuid.Nil() { // the nil UUID is what a placeholder holds, not an account
+		r.fail("%s must be a UUID", key)
+		return ""
+	}
+	return id.String()
+}
+
 func (r *reader) oneOf(key, def string, allowed ...string) string {
 	v := r.str(key, def)
 	if !slices.Contains(allowed, v) {
@@ -307,6 +329,18 @@ func (r *reader) absoluteURL(key, raw string, schemes ...string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || !slices.Contains(schemes, u.Scheme) || redact.URL(raw) == redact.Unreadable {
 		r.refuseURL(key, schemes)
+		return ""
+	}
+	return raw
+}
+
+// baseURL is absoluteURL for an address that the paths of a service are added to: it has no query and no fragment, after
+// which an added path would be a part of them, and every request would go to the wrong place on the right host. The text of
+// the refusal holds nothing of the value.
+func (r *reader) baseURL(key, raw string, schemes ...string) string {
+	raw = r.absoluteURL(key, raw, schemes...)
+	if u, err := url.Parse(raw); raw != "" && err == nil && (u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#")) {
+		r.fail("%s must not have a query or a fragment: the paths of the agent are added after it", key)
 		return ""
 	}
 	return raw

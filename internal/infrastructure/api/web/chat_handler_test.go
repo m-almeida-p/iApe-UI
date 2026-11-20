@@ -24,6 +24,7 @@ type chatHarness struct {
 	auth  *mocks.Auth
 	chat  *mocks.Chat
 	convs *mocks.Conversation
+	cards *mocks.Interactions
 	app   *App
 	route http.Handler
 }
@@ -35,9 +36,9 @@ func newChatHarness(t *testing.T) *chatHarness {
 
 func newChatHarnessWithOptions(t *testing.T, opts Options) *chatHarness {
 	t.Helper()
-	h := &chatHarness{t: t, auth: mocks.NewAuth(t), chat: mocks.NewChat(t), convs: mocks.NewConversation(t)}
+	h := &chatHarness{t: t, auth: mocks.NewAuth(t), chat: mocks.NewChat(t), convs: mocks.NewConversation(t), cards: mocks.NewInteractions(t)}
 	h.auth.On("Authenticate", mock.Anything, "tok").Return(alice, nil)
-	h.app = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Conversations: h.convs}, opts)
+	h.app = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Conversations: h.convs, Interactions: h.cards}, opts)
 	h.route = h.app.Routes()
 	return h
 }

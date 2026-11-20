@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -318,6 +317,3 @@ func TestStop_WorksWithoutAGracePeriodItCanRead(t *testing.T) {
 		})
 	}
 }
-
-// syscallZero checks that a process exists without signalling it.
-var syscallZero = syscall.Signal(0)

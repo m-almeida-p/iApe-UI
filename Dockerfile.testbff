@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+# Scripted stand-in for the agent service's BFF: the AG-UI endpoint the Web UI talks to, answering from a script.
+# Build from the repository root:  docker build -f Dockerfile.testbff -t agent-web-ui-testbff .
+
+FROM golang:1.27.3-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/test-bff ./cmd/test-bff
+
+FROM gcr.io/distroless/static-debian13:nonroot
+COPY --from=build /out/test-bff /test-bff
+USER nonroot:nonroot
+EXPOSE 9093
+# Distroless has no curl; the binary checks itself: ["/test-bff", "healthcheck"].
+# Inside the container it listens on every interface; Compose publishes the port on the host's 127.0.0.1 only.
+ENV TEST_BFF_ADDR=:9093
+ENTRYPOINT ["/test-bff"]

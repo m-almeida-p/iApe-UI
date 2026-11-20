@@ -58,6 +58,13 @@ type MessageStore interface {
 	// is there but is not the last finished reply is domain.ErrInvalidState.
 	ReplaceLastAssistant(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error)
 
+	// SaveInteraction replaces the card of a finished reply with card, only if the card is still the one the caller read: in the state
+	// from.State and under the claim from.ClaimID (none, for a card nobody claimed). That is the compare-and-set that lets exactly one
+	// of several callers win: the one that claims a card is the only one that asks the service, and a stale claim is taken over by
+	// one caller only. A card that is not as from says, or a reply with no card, is domain.ErrInvalidState; a message that is not the
+	// user's is domain.ErrNotFound. The rest of the reply is untouched.
+	SaveInteraction(ctx context.Context, userID, convID, msgID uuid.UUID, from, card domain.Interaction) error
+
 	// RecoverInterrupted marks replies that have been streaming for longer than
 	// olderThan as failed. A crash leaves such replies behind; without this
 	// they could never be claimed again. It returns how many it fixed.

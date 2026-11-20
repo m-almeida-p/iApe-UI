@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -254,4 +255,14 @@ func TestPRCheck_TheExampleHoldsTheAgreedLimits(t *testing.T) {
 		assert.Equal(t, want, exampleSetting(t, name), "%s in .env.example", name)
 	}
 	assert.Equal(t, "feat fix docs chore breaking refactor test ci", exampleSetting(t, "PR_PREFIXES"))
+}
+
+// exampleSetting is what .env.example says a setting is.
+func exampleSetting(t *testing.T, name string) string {
+	t.Helper()
+	example, err := os.ReadFile("../../.env.example")
+	require.NoError(t, err)
+	m := regexp.MustCompile(`(?m)^` + name + `=(.*)$`).FindStringSubmatch(string(example))
+	require.NotNil(t, m, "%s is in .env.example", name)
+	return strings.Trim(m[1], `"'`)
 }
