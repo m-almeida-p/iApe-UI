@@ -353,12 +353,22 @@ func TestConfirmCandidate(t *testing.T) {
 	t.Run("the contact is confirmed and given back for the message", func(t *testing.T) {
 		h := newHarness(t)
 		juan := domain.Candidates("")[0]
-		h.actions.On("ConfirmContact", mock.Anything, "", juan).Return(nil).Once()
+		h.actions.On("ConfirmContact", mock.Anything, "Juan Perez", juan).Return(nil).Once()
 
 		got, err := h.svc.ConfirmCandidate(t.Context(), "", 0)
 
 		require.NoError(t, err)
 		assert.Equal(t, juan, got)
+	})
+
+	t.Run("the service is told the chosen name, as nothing typed after the @ may be empty or partial", func(t *testing.T) {
+		h := newHarness(t)
+		maria := domain.Candidates("mar")[0]
+		h.actions.On("ConfirmContact", mock.Anything, maria.Name, maria).Return(nil).Once()
+
+		_, err := h.svc.ConfirmCandidate(t.Context(), "mar", 0)
+
+		require.NoError(t, err)
 	})
 
 	t.Run("a choice that is not a candidate is refused without asking the service", func(t *testing.T) {
@@ -372,7 +382,7 @@ func TestConfirmCandidate(t *testing.T) {
 
 	t.Run("a failure of the service is passed on", func(t *testing.T) {
 		h := newHarness(t)
-		h.actions.On("ConfirmContact", mock.Anything, "maria", domain.Candidates("maria")[0]).Return(domain.ErrAgentUnavailable).Once()
+		h.actions.On("ConfirmContact", mock.Anything, domain.Candidates("maria")[0].Name, domain.Candidates("maria")[0]).Return(domain.ErrAgentUnavailable).Once()
 
 		_, err := h.svc.ConfirmCandidate(t.Context(), "maria", 0)
 

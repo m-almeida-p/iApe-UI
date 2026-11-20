@@ -91,18 +91,27 @@ func (s *Service) ChooseContact(ctx context.Context, userID, convID, msgID uuid.
 		})
 }
 
-// ConfirmCandidate implements service.Interactions.
+// ConfirmCandidate implements service.Interactions. As the BFF's own page does for its picker, the service is told the chosen
+// name: what the user typed after the @ may be nothing, or part of a name.
 func (s *Service) ConfirmCandidate(ctx context.Context, query string, choice int) (domain.Contact, error) {
-	return s.confirm(ctx, query, choice)
-}
-
-// confirm tells the agent's service whom the user chose among the candidates for query.
-func (s *Service) confirm(ctx context.Context, query string, choice int) (domain.Contact, error) {
 	candidates := domain.Candidates(query)
 	if choice < 0 || choice >= len(candidates) {
 		return domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}
 	}
-	if err := s.deps.Actions.ConfirmContact(ctx, query, candidates[choice]); err != nil {
+	chosen := candidates[choice]
+	if err := s.deps.Actions.ConfirmContact(ctx, chosen.Name, chosen); err != nil {
+		return domain.Contact{}, err
+	}
+	return chosen, nil
+}
+
+// confirm tells the agent's service whom the user chose among the candidates for the reference the agent gave.
+func (s *Service) confirm(ctx context.Context, reference string, choice int) (domain.Contact, error) {
+	candidates := domain.Candidates(reference)
+	if choice < 0 || choice >= len(candidates) {
+		return domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}
+	}
+	if err := s.deps.Actions.ConfirmContact(ctx, reference, candidates[choice]); err != nil {
 		return domain.Contact{}, err
 	}
 	return candidates[choice], nil
