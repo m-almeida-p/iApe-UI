@@ -181,3 +181,31 @@ func TestRowTitle(t *testing.T) {
 		})
 	}
 }
+
+func TestHistoryURL(t *testing.T) {
+	assert.Equal(t, "/history", historyURL("", ""))
+	assert.Equal(t, "/history?active=conv_v1_a", historyURL("conv_v1_a", ""))
+	assert.Equal(t, "/history?before=c~x", historyURL("", "c~x"))
+	assert.Equal(t, "/history?active=a+b%26c&before=1%262", historyURL("a b&c", "1&2"), "what goes in the query is encoded")
+}
+
+func TestShortTime(t *testing.T) {
+	h := newChatHarness(t) // 13:00 of 2026-11-20 in Lima
+	tests := []struct {
+		name string
+		at   time.Time
+		want string
+	}{
+		{"no time", time.Time{}, ""},
+		{"today", time.Date(2026, 11, 20, 15, 4, 0, 0, time.UTC), "10:04"},
+		{"the start of today in Lima, which is yesterday in UTC's eyes", time.Date(2026, 11, 20, 5, 0, 0, 0, time.UTC), "00:00"},
+		{"the evening before, which UTC already calls today", time.Date(2026, 11, 20, 4, 59, 0, 0, time.UTC), "19 Nov 23:59"},
+		{"this year", time.Date(2026, 3, 2, 17, 5, 0, 0, time.UTC), "2 Mar 12:05"},
+		{"another year", time.Date(2025, 12, 31, 3, 0, 0, 0, time.UTC), "30 Dec 2025 22:00"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, h.app.shortTime(tc.at))
+		})
+	}
+}

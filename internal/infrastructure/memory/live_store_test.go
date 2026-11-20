@@ -232,3 +232,24 @@ func TestTheStoreIsBounded(t *testing.T) {
 		assert.True(t, known)
 	})
 }
+
+// A lookup does not wait for the sweep, which runs once a minute at most: what has expired is gone for whoever asks, before it is
+// forgotten for good.
+func TestAnExpiredEntryIsGoneBeforeTheSweepForgetsIt(t *testing.T) {
+	c := newClock()
+	s := memory.NewLiveStore(memory.Options{TTL: 10 * time.Second, Now: c.now})
+	require.True(t, s.Adopt(ana, conv)) // the sweep runs here
+	r := reply(conv, domain.StatusComplete)
+	require.NoError(t, s.Begin(ana, r))
+
+	c.advance(30 * time.Second) // less than the minute between sweeps, more than the TTL
+
+	_, err := s.Get(ana, conv, r.ID)
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+	_, err = s.Update(ana, conv, r.ID, func(m domain.Message) (domain.Message, error) { return m, nil })
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+	_, known := s.Owner(conv)
+	assert.False(t, known)
+	assert.ErrorIs(t, s.Begin(ana, reply(conv, domain.StatusPending)), domain.ErrNotFound, "the conversation expired too")
+	assert.True(t, s.Adopt(beto, conv), "and can be adopted by anyone")
+}

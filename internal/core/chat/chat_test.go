@@ -37,6 +37,9 @@ type fakeLive struct {
 	owners  map[string]uuid.UUID
 	replies map[uuid.UUID]domain.Message
 	users   map[uuid.UUID]uuid.UUID
+	// begins counts the replies that were begun; beforeUpdate, when set, runs at the start of an Update (a stand-in for another request).
+	begins       int
+	beforeUpdate func()
 }
 
 func newLive() *fakeLive {
@@ -75,6 +78,7 @@ func (f *fakeLive) Begin(u uuid.UUID, m domain.Message) error {
 		}
 	}
 	f.replies[m.ID], f.users[m.ID] = m, u
+	f.begins++
 	return nil
 }
 
@@ -89,6 +93,10 @@ func (f *fakeLive) Get(u uuid.UUID, conv string, id uuid.UUID) (domain.Message, 
 }
 
 func (f *fakeLive) Update(u uuid.UUID, conv string, id uuid.UUID, change func(domain.Message) (domain.Message, error)) (domain.Message, error) {
+	if hook := f.beforeUpdate; hook != nil {
+		f.beforeUpdate = nil
+		hook()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	m, ok := f.replies[id]
@@ -667,4 +675,58 @@ func TestNewService_HasDefaults(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotZero(t, turn.Reply.ID)
+}
+
+func TestSend_AConversationOfAnotherUserIsNotEvenBegun(t *testing.T) {
+	r := newRig(t)
+	conv := r.svc.NewConversation(ana)
+
+	_, err := r.svc.Send(t.Context(), beto, conv, "hola")
+
+	require.ErrorIs(t, err, domain.ErrNotFound)
+	assert.Zero(t, r.live.begins, "no reply was made for a conversation that is not his, and the history was not asked (it has no call expected)")
+}
+
+func TestStream_AStopThatCameBetweenTheReadAndTheStartIsRespected(t *testing.T) {
+	r := newRig(t)
+	conv, turn := r.start(t, "hola")
+	r.live.beforeUpdate = func() { // the user pressed Stop in the meantime
+		r.live.mu.Lock()
+		m := r.live.replies[turn.Reply.ID]
+		m.Status = domain.StatusStopped
+		r.live.replies[turn.Reply.ID] = m
+		r.live.mu.Unlock()
+	}
+
+	_, err := collect(r.svc.Stream(t.Context(), ana, conv, turn.Reply.ID)) // no Run is expected: the agent is not asked
+
+	assert.ErrorIs(t, err, domain.ErrInvalidState)
+	kept, _ := r.svc.Reply(t.Context(), ana, conv, turn.Reply.ID)
+	assert.Equal(t, domain.StatusStopped, kept.Status, "and the stop stands")
+}
+
+func TestStop_ACallerThatLeavesWhileTheRunEndsIsNotAnswered(t *testing.T) {
+	r := newRig(t)
+	conv, turn := r.start(t, "hola")
+	release, started := make(chan struct{}), make(chan struct{})
+	r.agent.On("Run", mock.Anything, mock.Anything).Return(func(context.Context, domain.AgentRequest) iter.Seq2[domain.AgentEvent, error] {
+		return func(yield func(domain.AgentEvent, error) bool) {
+			close(started)
+			<-release // a run that does not hear the cancel
+		}
+	}).Once()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = collect(r.svc.Stream(t.Context(), ana, conv, turn.Reply.ID))
+	}()
+	<-started
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	_, err := r.svc.Stop(ctx, ana, conv, turn.Reply.ID)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	close(release)
+	<-done
 }

@@ -1062,3 +1062,7 @@ func TestConfig_LogValueShowsTheHistoryWithoutItsCredentials(t *testing.T) {
 	assert.NotContains(t, buf.String(), "hunter2")
 	assert.Contains(t, buf.String(), "config.History.Timezone=America/Lima")
 }
+
+func TestHistory_LocationOfAnUnknownNameIsUTC(t *testing.T) {
+	assert.Equal(t, time.UTC, config.History{Timezone: "Mars/Olympus"}.Location(), "Load refuses such a name; a config made by hand does not get a machine's zone")
+}
