@@ -168,7 +168,7 @@ bin and log folders, the coverage floors), Pull requests, and Tests (the opt-in 
 | `AGENT_BASE_URL` | required | The BFF, such as `http://localhost:4000` |
 | `YAPE_ACCOUNT_ID` | required | The Yape account the BFF is asked as (a UUID, kept in lower case) |
 | `YAPE_TOKEN_BIN` | `yape-token` | The program that prints the account's bearer token: run once for each turn, `--account ID`, and `--refresh` after a 401 |
-| `AGENT_REQUEST_TIMEOUT` | `120s` | The longest a reply may take; use `600s` with the real BFF |
+| `AGENT_REQUEST_TIMEOUT` | `120s` | The longest a reply may take; use `600s` with the real BFF. An answer to a card (Pay, Reject, the code) is given at most 60 s whatever this says |
 | `APP_HTTP_ADDR` | `:8300` | Where to listen (`.env.example`: `127.0.0.1:8300`) |
 | `APP_BASE_URL` | `http://localhost:8300` | The public address; https turns on Secure cookies and HSTS |
 | `APP_ENV` | `development` | `production` refuses to start without an https `APP_BASE_URL` |

@@ -83,7 +83,7 @@ Edge-case tests found these, and they are choices more than bugs, so they stay a
 - **A 2xx answer to a card's action whose body is empty or unreadable is an error** ("reading the BFF's answer"), even though the action may
   have gone through at the service. After a payment, how to show a success that cannot be told is a product decision.
 - **A zero, negative or absurd amount on a transfer card** offers Reject only; the service has the last word on whether it can be paid.
-- **`AGENT_REQUEST_TIMEOUT` has no floor or ceiling** (`1ns` makes every call time out; `999h` is accepted).
+- **`AGENT_REQUEST_TIMEOUT` has no floor or ceiling** (`1ns` makes every call time out; `999h` is accepted). A turn of the agent keeps it as it is; an answer to a card is cut to `ClaimTTL/2` (60 s), so that the call is over before its claim can be taken over.
 - **A refusal on a request without htmx** redirects to the conversation and loses its reason; only the htmx answer shows it on the card.
 - **A graceful close of Chrome DevTools MCP** does not kill its process group, so a Chrome helper that outlives the server would survive it.
 - **A secret split across two lines** is not found by the explorer's filter. The accessibility tree is one element a line, and the password is
@@ -125,3 +125,21 @@ needs, is the one that was lost), so the card says "approved" and sends the user
 Pinned by: `internal/core/domain/claim_test.go`, `internal/core/interaction/claim_test.go` (including 50 concurrent callers),
 `it/message/store_test.go` (`TestSaveInteraction_TheClaimOfACard`, against PostgreSQL), the `ErrNotSent` and refusal tests of the BFF
 client, and the card tests of the web layer.
+
+### What the review added (phase 5)
+
+- **A reply that holds a payment is not regenerated.** `ReplaceLastAssistant` refuses (`ErrInvalidState`) a reply whose card is `processing`,
+  `otp_required` or `paid` (`domain.Interaction.HoldsPayment`), and the page offers no Regenerate or Retry there. Before, the row was deleted
+  while the BFF had approved, and the new turn could ask for the same transfer again.
+- **Losing the race to answer a card does not wipe the reply.** htmx swaps a 409 over the whole reply, so the page is given the reply as it
+  is now; if it cannot be read, the 409 carries `HX-Reswap: none`. A card that stays claimed after a timeout shows no "try again".
+- **A 2xx that does not confirm the transfer is not paid.** An answer to approve or the code with `success: false`, or an `execution.status`
+  that is not `SUCCESS`, is an answer that may or may not have gone through: the card stays claimed. A BFF that says nothing about
+  success (a reject, an older BFF) is taken at its word.
+- **The card routes are limited per user** (`approve`, `reject`, `otp` and `/contacts/confirm`, in a bucket of their own, apart from the
+  messages'): each is a call to the payment service and runs the token program. There is **no cap of wrong codes** on a card: the bank owns
+  its attempts, and the mock bank accepts any code.
+- **A poll that cannot read its card stops** (status 286, for which `base.html` swaps nothing). The picker confirms only the person shown
+  (`name` and the query the list was drawn for are posted; the server checks them). The client does not follow redirects, and the token
+  program does not get `DB_URL`, `DATABASE_URL`, `ADMIN_PASSWORD` or `POSTGRES_PASSWORD`. The explorer's `report.md` and failure text go
+  through the same secret filter as its records.

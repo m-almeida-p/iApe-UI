@@ -307,7 +307,7 @@ func TestRun_TheReportAndTheSummaryHoldNoSecretEither(t *testing.T) {
 
 	var seen int
 	err := filepath.WalkDir(h.dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !(strings.HasSuffix(path, "report.md") || strings.HasSuffix(path, "summary.md")) {
+		if err != nil || d.IsDir() || (!strings.HasSuffix(path, "report.md") && !strings.HasSuffix(path, "summary.md")) {
 			return err
 		}
 		seen++
