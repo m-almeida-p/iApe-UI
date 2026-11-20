@@ -105,7 +105,7 @@ which can replace binaries other projects expect at a different version, so it i
 make build                            # bin/agent-web-ui and bin/iape-explore
 bin/iape-explore -list                # the paths
 bin/iape-explore -path pay            # one path
-bin/iape-explore -all                 # every path, each in a conversation of its own
+bin/iape-explore -all                 # every safe path, each in a conversation of its own (guard only with -with-guard)
 bin/iape-explore -path pay -amount 35 -contact "Maria Torres"
 bin/iape-explore -headed -path card   # Chrome with a window, to watch it
 bin/iape-explore "Hola" "expect:Hola" "expect-no-card"     # steps of your own
@@ -124,7 +124,7 @@ always with the flags that keep usage statistics off and the profile temporary.
 **Mind the guardrail.** The agent service bans an account that trips its prompt-injection guard too often: with the settings of
 a development `.env` (`CIRCUIT_BREAKER_MAX_BLOCKS_PER_WINDOW`, `CIRCUIT_BREAKER_BAN_DURATION_SECONDS`) two runs of `guard` in a few
 minutes can ban the account for a long time, and every later message then answers "Por seguridad, limitamos tu acceso al
-asistente". Run `guard` rarely, and not as part of every `-all`.
+asistente". `-all` therefore leaves `guard` out unless you add `-with-guard`, and running it says what it costs. Run it rarely.
 
 ## Configuration
 

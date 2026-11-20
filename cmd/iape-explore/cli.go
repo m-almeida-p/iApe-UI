@@ -44,7 +44,9 @@ type options struct {
 	amount  string
 	settle  time.Duration
 	headed  bool
-	steps   []string
+	// withGuard adds the paths that burn the account to -all.
+	withGuard bool
+	steps     []string
 }
 
 // usageError is a mistake in the call.
@@ -63,6 +65,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.out, "out", "", "directory for the records (default temp/iape-explore/<time>)")
 	fs.StringVar(&o.contact, "contact", "", `contact to pick in a payment, such as "Maria Torres" (default the first)`)
 	fs.StringVar(&o.amount, "amount", "", "amount in soles for a payment (default the path's)")
+	fs.BoolVar(&o.withGuard, "with-guard", false, "with -all: also run the paths that trip the agent's guard (guard), which can get the account banned")
 	fs.BoolVar(&o.headed, "headed", false, "show Chrome: run it with a window, to watch the run")
 	fs.DurationVar(&o.settle, "wait", 90*time.Second, "how long a step waits for the page to settle")
 	if err := fs.Parse(args); err != nil {
@@ -108,6 +111,8 @@ func (o options) check() error {
 type plan struct {
 	id    string
 	steps []string
+	// burns says the path counts against the account's guard: see explore.Path.Burns.
+	burns bool
 }
 
 func (o options) plans() []plan {
@@ -115,14 +120,17 @@ func (o options) plans() []plan {
 	case o.all:
 		var out []plan
 		for _, p := range explore.Paths() {
-			out = append(out, plan{p.ID, p.Steps(o.amount, o.contact)})
+			if p.Burns && !o.withGuard {
+				continue
+			}
+			out = append(out, plan{id: p.ID, steps: p.Steps(o.amount, o.contact), burns: p.Burns})
 		}
 		return out
 	case o.pathID != "":
 		p, _ := explore.Find(o.pathID)
-		return []plan{{p.ID, p.Steps(o.amount, o.contact)}}
+		return []plan{{id: p.ID, steps: p.Steps(o.amount, o.contact), burns: p.Burns}}
 	}
-	return []plan{{"custom", o.steps}}
+	return []plan{{id: "custom", steps: o.steps}}
 }
 
 func (d deps) defaultOut() string {
@@ -161,7 +169,17 @@ func (d deps) run(ctx context.Context, args []string) int {
 	}
 	defer func() { _ = sess.Close(context.WithoutCancel(ctx)) }()
 
-	return d.runPlans(ctx, sess, opts.plans(), out, cfg.Password.Reveal())
+	plans := opts.plans()
+	for _, p := range plans {
+		if p.burns {
+			_, _ = fmt.Fprintf(d.stderr, "iape-explore: %s trips the agent's guard, which counts against the account: a few runs in a short time can get it banned, "+
+				"and its ban can last as long as the service is set to.\n", p.id)
+		}
+	}
+	if opts.all && !opts.withGuard {
+		_, _ = fmt.Fprintln(d.stderr, "iape-explore: -all leaves out guard, which can get the account banned; add -with-guard to run it")
+	}
+	return d.runPlans(ctx, sess, plans, out, cfg.Password.Reveal())
 }
 
 func (d deps) list() {

@@ -127,10 +127,10 @@ func TestRun_APathThatFailsIsExit2AndSaysWhy(t *testing.T) {
 	assert.Contains(t, h.out.String(), "No puedo ayudarte")
 }
 
-func TestRun_AllRunsEveryPathAndEndsAtTheWorst(t *testing.T) {
+func TestRun_AllRunsEveryPathThatIsSafeAndEndsAtTheWorst(t *testing.T) {
 	h := newHarness(t, &fakeSession{text: `StaticText "No puedo ayudarte"`})
 
-	code := h.run("-all")
+	code := h.run("-all", "-with-guard")
 
 	assert.Equal(t, exitFailed, code, "the page shows cards of no kind, so most paths fail")
 	assert.Equal(t, len(explore.Paths()), h.sess.fresh)
@@ -261,4 +261,31 @@ func TestRun_HeadedAndTheTimeToSettleAreHandedToTheBrowser(t *testing.T) {
 
 	require.Equal(t, exitOK, h.run("-path", "guard"))
 	assert.False(t, h.openedWith.Headed, "headless is the default")
+}
+
+func TestRun_AllLeavesOutThePathThatBurnsTheAccountUnlessAskedFor(t *testing.T) {
+	h := newHarness(t, &fakeSession{text: `StaticText "No puedo ayudarte"`})
+
+	h.run("-all")
+
+	assert.Equal(t, len(explore.Paths())-1, h.sess.fresh, "guard is not run")
+	assert.Contains(t, h.err.String(), "leaves out guard")
+	summary, err := os.ReadFile(filepath.Join(h.dir, "summary.md"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(summary), "| guard |")
+
+	h = newHarness(t, &fakeSession{text: `StaticText "No puedo ayudarte"`})
+	h.run("-all", "-with-guard")
+
+	assert.Equal(t, len(explore.Paths()), h.sess.fresh, "asked for, it is run")
+	assert.NotContains(t, h.err.String(), "leaves out guard")
+	assert.Contains(t, h.err.String(), "guard trips the agent's guard", "and it says what it costs")
+}
+
+func TestRun_RunningThePathThatBurnsTheAccountSaysWhatItCosts(t *testing.T) {
+	h := newHarness(t, &fakeSession{text: `StaticText "No puedo ayudarte"`})
+
+	require.Equal(t, exitOK, h.run("-path", "guard"))
+
+	assert.Contains(t, h.err.String(), "can get it banned")
 }

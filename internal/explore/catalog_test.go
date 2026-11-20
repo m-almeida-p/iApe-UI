@@ -61,6 +61,17 @@ func TestPath_Steps(t *testing.T) {
 	})
 }
 
+func TestCatalog_OnlyTheGuardPathBurnsTheAccount(t *testing.T) {
+	var burning []string
+	for _, p := range explore.Paths() {
+		if p.Burns {
+			burning = append(burning, p.ID)
+		}
+	}
+
+	assert.Equal(t, []string{"guard"}, burning, "a path that trips the agent's guard is marked, and no other is")
+}
+
 func TestFind(t *testing.T) {
 	_, ok := explore.Find("otp")
 	assert.True(t, ok)
