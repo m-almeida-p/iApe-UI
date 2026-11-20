@@ -51,16 +51,15 @@ func TestActions_ApprovePaysTheTransferAndSaysWhatTheServiceSaid(t *testing.T) {
 }
 
 func TestActions_ApproveThatNeedsACodeNamesTheChallenge(t *testing.T) {
-	b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, `{"success":true,"otp_required":true,"transfer_id":"trf_9","displayMessage":"Transfer approved. Enter the OTP to continue."}`)
-	})
+	b := newBFF(t, serveJSON(t, http.StatusCreated, "approve-otp.json"))
 
 	got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
 
 	require.NoError(t, err)
-	assert.Equal(t, domain.ActionResult{Message: "Transfer approved. Enter the OTP to continue.", ChallengeID: "trf_9"}, got)
+	assert.Equal(t, domain.ActionResult{
+		Message:     "Transfer approved. Enter the OTP to continue.",
+		ChallengeID: "1ef854dc-6dba-467b-903a-6ac7c4461439",
+	}, got, "a real response of the BFF: the transfer_id is the challenge")
 }
 
 func TestActions_ACodeIsAskedForWithoutSayingWhichTransferIsAnError(t *testing.T) {
