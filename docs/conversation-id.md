@@ -7,7 +7,7 @@ the id the UI sent was rewritten on the way. This page explains why that matters
 
 ```
 iApe-UI ──threadId──▶ agui-bff ──contextId──▶ agent (ms-ml-genai-agents-bs) ──▶ event_store ──▶ Kafka ──▶ consumer ──▶ history ──▶ ms-ml-conv-history-bs
- (makes it)           (rewrites it)           (requires conv_v1_<uuid v4>)        conversation_id                                   _id of a conversation
+ (makes it)           (passes it, or derives one)  (requires conv_v1_<uuid v4>)        conversation_id                                   _id of a conversation
 ```
 
 | Piece | What it does with the id |
@@ -19,7 +19,8 @@ iApe-UI ──threadId──▶ agui-bff ──contextId──▶ agent (ms-ml-g
 | **History API** | Lists and reads conversations by that same `conv_v1_…` id. |
 
 The production BFF does not rewrite anything: its `conversationSession` query mints `conv_v1_<random uuid v4>` and uses it as thread,
-session and context id. The local `agui-bff` was a harness that had no such query, so it derived the id from the thread.
+session and context id. The local `agui-bff` was a harness that had no such query, so it derived the id from the thread; it now passes
+through a thread id that already has the agent's shape and derives one only for any other.
 
 ## The problem
 
