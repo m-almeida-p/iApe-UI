@@ -23,10 +23,11 @@
 {{define "partial:card_transfer"}}<section class="card card-transfer mt-2" data-testid="card" data-kind="approval" data-state="{{.State}}" aria-label="Transfer to approve">
   <div class="card-body">
     <div class="card-transfer-amount" data-testid="card-amount">{{.Amount}}</div>
-    <div class="card-transfer-to" data-testid="card-destination">{{.Name}}{{if .Phone}} · {{.Phone}}{{end}}</div>
+    <div class="card-transfer-to" data-testid="card-destination">{{if .Name}}{{.Name}}{{if .Phone}} · {{end}}{{end}}{{.Phone}}</div>
     {{if .Message}}<div class="text-body-secondary small" data-testid="card-message">{{.Message}}</div>{{end}}
     {{if .Result}}<div class="small mt-2" data-testid="card-result">{{.Result}}</div>{{end}}
     {{if .Error}}<div class="alert alert-warning mt-2 mb-0 py-1 small" role="alert" data-testid="card-error">{{.Error}}</div>{{end}}
+    {{if .Unpayable}}<div class="text-body-secondary small mt-2" data-testid="card-unpayable">This transfer does not say how much or to whom, so it cannot be paid from here.</div>{{end}}
     {{if .AsksForCode}}
     <form class="card-transfer-code mt-2" hx-post="{{.CodeURL}}" hx-target="closest .reply" hx-swap="outerHTML" hx-disabled-elt="find button">
       <label for="otp-{{.CodeURL}}" class="visually-hidden">Code from the bank</label>

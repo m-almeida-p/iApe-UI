@@ -195,7 +195,7 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 
 	c.App.BaseURL = strings.TrimRight(r.absoluteURL("APP_BASE_URL", r.str("APP_BASE_URL", "http://localhost:8300"), "http", "https"), "/")
 	c.DB.URL = envcfg.Secret(r.databaseURL("DB_URL", r.required("DB_URL")))
-	c.Agent.BaseURL = strings.TrimRight(r.absoluteURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
+	c.Agent.BaseURL = strings.TrimRight(r.baseURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
 	r.required("YAPE_ACCOUNT_ID") // names the key when it is missing; the value is read, and checked, next
 	c.Agent.AccountID = r.uuidString("YAPE_ACCOUNT_ID")
 	c.Admin = r.admin()
@@ -289,7 +289,7 @@ func (r *reader) uuidString(key string) string {
 		return ""
 	}
 	id, err := uuid.Parse(v)
-	if err != nil {
+	if err != nil || id == uuid.Nil() { // the nil UUID is what a placeholder holds, not an account
 		r.fail("%s must be a UUID", key)
 		return ""
 	}
@@ -329,6 +329,18 @@ func (r *reader) absoluteURL(key, raw string, schemes ...string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || !slices.Contains(schemes, u.Scheme) || redact.URL(raw) == redact.Unreadable {
 		r.refuseURL(key, schemes)
+		return ""
+	}
+	return raw
+}
+
+// baseURL is absoluteURL for an address that the paths of a service are added to: it has no query and no fragment, after
+// which an added path would be a part of them, and every request would go to the wrong place on the right host. The text of
+// the refusal holds nothing of the value.
+func (r *reader) baseURL(key, raw string, schemes ...string) string {
+	raw = r.absoluteURL(key, raw, schemes...)
+	if u, err := url.Parse(raw); raw != "" && err == nil && (u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#")) {
+		r.fail("%s must not have a query or a fragment: the paths of the agent are added after it", key)
 		return ""
 	}
 	return raw

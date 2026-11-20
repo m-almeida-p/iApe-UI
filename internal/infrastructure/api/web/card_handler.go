@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"iape-ui/internal/core/domain"
 )
@@ -15,7 +17,8 @@ import (
 type cardView struct {
 	State       string // the card's state, for the page and the explorer
 	Open        bool   // still waits for the user
-	CanPay      bool   // pending: Pay and Reject
+	CanPay      bool   // pending, and it says how much and to whom: Pay and Reject
+	Unpayable   bool   // pending, but it does not say how much or to whom: Reject only
 	AsksForCode bool   // the bank asked for a code: the field, and Reject
 	Amount      string
 	Name, Phone string
@@ -51,16 +54,18 @@ func newCardView(m domain.Message) *cardView {
 	if card.Kind != domain.InteractionApproval {
 		return nil
 	}
+	pending := card.State == domain.InteractionPending
 	return &cardView{
 		State:       string(card.State),
 		Open:        card.Open(),
-		CanPay:      card.State == domain.InteractionPending,
+		CanPay:      pending && payable(card.Transfer),
+		Unpayable:   pending && !payable(card.Transfer),
 		AsksForCode: card.State == domain.InteractionOTPRequired,
 		Amount:      amountText(card.Transfer),
-		Name:        card.Transfer.DestinationName,
-		Phone:       card.Transfer.DestinationPhone,
-		Message:     card.Transfer.Message,
-		Result:      card.Result,
+		Name:        plain(card.Transfer.DestinationName),
+		Phone:       plain(card.Transfer.DestinationPhone),
+		Message:     plain(card.Transfer.Message),
+		Result:      plain(card.Result),
 		ApproveURL:  base + "approve",
 		RejectURL:   base + "reject",
 		CodeURL:     base + "otp",
@@ -76,19 +81,45 @@ func newContactView(card *domain.Interaction, base string) *cardView {
 		}
 	}
 	if card.State == domain.InteractionConfirmed {
-		v.Chosen = card.Contact.Name + " · " + card.Contact.Phone
+		var who []string
+		for _, part := range []string{card.Contact.Name, card.Contact.Phone} {
+			if part = strings.TrimSpace(plain(part)); part != "" {
+				who = append(who, part)
+			}
+		}
+		v.Chosen = strings.Join(who, " · ")
 	}
 	return v
 }
 
+// payable reports whether a transfer says how much and to whom, which a person needs to know to pay it: an amount above zero,
+// and a name or a phone. A card that does not is shown, and can be rejected, but not paid from here.
+func payable(t domain.Transfer) bool {
+	return t.Amount > 0 && !math.IsInf(t.Amount, 1) && (strings.TrimSpace(t.DestinationName) != "" || strings.TrimSpace(t.DestinationPhone) != "")
+}
+
+// plain is a text that came from the agent's service without what it could use to pass for something else on the page: the
+// characters that turn the direction of the text around (a name that reads "Rosa" and puts the phone before it), and the
+// control characters but the line break and the tab.
+func plain(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			return r
+		case unicode.IsControl(r), r == '\u061c', r == '\u200e', r == '\u200f', r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // amountText is the amount as a person reads it: soles with their sign, any other currency after the number.
 func amountText(t domain.Transfer) string {
-	switch t.Currency {
-	case "PEN", "":
+	currency := strings.TrimSpace(t.Currency)
+	if currency == "" || strings.EqualFold(currency, "PEN") {
 		return fmt.Sprintf("S/ %.2f", t.Amount)
-	default:
-		return fmt.Sprintf("%.2f %s", t.Amount, t.Currency)
 	}
+	return fmt.Sprintf("%.2f %s", t.Amount, plain(currency))
 }
 
 func (a *App) approveCard(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +135,9 @@ func (a *App) rejectCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) confirmCode(w http.ResponseWriter, r *http.Request) {
+	if !a.parseForm(w, r) {
+		return
+	}
 	code := strings.TrimSpace(r.PostFormValue("code"))
 	a.answerCard(w, r, func(ref messageRef) (domain.Message, error) {
 		return a.svc.Interactions.ConfirmOTP(r.Context(), ref.userID, ref.convID, ref.msgID, code)
@@ -160,8 +194,11 @@ func (a *App) chooseContact(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	choice, err := strconv.Atoi(r.PostFormValue("choice"))
-	if err != nil {
+	if !a.parseForm(w, r) {
+		return
+	}
+	choice, ok := parseChoice(r.PostFormValue("choice"))
+	if !ok {
 		http.Error(w, "Choose one of the contacts.", http.StatusBadRequest)
 		return
 	}
@@ -198,11 +235,26 @@ func (a *App) chooseContact(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, card+`<div hx-swap-oob="beforeend:#messages">`+next.String()+`</div>`)
 }
 
+// parseChoice reads the index of a candidate: one to three digits, as the buttons send them. A sign, a space, a digit of
+// another script or a number that no list is long enough for is no choice.
+func parseChoice(s string) (int, bool) {
+	if s == "" || len(s) > 3 {
+		return 0, false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(s)
+	return n, err == nil
+}
+
 // cardErrorText is what the card says when its answer did not go through: the service's own words when it refused, else a plain
 // invitation to try again.
 func cardErrorText(refused *domain.ActionError) string {
 	if refused != nil {
-		return refused.Message
+		return plain(refused.Message)
 	}
 	return "The payment service did not answer. Try again."
 }

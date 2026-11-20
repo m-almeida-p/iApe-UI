@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 	"uuid"
 
 	"iape-ui/internal/core/domain"
@@ -18,8 +20,15 @@ import (
 // saveTimeout bounds the saving of an answer after the request is gone: the service has acted, so the card must say so.
 const saveTimeout = 5 * time.Second
 
-// maxCodeLen is the longest code the Web UI sends on. The banks' codes are 4 to 8 digits.
+// maxCodeLen is the longest code the Web UI sends on, in characters. The banks' codes are 4 to 8 digits.
 const maxCodeLen = 12
+
+// plausibleCode reports whether code can be a code the bank sent: some text, no longer than maxCodeLen characters, with no
+// space or control character in it. It is not checked for digits: the bank says what a code is.
+func plausibleCode(code string) bool {
+	return code != "" && utf8.ValidString(code) && utf8.RuneCountInString(code) <= maxCodeLen &&
+		!strings.ContainsFunc(code, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
+}
 
 // Dependencies are what the service needs.
 type Dependencies struct {
@@ -38,7 +47,9 @@ func NewService(d Dependencies) *Service { return &Service{deps: d} }
 
 // Approve implements service.Interactions.
 func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
-	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool { return card.State == domain.InteractionPending },
+	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool {
+		return card.Kind == domain.InteractionApproval && card.State == domain.InteractionPending
+	},
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			res, err := s.deps.Actions.Approve(ctx, card)
 			if err != nil {
@@ -50,7 +61,8 @@ func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) 
 
 // Reject implements service.Interactions.
 func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
-	return s.answer(ctx, userID, convID, msgID, domain.Interaction.Open,
+	return s.answer(ctx, userID, convID, msgID,
+		func(card domain.Interaction) bool { return card.Kind == domain.InteractionApproval && card.Open() },
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			res, err := s.deps.Actions.Reject(ctx, card)
 			if err != nil {
@@ -63,9 +75,11 @@ func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (
 // ConfirmOTP implements service.Interactions.
 func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUID, code string) (domain.Message, error) {
 	code = strings.TrimSpace(code)
-	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool { return card.State == domain.InteractionOTPRequired },
+	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool {
+		return card.Kind == domain.InteractionApproval && card.State == domain.InteractionOTPRequired
+	},
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
-			if code == "" || len(code) > maxCodeLen || strings.ContainsFunc(code, func(r rune) bool { return r == ' ' || r == '\t' }) {
+			if !plausibleCode(code) {
 				return card, &domain.ActionError{Message: "Enter the code the bank sent you."}
 			}
 			res, err := s.deps.Actions.ConfirmOTP(ctx, card, code)
@@ -130,7 +144,9 @@ func (s *Service) answer(
 		return domain.Message{}, err
 	}
 	card := msg.Meta.Interaction
-	if msg.Role != domain.RoleAssistant || card == nil || !accepts(*card) {
+	// Only a finished reply has a card that can be answered: the save below is refused for any other, by when the service has
+	// acted already. A reply that failed or was stopped keeps its text, and its card is not for paying.
+	if msg.Role != domain.RoleAssistant || msg.Status != domain.StatusComplete || card == nil || !accepts(*card) {
 		return domain.Message{}, fmt.Errorf("the message has no card that takes this answer: %w", domain.ErrInvalidState)
 	}
 

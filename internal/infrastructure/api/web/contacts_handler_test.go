@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/html"
 
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/core/port/service/mocks"
@@ -110,5 +112,163 @@ func TestConfirmCandidate(t *testing.T) {
 
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 		assert.NotContains(t, rec.Body.String(), "boom")
+	})
+}
+
+func pickerFor(t *testing.T, query string) (*httptest.ResponseRecorder, *html.Node) {
+	t.Helper()
+	h := newChatHarness(t)
+	rec := h.do(http.MethodGet, "/contacts?q="+url.QueryEscape(query), nil, htmx)
+	return rec, parseHTML(t, rec.Body.String())
+}
+
+func TestContactPicker_WhateverIsTyped(t *testing.T) {
+	queries := map[string]string{
+		"a newline":                  "ana\nrojas",
+		"a NUL":                      "ana\x00rojas",
+		"an emoji":                   "🙂 ana",
+		"only emoji":                 "🙂🙂🙂",
+		"a right-to-left override":   "\u202eana",
+		"quotes":                     `ana" onmouseover="alert(1)`,
+		"a closed attribute":         `"><img src=x onerror=alert(1)>`,
+		"single quotes":              `ana' onfocus='alert(1)`,
+		"markup":                     `<script>alert(1)</script>`,
+		"an entity":                  `&quot;&lt;b&gt;`,
+		"a javascript URL":           "javascript:alert(1)",
+		"parentheses and at signs":   "@(ana)",
+		"only an at sign":            "@",
+		"spaces":                     "   ",
+		"a hundred kilobytes":        strings.Repeat("ñandú ", 100<<10/12),
+		"a hundred kilobytes of one": strings.Repeat("ñ", 100<<10),
+		"bytes that are not UTF-8":   "ana\xff\xfe",
+	}
+	for name, query := range queries {
+		t.Run(name, func(t *testing.T) {
+			rec, root := pickerFor(t, query)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			options := byTestID(root, "contact-option")
+			assert.NotEmpty(t, options, "there is somebody to choose")
+			assert.LessOrEqual(t, len(options), 5)
+			noMarkupFrom(t, root, rec.Body.String())
+			assert.Len(t, byTestID(root, "contact-picker"), 1)
+			assert.NotContains(t, rec.Body.String(), "\x00")
+			for i, o := range options {
+				assert.Equal(t, strconv.Itoa(i), attrOf(o, "data-choice"))
+				assert.NotEmpty(t, attrOf(o, "data-name"))
+			}
+		})
+	}
+
+	t.Run("the query comes back in its attribute as it was typed, escaped, so a quote cannot end it", func(t *testing.T) {
+		const query = `ana" data-x="1`
+		rec, root := pickerFor(t, query)
+
+		picker := byTestID(root, "contact-picker")[0]
+
+		assert.Equal(t, query, attrOf(picker, "data-query"))
+		assert.False(t, hasAttr(picker, "data-x"))
+		assert.NotContains(t, rec.Body.String(), `data-query="ana" `)
+	})
+
+	t.Run("the options are the candidates of the query, so what the picker shows is what confirm will pick", func(t *testing.T) {
+		for _, query := range []string{"ana", "  ANA ", "@ana", "(ana)", "ana\x00", "María"} {
+			_, root := pickerFor(t, query)
+			want := domain.Candidates(query)
+
+			options := byTestID(root, "contact-option")
+
+			require.Len(t, options, len(want), query)
+			for i, c := range want {
+				assert.Equal(t, c.Name, attrOf(options[i], "data-name"), query)
+				assert.Contains(t, textContent(options[i]), c.Phone)
+			}
+		}
+	})
+
+	t.Run("a query given twice uses the first", func(t *testing.T) {
+		h := newChatHarness(t)
+
+		rec := h.do(http.MethodGet, "/contacts?q=ana&q=luis", nil, htmx)
+
+		assert.Equal(t, domain.Candidates("ana")[0].Name, attrOf(byTestID(parseHTML(t, rec.Body.String()), "contact-option")[0], "data-name"))
+	})
+
+	t.Run("it is an answer for a list that is drawn, not a page: no layout", func(t *testing.T) {
+		rec, _ := pickerFor(t, "ana")
+
+		assert.NotContains(t, rec.Body.String(), "<html")
+		assert.NotContains(t, rec.Body.String(), "<body")
+	})
+
+	t.Run("only GET asks for the list", func(t *testing.T) {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			h := newChatHarness(t)
+
+			rec := h.do(method, "/contacts?q=ana", nil, htmx)
+
+			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code, method)
+		}
+	})
+}
+
+func TestConfirmCandidate_WhatTheFormHolds(t *testing.T) {
+	t.Run("no q is an empty query: the default contacts", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ConfirmCandidate", mock.Anything, "", 0).Return(domain.Contact{Name: "Juan Perez", Phone: "911111111"}, nil).Once()
+
+		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"choice": {"0"}}, nil)
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "@(Juan Perez)", rec.Body.String())
+	})
+
+	t.Run("a choice the use case refuses is a 422 with its words, even when it is huge", func(t *testing.T) {
+		for _, choice := range []string{"5", "99", "999"} {
+			h := newChatHarness(t)
+			n, _ := strconv.Atoi(choice)
+			h.cards.On("ConfirmCandidate", mock.Anything, "maria", n).Return(domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}).Once()
+
+			rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {"maria"}, "choice": {choice}}, nil)
+
+			assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, choice)
+		}
+	})
+
+	t.Run("the mention is the name as text, whatever the name holds", func(t *testing.T) {
+		h := newChatHarness(t)
+		h.cards.On("ConfirmCandidate", mock.Anything, "x", 0).Return(domain.Contact{Name: `<b>"Ana"</b>`, Phone: "9"}, nil).Once()
+
+		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {"x"}, "choice": {"0"}}, nil)
+
+		assert.Contains(t, rec.Header().Get("Content-Type"), "text/plain")
+		assert.Equal(t, `@(<b>"Ana"</b>)`, rec.Body.String(), "plain text, which the composer puts in its box as text")
+	})
+
+	t.Run("a hundred kilobytes of query reach the use case as they are, which cuts them", func(t *testing.T) {
+		h := newChatHarness(t)
+		long := strings.Repeat("ñ", 100<<10/2)
+		h.cards.On("ConfirmCandidate", mock.Anything, long, 0).Return(domain.Contact{Name: "N", Phone: "9"}, nil).Once()
+
+		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {long}, "choice": {"0"}}, nil)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("only POST confirms", func(t *testing.T) {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+			h := newChatHarness(t)
+
+			rec := h.do(method, "/contacts/confirm", nil, nil)
+
+			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code, method)
+		}
+	})
+
+	t.Run("it needs a signed-in user", func(t *testing.T) {
+		rec := serve(t, mocks.NewAuth(t), Options{}, postForm("/contacts/confirm", url.Values{"choice": {"0"}}, nil))
+
+		assert.Equal(t, http.StatusSeeOther, rec.Code)
+		assert.Contains(t, rec.Header().Get("Location"), "/login")
 	})
 }

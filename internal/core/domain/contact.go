@@ -4,6 +4,7 @@ import (
 	"hash/fnv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // defaultContacts are the people the Web UI offers when it has nothing to go on. They are test data, as in the BFF's own page.
@@ -50,11 +51,23 @@ func Candidates(query string) []Contact {
 	return out
 }
 
-// clean takes the @ and the extra spaces off a query and cuts it.
+// clean makes a query fit to be a name: it takes the @ and the extra spaces off, cuts it, and drops what has no place in a
+// name that goes in a message as @(Name): control characters and invisible ones (a right-to-left override that would turn
+// the name around what stands next to it, a zero width space), the parentheses and the @ signs that would end or start a
+// mention, and bytes that are not text.
 func clean(q string) string {
-	q = strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimSpace(q), "@")), " ")
+	q = strings.Map(func(r rune) rune {
+		switch {
+		case r == '@' || r == '(' || r == ')' || unicode.IsControl(r):
+			return ' '
+		case unicode.Is(unicode.Cf, r), r == utf8.RuneError:
+			return -1
+		}
+		return r
+	}, q)
+	q = strings.Join(strings.Fields(q), " ")
 	if r := []rune(q); len(r) > maxQuery {
-		q = string(r[:maxQuery])
+		q = strings.TrimSpace(string(r[:maxQuery]))
 	}
 	return q
 }
@@ -65,11 +78,16 @@ var accents = strings.NewReplacer("á", "a", "é", "e", "í", "i", "ó", "o", "�
 // fold is a text without capitals or the accents of Spanish, to compare.
 func fold(s string) string { return accents.Replace(strings.ToLower(s)) }
 
+// titleCase writes each word with a capital at its start and after a hyphen or an apostrophe (O'Brien, Jean-Luc).
 func titleCase(s string) string {
 	words := strings.Fields(strings.ToLower(s))
 	for i, w := range words {
 		r := []rune(w)
-		r[0] = unicode.ToUpper(r[0])
+		for j := range r {
+			if j == 0 || r[j-1] == '-' || r[j-1] == '\'' {
+				r[j] = unicode.ToUpper(r[j])
+			}
+		}
 		words[i] = string(r)
 	}
 	return strings.Join(words, " ")

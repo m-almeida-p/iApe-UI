@@ -366,8 +366,8 @@ func TestConfig_LogValueRedactsSecrets(t *testing.T) {
 
 func TestConfig_LogValueDropsCredentialsFromURLs(t *testing.T) {
 	c, err := config.Load(lookupFrom(with(requiredEnv(), map[string]string{
-		"AGENT_BASE_URL": "https://svc:agent-token-1@agent.example.com/api?key=query-secret-2",
-		"APP_BASE_URL":   "https://user-token-3@chat.example.com",
+		"AGENT_BASE_URL": "https://svc:agent-token-1@agent.example.com/api",
+		"APP_BASE_URL":   "https://user-token-3@chat.example.com/?key=query-secret-2",
 	})))
 	require.NoError(t, err)
 
@@ -732,4 +732,245 @@ func TestEnvExampleDocumentsEveryKey(t *testing.T) {
 		documented := strings.Contains(example, "\n"+key+"=") || strings.Contains(example, "\n# "+key+"=")
 		assert.True(t, documented, "%s is read by the Web UI but not documented in .env.example", key)
 	}
+}
+
+// loadWith loads the required settings with the extra ones on top.
+func loadWith(extra map[string]string) (config.Config, error) {
+	return config.Load(lookupFrom(with(requiredEnv(), extra)))
+}
+
+func TestLoad_AgentBaseURL(t *testing.T) {
+	t.Run("addresses that are taken, as the part before the slashes at the end", func(t *testing.T) {
+		tests := []struct{ name, given, want string }{
+			{"a host and a port", "http://localhost:4000", "http://localhost:4000"},
+			{"a slash at the end", "http://localhost:4000/", "http://localhost:4000"},
+			{"many slashes at the end", "http://localhost:4000///", "http://localhost:4000"},
+			{"a path", "http://bff.internal/agui/v1", "http://bff.internal/agui/v1"},
+			{"a path with slashes at the end", "http://bff.internal/agui/v1//", "http://bff.internal/agui/v1"},
+			{"https", "https://bff.example.com", "https://bff.example.com"},
+			{"an address of the second kind", "http://[::1]:4000", "http://[::1]:4000"},
+			{"an address of the second kind, with a path", "https://[2001:db8::1]:8443/bff/", "https://[2001:db8::1]:8443/bff"},
+			{"spaces around it", "  http://localhost:4000  ", "http://localhost:4000"},
+			{"no port", "http://bff", "http://bff"},
+			{"a scheme in capitals is kept as it was written, and works as a scheme", "HTTP://LOCALHOST:4000///", "HTTP://LOCALHOST:4000"},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				c, err := loadWith(map[string]string{"AGENT_BASE_URL": tc.given})
+
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, c.Agent.BaseURL)
+			})
+		}
+	})
+
+	t.Run("an address with credentials in it is taken and never shown", func(t *testing.T) {
+		c, err := loadWith(map[string]string{"AGENT_BASE_URL": "https://svc:agent-pw-9@bff.example.com/agui"})
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://svc:agent-pw-9@bff.example.com/agui", c.Agent.BaseURL)
+		var out bytes.Buffer
+		slog.New(slog.NewTextHandler(&out, nil)).Info("starting", "config", c)
+		assert.NotContains(t, out.String(), "agent-pw-9")
+		assert.NotContains(t, out.String(), "svc")
+	})
+
+	// A base address has the paths of the BFF added to it: after a query or a fragment they would be a part of it, and every
+	// request would go to the wrong place with the right host.
+	t.Run("a query or a fragment is refused, in a text that holds nothing of the address", func(t *testing.T) {
+		for _, given := range []string{
+			"http://localhost:4000?x=1", "http://localhost:4000/?x=1", "http://localhost:4000/api?token=agent-pw-9", "http://localhost:4000?",
+			"http://localhost:4000#frag", "http://localhost:4000/#", "http://localhost:4000/api#agent-pw-9", "https://svc:p%40ss@bff.example.com/api?agent-pw-9",
+		} {
+			_, err := loadWith(map[string]string{"AGENT_BASE_URL": given})
+
+			require.Error(t, err, given)
+			assert.Equal(t, "AGENT_BASE_URL must not have a query or a fragment: the paths of the agent are added after it", err.Error(), given)
+		}
+	})
+
+	t.Run("what is no address is refused, and nothing of it is echoed", func(t *testing.T) {
+		for _, given := range []string{
+			"localhost:4000", "//localhost:4000", "localhost", "http://", "http:///x", "http://[::1", "http://[::1]:abc", "http://local host",
+			"http://h/%zz", "ftp://u:agent-pw-9@h", "ws://h", "file:///etc/passwd", "javascript:alert(1)", "http://u:agent-pw-9@", "https:agent-pw-9",
+			"http://u:agent/pw-9@h:4000", "http://\x00", "http://h:4000\n",
+		} {
+			_, err := loadWith(map[string]string{"AGENT_BASE_URL": given})
+
+			if given == "http://h:4000\n" {
+				require.NoError(t, err, "a line break at the end is taken off with the spaces")
+				continue
+			}
+			require.Error(t, err, "%q", given)
+			assert.Contains(t, err.Error(), "AGENT_BASE_URL", "%q", given)
+			for _, piece := range []string{"agent-pw-9", "agent", "localhost", "etc/passwd", "alert"} {
+				assert.NotContains(t, err.Error(), piece, "%q", given)
+			}
+		}
+	})
+
+	t.Run("empty counts as unset", func(t *testing.T) {
+		for _, given := range []string{"", "   ", "\n"} {
+			_, err := loadWith(map[string]string{"AGENT_BASE_URL": given})
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "missing required configuration: AGENT_BASE_URL")
+		}
+	})
+}
+
+func TestLoad_AccountID(t *testing.T) {
+	const canonical = "25906ac5-9f18-4099-b3fd-e1b74d8549a4"
+
+	t.Run("every spelling of one UUID gives the canonical lower-case form", func(t *testing.T) {
+		for name, given := range map[string]string{
+			"canonical":           canonical,
+			"capitals":            "25906AC5-9F18-4099-B3FD-E1B74D8549A4",
+			"mixed":               "25906ac5-9F18-4099-b3fd-E1B74D8549a4",
+			"braces":              "{" + canonical + "}",
+			"a urn":               "urn:uuid:" + canonical,
+			"no hyphens":          "25906ac59f184099b3fde1b74d8549a4",
+			"spaces around":       "  " + canonical + "  ",
+			"a tab and a newline": "\t" + canonical + "\n",
+		} {
+			c, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
+
+			require.NoError(t, err, name)
+			assert.Equal(t, canonical, c.Agent.AccountID, name)
+		}
+	})
+
+	t.Run("any version is an account: the Web UI does not know how the service makes them", func(t *testing.T) {
+		c, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": "25906ac5-9f18-7099-b3fd-e1b74d8549a4"})
+
+		require.NoError(t, err)
+		assert.Equal(t, "25906ac5-9f18-7099-b3fd-e1b74d8549a4", c.Agent.AccountID)
+	})
+
+	t.Run("the same account in two spellings is one value, so a restart does not change who is asked as", func(t *testing.T) {
+		a, errA := loadWith(map[string]string{"YAPE_ACCOUNT_ID": "{25906AC5-9F18-4099-B3FD-E1B74D8549A4}"})
+		b, errB := loadWith(map[string]string{"YAPE_ACCOUNT_ID": "25906ac59f184099b3fde1b74d8549a4"})
+
+		require.NoError(t, errA)
+		require.NoError(t, errB)
+		assert.Equal(t, a.Agent.AccountID, b.Agent.AccountID)
+		assert.Equal(t, canonical, a.Agent.AccountID)
+	})
+
+	t.Run("what is no UUID is refused without echoing it", func(t *testing.T) {
+		for _, given := range []string{
+			"canary-account-7", "25906ac5-9f18-4099-b3fd-e1b74d8549a45", "25906ac5-9f18-4099-b3fd-e1b74d8549a", "25906ac5_9f18_4099_b3fd_e1b74d8549a4",
+			"g5906ac5-9f18-4099-b3fd-e1b74d8549a4", "{25906ac5-9f18-4099-b3fd-e1b74d8549a4", "25906ac5-9f18-4099-b3fd-e1b74d8549a4,canary-account-7",
+			"25906ac5-9f18-4099-b3fd e1b74d8549a4", "'; DROP TABLE accounts;--", "２５９０６ac5-9f18-4099-b3fd-e1b74d8549a4", "25906ac5-9f18-4099-b3fd-e1b74d8549a4\x00",
+		} {
+			_, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
+
+			require.Error(t, err, "%q", given)
+			assert.Equal(t, "YAPE_ACCOUNT_ID must be a UUID", err.Error(), "%q", given)
+		}
+	})
+
+	t.Run("the nil UUID is the value of a placeholder, not of an account", func(t *testing.T) {
+		for _, given := range []string{"00000000-0000-0000-0000-000000000000", "{00000000-0000-0000-0000-000000000000}", "00000000000000000000000000000000"} {
+			_, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
+
+			require.Error(t, err, given)
+			assert.Equal(t, "YAPE_ACCOUNT_ID must be a UUID", err.Error())
+		}
+	})
+
+	t.Run("empty counts as unset, and the error says it is required", func(t *testing.T) {
+		for _, given := range []string{"", "  ", "\t\n"} {
+			_, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
+
+			require.Error(t, err)
+			assert.Equal(t, "missing required configuration: YAPE_ACCOUNT_ID", err.Error(), "an account that is set to nothing is missing, and not also malformed")
+		}
+	})
+}
+
+func TestLoad_TokenBin(t *testing.T) {
+	tests := []struct{ name, given, want string }{
+		{"unset is the program of the Yape CLI", "", "yape-token"},
+		{"spaces only is unset", "   ", "yape-token"},
+		{"a name found on the PATH", "yape-token", "yape-token"},
+		{"an absolute path", "/usr/local/bin/yape-token", "/usr/local/bin/yape-token"},
+		{"a relative path is kept relative: it is the directory the server runs in", "scripts/test-token.sh", "scripts/test-token.sh"},
+		{"a path of the current directory", "./tok", "./tok"},
+		{"spaces around are taken off", "  /opt/tok  ", "/opt/tok"},
+		{"spaces inside are part of the name: it is one program, not a command line", "/opt/my tools/tok", "/opt/my tools/tok"},
+		{"a name that looks like a flag is a name", "-x", "-x"},
+		{"a very long path is kept", "/" + strings.Repeat("a", 4000), "/" + strings.Repeat("a", 4000)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := loadWith(map[string]string{"YAPE_TOKEN_BIN": tc.given})
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, c.Agent.BearerBin)
+		})
+	}
+}
+
+func TestLoad_AgentRequestTimeout(t *testing.T) {
+	t.Run("values that are taken", func(t *testing.T) {
+		for given, want := range map[string]time.Duration{
+			"1.5s": 1500 * time.Millisecond, "1m": time.Minute, "  5s ": 5 * time.Second, "+5s": 5 * time.Second, ".5s": 500 * time.Millisecond,
+			"1m30s": 90 * time.Second, "999h": 999 * time.Hour, "1ns": time.Nanosecond, "2562047h47m16.854775807s": time.Duration(1<<63 - 1),
+		} {
+			c, err := loadWith(map[string]string{"AGENT_REQUEST_TIMEOUT": given})
+
+			require.NoError(t, err, given)
+			assert.Equal(t, want, c.Agent.RequestTimeout, given)
+		}
+	})
+
+	t.Run("values that are refused, with the key and without a panic", func(t *testing.T) {
+		for _, given := range []string{"0", "0s", "-0s", "-1s", "-1ns", "abc", "5", "1e3s", "1d", "1 s", "5s5", "9223372036854775808ns", "9999999999h", "NaN", "Inf"} {
+			_, err := loadWith(map[string]string{"AGENT_REQUEST_TIMEOUT": given})
+
+			require.Error(t, err, given)
+			assert.Contains(t, err.Error(), "AGENT_REQUEST_TIMEOUT", given)
+		}
+	})
+
+	t.Run("a refused timeout is read as the default", func(t *testing.T) {
+		c, err := loadWith(map[string]string{"AGENT_REQUEST_TIMEOUT": "-1s"})
+
+		require.Error(t, err)
+		assert.Equal(t, 120*time.Second, c.Agent.RequestTimeout)
+	})
+}
+
+// The settings of the agent never put a secret in an error: the address may hold credentials and the token program a path.
+func TestLoad_AgentErrorsHoldNoSecret(t *testing.T) {
+	const secret = "s3cr3t-canary-42"
+	env := with(requiredEnv(), map[string]string{
+		"AGENT_BASE_URL":  "ftp://svc:" + secret + "@bff.example.com/?k=" + secret,
+		"YAPE_ACCOUNT_ID": "not-" + secret,
+		"DB_URL":          "mysql://app:" + secret + "@db/app",
+		"ADMIN_EMAIL":     "admin@example.com",
+		"ADMIN_PASSWORD":  "short",
+	})
+
+	_, err := config.Load(lookupFrom(env))
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), secret)
+	assert.NotContains(t, err.Error(), "svc")
+	for _, key := range []string{"AGENT_BASE_URL", "YAPE_ACCOUNT_ID", "DB_URL", "ADMIN_PASSWORD"} {
+		assert.Contains(t, err.Error(), key, "every problem is named, in one report")
+	}
+}
+
+func TestConfig_LogValueDropsTheQueryOfTheAgentOfAConfigPutTogetherByHand(t *testing.T) {
+	c := config.Config{Agent: config.Agent{BaseURL: "https://svc:agent-token-1@agent.example.com/api?key=query-secret-2#frag-secret-3"}}
+
+	var out bytes.Buffer
+	slog.New(slog.NewTextHandler(&out, nil)).Info("starting", "config", c)
+
+	for _, secret := range []string{"agent-token-1", "query-secret-2", "frag-secret-3", "svc:"} {
+		assert.NotContains(t, out.String(), secret)
+	}
+	assert.Contains(t, out.String(), "config.Agent.BaseURL=https://agent.example.com/api")
 }

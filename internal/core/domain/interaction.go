@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // InteractionKind says what a card asks of the user.
 type InteractionKind string
@@ -121,10 +124,14 @@ type ActionError struct{ Message string }
 
 func (e *ActionError) Error() string { return "action refused: " + e.Message }
 
-// ContactChosen records whom the user chose. Only a contact card that is pending takes it: ErrInvalidState.
+// ContactChosen records whom the user chose. Only a contact card that is pending takes it, and only a contact that has a name
+// and a phone, which the agent's service would otherwise be told is confirmed: ErrInvalidState.
 func (i Interaction) ContactChosen(c Contact) (Interaction, error) {
 	if i.Kind != InteractionContact || i.State != InteractionPending {
 		return i, fmt.Errorf("choosing a contact on a %s card that is %s: %w", i.Kind, i.State, ErrInvalidState)
+	}
+	if strings.TrimSpace(c.Name) == "" || strings.TrimSpace(c.Phone) == "" {
+		return i, fmt.Errorf("choosing a contact that has no name or no phone: %w", ErrInvalidState)
 	}
 	i.State, i.Contact = InteractionConfirmed, c
 	return i, nil

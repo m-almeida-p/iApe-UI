@@ -116,11 +116,15 @@ func (s *Service) run(ctx context.Context, userID, convID uuid.UUID, claimed res
 	content := acc.text()
 	status, reason := s.outcome(ctx, claimed.Reply.ID, outcomeInput{consumerGone: consumerGone, tooLong: tooLong, err: runErr, content: content})
 	meta := domain.Meta{
-		TTFTMs:      ceilMillis(acc.ttft),
-		DurationMs:  ceilMillis(time.Since(start)),
-		Usage:       acc.usage,
-		ToolCalls:   acc.tools,
-		Interaction: acc.card,
+		TTFTMs:     ceilMillis(acc.ttft),
+		DurationMs: ceilMillis(time.Since(start)),
+		Usage:      acc.usage,
+		ToolCalls:  acc.tools,
+	}
+	// A card is for paying or choosing on a reply that completed. On any other the agent's service has a transfer waiting that
+	// the page would offer to pay on a reply that says it failed, so the card is not kept.
+	if status == domain.StatusComplete {
+		meta.Interaction = acc.card
 	}
 
 	// The request may be gone, so save on a context that outlives it.
@@ -232,7 +236,11 @@ func (a *accumulator) apply(ev domain.AgentEvent, start time.Time) bool {
 	case domain.AgentToolCall:
 		a.tools = append(a.tools, ev.Tool)
 	case domain.AgentInteraction:
-		a.card = &ev.Interaction
+		// A card of no kind, or of one this version does not know, can be neither drawn nor answered: it is not kept, and it
+		// does not take the place of one that was.
+		if k := ev.Interaction.Kind; k == domain.InteractionApproval || k == domain.InteractionContact {
+			a.card = &ev.Interaction
+		}
 	}
 	return false
 }

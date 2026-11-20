@@ -28,8 +28,11 @@ func (a *App) contactPicker(w http.ResponseWriter, r *http.Request) {
 // confirmCandidate confirms the candidate the user picked for what they typed, with the agent's service, and answers the mention
 // to put in the message, "@(Name)", as the BFF's own page does.
 func (a *App) confirmCandidate(w http.ResponseWriter, r *http.Request) {
-	choice, err := strconv.Atoi(r.PostFormValue("choice"))
-	if err != nil {
+	if !a.parseForm(w, r) {
+		return
+	}
+	choice, ok := parseChoice(r.PostFormValue("choice"))
+	if !ok {
 		http.Error(w, "Choose one of the contacts.", http.StatusBadRequest)
 		return
 	}

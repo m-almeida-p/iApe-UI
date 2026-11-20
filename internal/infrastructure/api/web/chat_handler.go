@@ -66,6 +66,10 @@ func (a *App) messageView(m domain.Message) messageView {
 		v.TTFTMs, v.DurationMs = m.Meta.TTFTMs, m.Meta.DurationMs
 		v.PromptTokens, v.CompletionTokens = m.Meta.Usage.Prompt, m.Meta.Usage.Completion
 		v.ToolCalls = strings.Join(m.Meta.ToolCalls, ",")
+	}
+	// A card is for a reply that completed: one that failed or was stopped is not one to pay or choose on, even if it was saved
+	// with a card.
+	if m.Status == domain.StatusComplete {
 		v.Card = newCardView(m)
 	}
 	return v
