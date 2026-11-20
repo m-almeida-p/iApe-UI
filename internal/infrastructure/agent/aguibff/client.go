@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -119,6 +120,15 @@ func (c *Client) withTimeout(ctx context.Context) (context.Context, context.Canc
 }
 
 // classify tells what ended a request: the caller leaving, the time limit, or the failure itself.
+// unreached wraps the failure of a request. One that failed while the connection was being made certainly did not reach the service
+// (ErrNotSent); any other (a timeout, a connection that was dropped) may have.
+func unreached(err error) error {
+	if op, ok := errors.AsType[*net.OpError](err); ok && op.Op == "dial" {
+		return fmt.Errorf("%w: %w: %w", domain.ErrAgentUnavailable, domain.ErrNotSent, err)
+	}
+	return fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+}
+
 func (c *Client) classify(caller, run context.Context, err error) error {
 	switch {
 	case caller.Err() != nil:
@@ -136,20 +146,20 @@ func (c *Client) send(ctx context.Context, request func(token string) (*http.Res
 	if err == nil && strings.TrimSpace(token) == "" {
 		err = fmt.Errorf("%w: the token source gave an empty token", ErrToken)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+	if err != nil { // no token: nothing was sent
+		return nil, fmt.Errorf("%w: %w: %w", domain.ErrAgentUnavailable, domain.ErrNotSent, err)
 	}
 	resp, err := request(token)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+		return nil, unreached(err)
 	}
 	if refresher, ok := c.tokens.(Refresher); ok && resp.StatusCode == http.StatusUnauthorized {
 		_ = readHTTPError(resp)
-		if token, err = refresher.Refresh(ctx); err != nil {
-			return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+		if token, err = refresher.Refresh(ctx); err != nil { // a 401 is a request the service did not act on
+			return nil, fmt.Errorf("%w: %w: %w", domain.ErrAgentUnavailable, domain.ErrNotSent, err)
 		}
 		if resp, err = request(token); err != nil {
-			return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
+			return nil, unreached(err)
 		}
 	}
 	return resp, nil

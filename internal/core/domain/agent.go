@@ -42,6 +42,11 @@ type AgentEvent struct {
 	Interaction Interaction
 }
 
+// ErrNotSent says that a request to the agent's service certainly did not reach it (the token could not be had, the connection was
+// refused, the token was refused before anything was done): nothing was done there, so a card can be given back to be answered
+// again. An error without it may have reached the service, and what it was asked may have been done.
+var ErrNotSent = errors.New("the request did not reach the agent's service")
+
 // ErrIncompleteStream means the agent's stream ended without a complete reply.
 var ErrIncompleteStream = errors.New("agent stream ended before the reply was complete")
 
