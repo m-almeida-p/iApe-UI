@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"uuid"
 
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/core/port/resource"
@@ -41,7 +42,8 @@ func (a actionAnswer) confirmed() bool {
 }
 
 // unconfirmed is the error of a 2xx that does not say the transfer was done. The service answered, so the transfer may have gone
-// through or not: it is neither a refusal nor a request that never left, and the card stays claimed until the claim is stale.
+// through or not: it is neither a refusal nor a request that never left. The card is as it was, and answering it again is safe: the service ignores a
+// repeat.
 func unconfirmed(a actionAnswer) error {
 	status := ""
 	if a.Execution != nil {
@@ -51,8 +53,8 @@ func unconfirmed(a actionAnswer) error {
 }
 
 // Approve implements resource.ActionGateway.
-func (c *Client) Approve(ctx context.Context, card domain.Interaction) (domain.ActionResult, error) {
-	got, err := c.act(ctx, card.ApprovalID, "approve", map[string]string{"run_id": card.RunID})
+func (c *Client) Approve(ctx context.Context, account uuid.UUID, card domain.Interaction) (domain.ActionResult, error) {
+	got, err := c.act(ctx, account, card.ApprovalID, "approve", map[string]string{"run_id": card.RunID})
 	if err != nil {
 		return domain.ActionResult{}, err
 	}
@@ -69,14 +71,14 @@ func (c *Client) Approve(ctx context.Context, card domain.Interaction) (domain.A
 }
 
 // Reject implements resource.ActionGateway.
-func (c *Client) Reject(ctx context.Context, card domain.Interaction) (domain.ActionResult, error) {
-	got, err := c.act(ctx, card.ApprovalID, "reject", map[string]string{"run_id": card.RunID})
+func (c *Client) Reject(ctx context.Context, account uuid.UUID, card domain.Interaction) (domain.ActionResult, error) {
+	got, err := c.act(ctx, account, card.ApprovalID, "reject", map[string]string{"run_id": card.RunID})
 	return domain.ActionResult{Message: got.Message}, err
 }
 
 // ConfirmOTP implements resource.ActionGateway.
-func (c *Client) ConfirmOTP(ctx context.Context, card domain.Interaction, code string) (domain.ActionResult, error) {
-	got, err := c.act(ctx, card.ApprovalID, "otp/confirm", map[string]string{
+func (c *Client) ConfirmOTP(ctx context.Context, account uuid.UUID, card domain.Interaction, code string) (domain.ActionResult, error) {
+	got, err := c.act(ctx, account, card.ApprovalID, "otp/confirm", map[string]string{
 		"transfer_id": card.ChallengeID, "otp": code, "run_id": card.RunID,
 	})
 	if err != nil {
@@ -89,24 +91,24 @@ func (c *Client) ConfirmOTP(ctx context.Context, card domain.Interaction, code s
 }
 
 // ConfirmContact implements resource.ActionGateway.
-func (c *Client) ConfirmContact(ctx context.Context, query string, contact domain.Contact) error {
-	_, err := c.postJSON(ctx, "/bff/contacts/confirm", map[string]string{"query": query, "phone": contact.Phone, "name": contact.Name})
+func (c *Client) ConfirmContact(ctx context.Context, account uuid.UUID, query string, contact domain.Contact) error {
+	_, err := c.postJSON(ctx, account, "/bff/contacts/confirm", map[string]string{"query": query, "phone": contact.Phone, "name": contact.Name})
 	return err
 }
 
 // act posts an action of an approval to the BFF. The route is built from the approval's id, never taken from the stream, and
 // the id is one path segment whatever it holds.
-func (c *Client) act(ctx context.Context, approvalID, action string, body map[string]string) (actionAnswer, error) {
+func (c *Client) act(ctx context.Context, account uuid.UUID, approvalID, action string, body map[string]string) (actionAnswer, error) {
 	// An empty id leaves a hole in the route, and "." and ".." are path segments that PathEscape leaves as they are: another route.
 	if strings.TrimSpace(approvalID) == "" || approvalID == "." || approvalID == ".." {
 		return actionAnswer{}, fmt.Errorf("the approval has no usable id (%q)", approvalID)
 	}
-	return c.postJSON(ctx, "/bff/approvals/"+url.PathEscape(approvalID)+"/"+action, body)
+	return c.postJSON(ctx, account, "/bff/approvals/"+url.PathEscape(approvalID)+"/"+action, body)
 }
 
-// postJSON posts a JSON body to a route of the BFF as the account. A 4xx the BFF explains is the service refusing:
+// postJSON posts a JSON body to a route of the BFF as the account of the call. A 4xx the BFF explains is the service refusing:
 // *domain.ActionError.
-func (c *Client) postJSON(ctx context.Context, route string, body map[string]string) (actionAnswer, error) {
+func (c *Client) postJSON(ctx context.Context, account uuid.UUID, route string, body map[string]string) (actionAnswer, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return actionAnswer{}, err
@@ -116,13 +118,13 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 	limit := c.actionLimit()
 	ctx, cancel := withLimit(ctx, limit)
 	defer cancel()
-	resp, err := c.send(ctx, func(token string) (*http.Response, error) {
+	resp, err := c.send(ctx, account, func(token string) (*http.Response, error) {
 		hr, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
 		if err != nil {
 			return nil, err
 		}
 		hr.Header.Set("Authorization", "Bearer "+token)
-		hr.Header.Set("X-Yape-Account-Id", c.account)
+		hr.Header.Set("X-Yape-Account-Id", account.String())
 		hr.Header.Set("Content-Type", "application/json")
 		hr.Header.Set("Accept", "application/json")
 		return c.http.Do(hr)

@@ -13,11 +13,11 @@ import (
 	"iape-ui/internal/core/domain"
 )
 
-func stopPath() string { return "/c/" + convID.String() + "/m/" + streamMsgID.String() + "/stop" }
+func stopPath() string { return "/c/" + convID + "/m/" + streamMsgID.String() + "/stop" }
 
 func reply(status domain.Status, content string) domain.Message {
 	return domain.Message{
-		ID: streamMsgID, ConversationID: convID, Seq: 2, Role: domain.RoleAssistant,
+		ID: streamMsgID, ConversationID: convID, Role: domain.RoleAssistant,
 		Status: status, Content: content,
 	}
 }
@@ -53,7 +53,7 @@ func TestStopMessage(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, rec.Code)
 		wrapper := elementsOf(parseHTML(t, rec.Body.String()), "div")[0]
-		assert.Equal(t, "/c/"+convID.String()+"/m/"+streamMsgID.String()+"/stream", attrOf(wrapper, "sse-connect"))
+		assert.Equal(t, "/c/"+convID+"/m/"+streamMsgID.String()+"/stream", attrOf(wrapper, "sse-connect"))
 		assert.Equal(t, stopPath(), attrOf(wrapper, "data-stop-url"))
 	})
 
@@ -64,7 +64,7 @@ func TestStopMessage(t *testing.T) {
 		rec := h.do(http.MethodPost, stopPath(), nil, nil)
 
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
-		assert.Equal(t, "/c/"+convID.String(), rec.Header().Get("Location"))
+		assert.Equal(t, "/c/"+convID, rec.Header().Get("Location"))
 	})
 
 	failures := []struct {
@@ -78,7 +78,7 @@ func TestStopMessage(t *testing.T) {
 		{"not found or someone else's", stopPath(), domain.ErrNotFound, true, http.StatusNotFound, ""},
 		{"not a reply", stopPath(), domain.ErrInvalidState, true, http.StatusNotFound, ""},
 		{"a malformed conversation id", "/c/nope/m/" + streamMsgID.String() + "/stop", nil, false, http.StatusNotFound, ""},
-		{"a malformed message id", "/c/" + convID.String() + "/m/nope/stop", nil, false, http.StatusNotFound, ""},
+		{"a malformed message id", "/c/" + convID + "/m/nope/stop", nil, false, http.StatusNotFound, ""},
 		{"the use case fails", stopPath(), errors.New("db password=hunter2 refused"), true, http.StatusInternalServerError, "hunter2"},
 	}
 	for _, tc := range failures {

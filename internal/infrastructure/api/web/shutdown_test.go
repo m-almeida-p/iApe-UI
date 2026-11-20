@@ -24,8 +24,8 @@ import (
 // runUntilEnded is a reply being written: it shows "Hel", then waits until the
 // run is canceled, as the real use case does, and reports the reply as stopped
 // with the text so far. running counts runs that have not finished.
-func runUntilEnded(running *atomic.Int32, ctxSeen chan<- context.Context) func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) iter.Seq2[service.StreamEvent, error] {
-	return func(ctx context.Context, _, _, _ uuid.UUID) iter.Seq2[service.StreamEvent, error] {
+func runUntilEnded(running *atomic.Int32, ctxSeen chan<- context.Context) func(context.Context, uuid.UUID, string, uuid.UUID) iter.Seq2[service.StreamEvent, error] {
+	return func(ctx context.Context, _ uuid.UUID, _ string, _ uuid.UUID) iter.Seq2[service.StreamEvent, error] {
 		return func(yield func(service.StreamEvent, error) bool) {
 			running.Add(1)
 			defer running.Add(-1)

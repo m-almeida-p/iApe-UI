@@ -33,6 +33,11 @@ func requiredEnv() map[string]string {
 	}
 }
 
+// adminEnv is the first user: with it, the account is required.
+func adminEnv() map[string]string {
+	return map[string]string{"ADMIN_EMAIL": "admin@example.com", "ADMIN_PASSWORD": secretAdminPassword}
+}
+
 func without(base map[string]string, keys ...string) map[string]string {
 	out := maps.Clone(base)
 	for _, k := range keys {
@@ -77,10 +82,9 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, "http://localhost:4000", c.Agent.BaseURL, "the slash at the end is taken off")
 				assert.Equal(t, 120*time.Second, c.Agent.RequestTimeout)
 				assert.Equal(t, "yape-token", c.Agent.BearerBin)
-				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Agent.AccountID)
+				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Admin.AccountID)
 				assert.Equal(t, 8000, c.Chat.MaxMessageChars)
 				assert.Equal(t, 50*time.Millisecond, c.Chat.StreamFlushInterval)
-				assert.Equal(t, 100, c.Chat.ListLimit)
 				assert.InDelta(t, 2.0, c.RateLimit.RPS, 0.0001)
 				assert.Equal(t, 10, c.RateLimit.Burst)
 				assert.Equal(t, 24*time.Hour, c.Session.TTL)
@@ -115,7 +119,6 @@ func TestLoad_Valid(t *testing.T) {
 				"YAPE_TOKEN_BIN":             "/usr/local/bin/yape-token",
 				"CHAT_MAX_MESSAGE_CHARS":     "500",
 				"CHAT_STREAM_FLUSH_INTERVAL": "100ms",
-				"CHAT_LIST_LIMIT":            "20",
 				"RATE_LIMIT_RPS":             "0.5",
 				"RATE_LIMIT_BURST":           "3",
 				"SESSION_TTL":                "1h",
@@ -133,11 +136,10 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 45*time.Second, c.HTTP.ResponseTimeout)
 				assert.Equal(t, 25, c.DB.MaxConns)
 				assert.Equal(t, 600*time.Second, c.Agent.RequestTimeout)
-				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Agent.AccountID, "the account is kept in its canonical lower-case form")
+				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Admin.AccountID, "the account is kept in its canonical lower-case form")
 				assert.Equal(t, "/usr/local/bin/yape-token", c.Agent.BearerBin)
 				assert.Equal(t, 500, c.Chat.MaxMessageChars)
 				assert.Equal(t, 100*time.Millisecond, c.Chat.StreamFlushInterval)
-				assert.Equal(t, 20, c.Chat.ListLimit)
 				assert.InDelta(t, 0.5, c.RateLimit.RPS, 0.0001)
 				assert.Equal(t, 3, c.RateLimit.Burst)
 				assert.Equal(t, time.Hour, c.Session.TTL)
@@ -180,13 +182,14 @@ func TestLoad_Invalid(t *testing.T) {
 		wantNotErr []string
 	}{
 		{
-			name:      "all missing required keys are named in one error",
-			env:       map[string]string{},
-			wantInErr: []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID"},
+			name:       "all missing required keys are named in one error",
+			env:        map[string]string{},
+			wantInErr:  []string{"DB_URL", "AGENT_BASE_URL"},
+			wantNotErr: []string{"YAPE_ACCOUNT_ID"},
 		},
 		{
-			name:      "the BFF needs the account it is asked as",
-			env:       without(requiredEnv(), "YAPE_ACCOUNT_ID"),
+			name:      "the first user is the person of an account: it needs one",
+			env:       with(without(requiredEnv(), "YAPE_ACCOUNT_ID"), adminEnv()),
 			wantInErr: []string{"YAPE_ACCOUNT_ID", "required"},
 		},
 		{
@@ -404,10 +407,11 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			" config.App.LogFormat=json config.App.ShutdownGrace=10s"+
 			" config.HTTP.Addr=:8300 config.HTTP.MaxBodyBytes=131072 config.HTTP.BodyTimeout=30s config.HTTP.ResponseTimeout=2m0s"+
 			" config.DB.URL=[redacted] config.DB.MaxConns=10"+
-			" config.Agent.BaseURL=http://localhost:4000 config.Agent.RequestTimeout=2m0s config.Agent.AccountID=25906ac5-9f18-4099-b3fd-e1b74d8549a4 config.Agent.BearerBin=yape-token"+
-			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms config.Chat.ListLimit=100"+
+			" config.Agent.BaseURL=http://localhost:4000 config.Agent.RequestTimeout=2m0s config.Agent.BearerBin=yape-token"+
+			" config.History.BaseURL=\"\" config.History.RequestTimeout=10s config.History.Timezone=America/Lima"+
+			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms"+
 			" config.RateLimit.RPS=2 config.RateLimit.Burst=10 config.Session.TTL=24h0m0s"+
-			" config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
+			" config.Admin.AccountID=[redacted] config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
 			" config.db=localhost:5440/agentwebui config.admin_bootstrap=true\n", buf.String())
 	})
 
@@ -420,11 +424,12 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			"App":{"Env":"development","BaseURL":"http://localhost:8300","LogLevel":"info","LogFormat":"json","ShutdownGrace":10000000000},
 			"HTTP":{"Addr":":8300","MaxBodyBytes":131072,"BodyTimeout":30000000000,"ResponseTimeout":120000000000},
 			"DB":{"URL":"[redacted]","MaxConns":10},
-			"Agent":{"BaseURL":"http://localhost:4000","RequestTimeout":120000000000,"AccountID":"25906ac5-9f18-4099-b3fd-e1b74d8549a4","BearerBin":"yape-token"},
-			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000,"ListLimit":100},
+			"Agent":{"BaseURL":"http://localhost:4000","RequestTimeout":120000000000,"BearerBin":"yape-token"},
+			"History":{"BaseURL":"","RequestTimeout":10000000000,"Timezone":"America/Lima"},
+			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000},
 			"RateLimit":{"RPS":2,"Burst":10},
 			"Session":{"TTL":86400000000000},
-			"Admin":{"Email":"[redacted]","Password":"[redacted]"},
+			"Admin":{"AccountID":"[redacted]","Email":"[redacted]","Password":"[redacted]"},
 			"db":"localhost:5440/agentwebui","admin_bootstrap":true}}`, buf.String())
 	})
 }
@@ -660,35 +665,35 @@ func TestLoadEnv(t *testing.T) {
 		"AGENT_BASE_URL=http://localhost:4000\n" +
 		"YAPE_ACCOUNT_ID=25906ac5-9f18-4099-b3fd-e1b74d8549a4\n" +
 		"YAPE_TOKEN_BIN=from_file\n" +
-		"CHAT_LIST_LIMIT=7\n"
+		"CHAT_MAX_MESSAGE_CHARS=1234\n"
 
 	tests := []struct {
 		name         string
 		writeFile    bool
 		processEnv   map[string]string
 		wantTokenBin string
-		wantLimit    int
+		wantMax      int
 		wantErr      bool
 	}{
-		{name: "file values are used", writeFile: true, wantTokenBin: "from_file", wantLimit: 7},
+		{name: "file values are used", writeFile: true, wantTokenBin: "from_file", wantMax: 1234},
 		{
 			name:         "process env wins over the file",
 			writeFile:    true,
 			processEnv:   map[string]string{"YAPE_TOKEN_BIN": "from_env"},
 			wantTokenBin: "from_env",
-			wantLimit:    7,
+			wantMax:      1234,
 		},
 		{
 			name:         "missing file falls back to the process env",
 			processEnv:   requiredEnv(),
 			wantTokenBin: "yape-token",
-			wantLimit:    100,
+			wantMax:      8000,
 		},
 		{name: "missing file and no env reports the required keys", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID", "YAPE_TOKEN_BIN", "CHAT_LIST_LIMIT"} {
+			for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID", "YAPE_TOKEN_BIN", "CHAT_MAX_MESSAGE_CHARS"} {
 				t.Setenv(key, "") // an empty value counts as unset
 			}
 			for k, v := range tc.processEnv {
@@ -707,7 +712,7 @@ func TestLoadEnv(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantTokenBin, c.Agent.BearerBin)
-			assert.Equal(t, tc.wantLimit, c.Chat.ListLimit)
+			assert.Equal(t, tc.wantMax, c.Chat.MaxMessageChars)
 		})
 	}
 }
@@ -819,6 +824,15 @@ func TestLoad_AgentBaseURL(t *testing.T) {
 	})
 }
 
+func TestLoad_NoFirstUserNeedsNoAccount(t *testing.T) {
+	c, err := loadWith(nil)
+	require.NoError(t, err)
+	_, errWithout := config.Load(lookupFrom(without(requiredEnv(), "YAPE_ACCOUNT_ID")))
+
+	assert.NoError(t, errWithout, "the account is the first user's: without a first user it is not asked for")
+	assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Admin.AccountID)
+}
+
 func TestLoad_AccountID(t *testing.T) {
 	const canonical = "25906ac5-9f18-4099-b3fd-e1b74d8549a4"
 
@@ -836,7 +850,7 @@ func TestLoad_AccountID(t *testing.T) {
 			c, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
 
 			require.NoError(t, err, name)
-			assert.Equal(t, canonical, c.Agent.AccountID, name)
+			assert.Equal(t, canonical, c.Admin.AccountID, name)
 		}
 	})
 
@@ -844,7 +858,7 @@ func TestLoad_AccountID(t *testing.T) {
 		c, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": "25906ac5-9f18-7099-b3fd-e1b74d8549a4"})
 
 		require.NoError(t, err)
-		assert.Equal(t, "25906ac5-9f18-7099-b3fd-e1b74d8549a4", c.Agent.AccountID)
+		assert.Equal(t, "25906ac5-9f18-7099-b3fd-e1b74d8549a4", c.Admin.AccountID)
 	})
 
 	t.Run("the same account in two spellings is one value, so a restart does not change who is asked as", func(t *testing.T) {
@@ -853,8 +867,8 @@ func TestLoad_AccountID(t *testing.T) {
 
 		require.NoError(t, errA)
 		require.NoError(t, errB)
-		assert.Equal(t, a.Agent.AccountID, b.Agent.AccountID)
-		assert.Equal(t, canonical, a.Agent.AccountID)
+		assert.Equal(t, a.Admin.AccountID, b.Admin.AccountID)
+		assert.Equal(t, canonical, a.Admin.AccountID)
 	})
 
 	t.Run("what is no UUID is refused without echoing it", func(t *testing.T) {
@@ -879,9 +893,9 @@ func TestLoad_AccountID(t *testing.T) {
 		}
 	})
 
-	t.Run("empty counts as unset, and the error says it is required", func(t *testing.T) {
+	t.Run("empty counts as unset, and the user to make needs it", func(t *testing.T) {
 		for _, given := range []string{"", "  ", "\t\n"} {
-			_, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
+			_, err := loadWith(with(adminEnv(), map[string]string{"YAPE_ACCOUNT_ID": given}))
 
 			require.Error(t, err)
 			assert.Equal(t, "missing required configuration: YAPE_ACCOUNT_ID", err.Error(), "an account that is set to nothing is missing, and not also malformed")
@@ -973,4 +987,79 @@ func TestConfig_LogValueDropsTheQueryOfTheAgentOfAConfigPutTogetherByHand(t *tes
 		assert.NotContains(t, out.String(), secret)
 	}
 	assert.Contains(t, out.String(), "config.Agent.BaseURL=https://agent.example.com/api")
+}
+
+func TestLoad_HistoryIsOffUntilItHasAnAddress(t *testing.T) {
+	c, err := loadWith(nil)
+
+	require.NoError(t, err)
+	assert.Empty(t, c.History.BaseURL, "no HISTORY_BASE_URL: the page has no history")
+	assert.Equal(t, 10*time.Second, c.History.RequestTimeout)
+	assert.Equal(t, "America/Lima", c.History.Timezone)
+}
+
+func TestLoad_History(t *testing.T) {
+	c, err := loadWith(map[string]string{
+		"HISTORY_BASE_URL":        "http://localhost:3100/",
+		"HISTORY_REQUEST_TIMEOUT": "3s",
+		"HISTORY_TIMEZONE":        "Europe/Madrid",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:3100", c.History.BaseURL, "the trailing slash goes: paths are added after it")
+	assert.Equal(t, 3*time.Second, c.History.RequestTimeout)
+	assert.Equal(t, "Europe/Madrid", c.History.Timezone)
+	assert.Equal(t, "Europe/Madrid", c.History.Location().String())
+}
+
+func TestHistory_LocationIsTheOneOfTheName(t *testing.T) {
+	c, err := loadWith(nil)
+	require.NoError(t, err)
+
+	lima := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC).In(c.History.Location())
+
+	assert.Equal(t, "America/Lima", c.History.Location().String())
+	assert.Equal(t, 7, lima.Hour(), "Lima is UTC-5 all year")
+}
+
+func TestLoad_HistoryRefusesWhatItCannotUse(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"an unknown time zone", map[string]string{"HISTORY_TIMEZONE": "Mars/Olympus"}, "HISTORY_TIMEZONE"},
+		{"a time zone that is no name", map[string]string{"HISTORY_TIMEZONE": "../../etc/passwd"}, "HISTORY_TIMEZONE"},
+		{"the time of the machine, which is not a place", map[string]string{"HISTORY_TIMEZONE": "Local"}, "HISTORY_TIMEZONE"},
+		{"a timeout that is zero", map[string]string{"HISTORY_REQUEST_TIMEOUT": "0s"}, "HISTORY_REQUEST_TIMEOUT"},
+		{"a timeout that is no duration", map[string]string{"HISTORY_REQUEST_TIMEOUT": "soon"}, "HISTORY_REQUEST_TIMEOUT"},
+		{"an address that is not http", map[string]string{"HISTORY_BASE_URL": "ftp://localhost:3100"}, "HISTORY_BASE_URL"},
+		{"an address with a query", map[string]string{"HISTORY_BASE_URL": "http://localhost:3100?x=1"}, "HISTORY_BASE_URL"},
+		{"an address with a fragment", map[string]string{"HISTORY_BASE_URL": "http://localhost:3100/#x"}, "HISTORY_BASE_URL"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadWith(tc.env)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestConfig_LogValueShowsTheHistoryWithoutItsCredentials(t *testing.T) {
+	c, err := loadWith(map[string]string{"HISTORY_BASE_URL": "http://user:hunter2@localhost:3100"})
+	require.NoError(t, err)
+	record := slog.NewRecord(time.Time{}, slog.LevelInfo, "starting", 0)
+	record.AddAttrs(slog.Any("config", c))
+	var buf bytes.Buffer
+
+	require.NoError(t, slog.NewTextHandler(&buf, nil).Handle(t.Context(), record))
+
+	assert.NotContains(t, buf.String(), "hunter2")
+	assert.Contains(t, buf.String(), "config.History.Timezone=America/Lima")
+}
+
+func TestHistory_LocationOfAnUnknownNameIsUTC(t *testing.T) {
+	assert.Equal(t, time.UTC, config.History{Timezone: "Mars/Olympus"}.Location(), "Load refuses such a name; a config made by hand does not get a machine's zone")
 }

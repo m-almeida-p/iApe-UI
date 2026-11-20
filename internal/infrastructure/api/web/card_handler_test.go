@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,13 +25,10 @@ import (
 )
 
 // newCardView draws the card of m with no clock: a claim never goes stale.
-func newCardView(m domain.Message) *cardView { return newCardViewAt(m, time.Time{}) }
 
 // cardStatusPath is the route that says how the card is now.
-func cardStatusPath() string { return "/c/" + convID.String() + "/m/" + streamMsgID.String() + "/card" }
-
 func cardPath(action string) string {
-	return "/c/" + convID.String() + "/m/" + streamMsgID.String() + "/card/" + action
+	return "/c/" + convID + "/m/" + streamMsgID.String() + "/card/" + action
 }
 
 // cardReply is a finished reply with a card in the given state.
@@ -185,7 +181,7 @@ func TestApproveRejectAndConfirmCode(t *testing.T) {
 		rec := h.do(http.MethodPost, cardPath("reject"), nil, nil)
 
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
-		assert.Equal(t, "/c/"+convID.String(), rec.Header().Get("Location"))
+		assert.Equal(t, "/c/"+convID, rec.Header().Get("Location"))
 	})
 
 	failures := []struct {
@@ -273,8 +269,8 @@ func TestContactCardIsDrawnFromTheMessage(t *testing.T) {
 
 func TestChooseContact(t *testing.T) {
 	resumed := func() service.Turn {
-		user := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Seq: 3, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "usuario confirmado"}
-		next := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Seq: 4, Role: domain.RoleAssistant, Status: domain.StatusPending}
+		user := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "usuario confirmado"}
+		next := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending}
 		return service.Turn{User: user, Reply: next}
 	}
 	form := url.Values{"choice": {"1"}}
@@ -299,7 +295,7 @@ func TestChooseContact(t *testing.T) {
 		require.NotNil(t, oob, "the next turn is added to the conversation out of band")
 		assert.Equal(t, "beforeend:#messages", attrOf(oob, "hx-swap-oob"))
 		assert.Contains(t, textContent(oob), "usuario confirmado")
-		assert.Contains(t, rec.Body.String(), "/c/"+convID.String()+"/m/"+turn.Reply.ID.String()+"/stream", "the new reply opens its stream")
+		assert.Contains(t, rec.Body.String(), "/c/"+convID+"/m/"+turn.Reply.ID.String()+"/stream", "the new reply opens its stream")
 	})
 
 	t.Run("when the agent cannot go on yet the card is still answered", func(t *testing.T) {
@@ -341,7 +337,7 @@ func TestChooseContact(t *testing.T) {
 	t.Run("a card answered already shows the card as it is now", func(t *testing.T) {
 		h := newChatHarness(t)
 		h.cards.On("ChooseContact", mock.Anything, alice.ID, convID, streamMsgID, 1).Return(domain.Message{}, domain.ErrInvalidState)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(contactReplyMsg(domain.InteractionConfirmed), nil)
+		h.chat.On("Reply", mock.Anything, alice.ID, convID, streamMsgID).Return(contactReplyMsg(domain.InteractionConfirmed), nil)
 
 		rec := h.do(http.MethodPost, cardPath("contact"), form, htmx)
 
@@ -357,7 +353,7 @@ func TestChooseContact(t *testing.T) {
 		rec := h.do(http.MethodPost, cardPath("contact"), form, nil)
 
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
-		assert.Equal(t, "/c/"+convID.String(), rec.Header().Get("Location"))
+		assert.Equal(t, "/c/"+convID, rec.Header().Get("Location"))
 	})
 }
 
@@ -621,7 +617,7 @@ func TestCards_EveryTextIsData(t *testing.T) {
 
 			noMarkupFrom(t, root, raw)
 			for _, option := range byTestID(root, "card-contact") {
-				assert.Equal(t, "/c/"+convID.String()+"/m/"+streamMsgID.String()+"/card/contact", attrOf(option, "hx-post"))
+				assert.Equal(t, "/c/"+convID+"/m/"+streamMsgID.String()+"/card/contact", attrOf(option, "hx-post"))
 				assert.Regexp(t, `^\{"choice":"[0-4]"\}$`, attrOf(option, "hx-vals"))
 			}
 		})
@@ -733,8 +729,8 @@ func TestCardRoutes_EachRouteHoldsTheSameLine(t *testing.T) {
 	t.Run("ids that are not UUIDs are a 404 and nothing is asked, on every route", func(t *testing.T) {
 		for _, rt := range cardRoutes {
 			for _, ids := range [][2]string{
-				{"x", streamMsgID.String()}, {convID.String(), "y"}, {convID.String(), ""}, {convID.String(), "00000000-0000-0000-0000-00000000000"},
-				{convID.String(), "' OR 1=1 --"}, {convID.String(), strings.Repeat("a", 1000)}, {convID.String(), streamMsgID.String() + "x"},
+				{"x", streamMsgID.String()}, {convID, "y"}, {convID, ""}, {convID, "00000000-0000-0000-0000-00000000000"},
+				{convID, "' OR 1=1 --"}, {convID, strings.Repeat("a", 1000)}, {convID, streamMsgID.String() + "x"},
 			} {
 				h := newChatHarness(t)
 
@@ -758,7 +754,7 @@ func TestCardRoutes_EachRouteHoldsTheSameLine(t *testing.T) {
 				rec := h.do(rt.method, cardPath(rt.action), rt.form, header)
 
 				assert.Equal(t, http.StatusSeeOther, rec.Code, "%s with %v", rt.name, header)
-				assert.Equal(t, "/c/"+convID.String(), rec.Header().Get("Location"))
+				assert.Equal(t, "/c/"+convID, rec.Header().Get("Location"))
 				assert.Empty(t, rec.Header().Get("HX-Redirect"))
 			}
 		}
@@ -773,7 +769,7 @@ func TestCardRoutes_EachRouteHoldsTheSameLine(t *testing.T) {
 				rec := h.do(rt.method, cardPath(rt.action), rt.form, nil)
 
 				assert.Equal(t, http.StatusSeeOther, rec.Code, rt.name)
-				assert.Equal(t, "/c/"+convID.String(), rec.Header().Get("Location"))
+				assert.Equal(t, "/c/"+convID, rec.Header().Get("Location"))
 				assert.Empty(t, rec.Body.String(), "a redirect has no page")
 			}
 		}
@@ -785,12 +781,12 @@ func TestCardRoutes_EachRouteHoldsTheSameLine(t *testing.T) {
 		for _, rt := range cardRoutes {
 			h := newChatHarness(t)
 			h.expectCard(rt.call, rt.args, domain.Message{}, domain.ErrInvalidState)
-			h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(processingReply(t), nil)
+			h.chat.On("Reply", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil)
 
 			rec := h.do(rt.method, cardPath(rt.action), rt.form, htmx)
 
 			require.Equal(t, http.StatusOK, rec.Code, rt.name)
-			assert.Equal(t, "processing", attrOf(byTestID(parseHTML(t, rec.Body.String()), "card")[0], "data-state"), rt.name)
+			assert.Equal(t, "paid", attrOf(byTestID(parseHTML(t, rec.Body.String()), "card")[0], "data-state"), rt.name)
 		}
 	})
 
@@ -798,7 +794,7 @@ func TestCardRoutes_EachRouteHoldsTheSameLine(t *testing.T) {
 		for _, rt := range cardRoutes {
 			h := newChatHarness(t)
 			h.expectCard(rt.call, rt.args, domain.Message{}, domain.ErrInvalidState)
-			h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, errors.New("db down"))
+			h.chat.On("Reply", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, errors.New("db down"))
 
 			rec := h.do(rt.method, cardPath(rt.action), rt.form, htmx)
 
@@ -812,7 +808,7 @@ func TestCardRoutes_EachRouteHoldsTheSameLine(t *testing.T) {
 	t.Run("without htmx a card answered already goes back to the conversation", func(t *testing.T) {
 		h := newChatHarness(t)
 		h.expectCard("Approve", nil, domain.Message{}, domain.ErrInvalidState)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil)
+		h.chat.On("Reply", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil)
 
 		rec := h.do(http.MethodPost, cardPath("approve"), nil, nil)
 
@@ -1061,8 +1057,8 @@ func TestChooseContact_WhenTheAgentCannotGoOn(t *testing.T) {
 }
 
 func resumedTurn() service.Turn {
-	user := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Seq: 3, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "usuario confirmado"}
-	next := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Seq: 4, Role: domain.RoleAssistant, Status: domain.StatusPending}
+	user := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "usuario confirmado"}
+	next := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending}
 	return service.Turn{User: user, Reply: next}
 }
 
@@ -1073,8 +1069,8 @@ func TestChooseContact_IsLimitedLikeASend(t *testing.T) {
 		t.Helper()
 		auth := mocks.NewAuth(t)
 		auth.On("Authenticate", mock.Anything, "tok").Return(alice, nil).Maybe()
-		h := &chatHarness{t: t, auth: auth, chat: mocks.NewChat(t), convs: mocks.NewConversation(t), cards: mocks.NewInteractions(t)}
-		h.route = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Conversations: h.convs, Interactions: h.cards},
+		h := &chatHarness{t: t, auth: auth, chat: mocks.NewChat(t), cards: mocks.NewInteractions(t)}
+		h.route = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Interactions: h.cards},
 			Options{RateLimitRPS: 0.0001, RateLimitBurst: burst}).Routes()
 		return h
 	}
@@ -1097,7 +1093,7 @@ func TestChooseContact_IsLimitedLikeASend(t *testing.T) {
 	t.Run("it shares the bucket of the messages", func(t *testing.T) {
 		h := limited(t, 1)
 		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(resumedTurn(), nil).Once()
-		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/c/"+convID.String()+"/messages", url.Values{"content": {"hi"}}, htmx).Code)
+		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/c/"+convID+"/messages", url.Values{"content": {"hi"}}, htmx).Code)
 
 		rec := h.as("tok", http.MethodPost, cardPath("contact"), url.Values{"choice": {"1"}}, htmx)
 
@@ -1114,268 +1110,3 @@ func TestChooseContact_IsLimitedLikeASend(t *testing.T) {
 
 // A card that is being answered (someone claimed it before asking the service) offers nothing: the answer is on its way, and
 // answering again is what the claim is there to prevent.
-func TestCard_BeingAnsweredOffersNothing(t *testing.T) {
-	for name, base := range map[string]domain.InteractionState{"a payment": domain.InteractionPending, "a code": domain.InteractionOTPRequired} {
-		t.Run(name, func(t *testing.T) {
-			h := newChatHarness(t)
-			m := cardReply(base)
-			claimed, err := m.Meta.Interaction.Claim("claim-1", time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC))
-			require.NoError(t, err)
-			m.Meta.Interaction = &claimed
-			h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(m, nil)
-
-			rec := h.do(http.MethodPost, stopPath(), nil, htmx)
-			root := parseHTML(t, rec.Body.String())
-
-			assert.Equal(t, "processing", attrOf(byTestID(root, "card")[0], "data-state"))
-			assert.Len(t, byTestID(root, "card-processing"), 1, "it says the answer is on its way")
-			for _, id := range []string{"card-pay", "card-reject", "card-otp-input", "card-otp-submit"} {
-				assert.Empty(t, byTestID(root, id), "%s is not offered while the card is being answered", id)
-			}
-			assert.Contains(t, textContent(byTestID(root, "card-amount")[0]), "20.00", "the transfer is still shown")
-		})
-	}
-}
-
-func TestContactCard_BeingAnsweredOffersNoCandidates(t *testing.T) {
-	h := newChatHarness(t)
-	m := reply(domain.StatusComplete, "Who is Maria?")
-	card := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionPending, RequestID: "req-1", RunID: "run-1", Query: "Maria"}
-	claimed, err := card.Claim("claim-1", time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC))
-	require.NoError(t, err)
-	m.Meta.Interaction = &claimed
-	h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(m, nil)
-
-	root := parseHTML(t, h.do(http.MethodPost, stopPath(), nil, htmx).Body.String())
-
-	assert.Equal(t, "processing", attrOf(byTestID(root, "card")[0], "data-state"))
-	assert.Len(t, byTestID(root, "card-processing"), 1)
-	assert.Empty(t, byTestID(root, "card-contact"), "no candidate can be chosen twice")
-}
-
-// processingReply is a finished reply whose card is claimed: the answer is on its way.
-func processingReply(t *testing.T) domain.Message {
-	t.Helper()
-	m := cardReply(domain.InteractionPending)
-	claimed, err := m.Meta.Interaction.Claim("claim-1", time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC))
-	require.NoError(t, err)
-	m.Meta.Interaction = &claimed
-	return m
-}
-
-// A card being answered asks the server how it is every few seconds, and the answer replaces the reply: once the card is in
-// another state the new reply has no poll in it, so the polling stops by itself.
-func TestCard_BeingAnsweredAsksHowItIsUntilItIsAnswered(t *testing.T) {
-	t.Run("the note polls the card's own route", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(processingReply(t), nil)
-
-		root := parseHTML(t, h.do(http.MethodPost, stopPath(), nil, htmx).Body.String())
-
-		note := byTestID(root, "card-processing")
-		require.Len(t, note, 1)
-		assert.Equal(t, cardStatusPath(), attrOf(note[0], "hx-get"))
-		assert.Equal(t, "every 3s", attrOf(note[0], "hx-trigger"))
-		assert.Equal(t, "closest .reply", attrOf(note[0], "hx-target"))
-		assert.Equal(t, "outerHTML", attrOf(note[0], "hx-swap"))
-	})
-
-	t.Run("a card in any other state does not poll", func(t *testing.T) {
-		for _, state := range []domain.InteractionState{domain.InteractionPending, domain.InteractionOTPRequired, domain.InteractionPaid, domain.InteractionRejected} {
-			h := newChatHarness(t)
-			h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(state), nil)
-
-			body := h.do(http.MethodPost, stopPath(), nil, htmx).Body.String()
-
-			assert.NotContains(t, body, "every 3s", string(state))
-			assert.NotContains(t, body, `hx-get="`+cardStatusPath(), string(state))
-		}
-	})
-}
-
-func TestShowCard_TheReplyAsItIsNow(t *testing.T) {
-	t.Run("a card still being answered is drawn again, and is not cached", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(processingReply(t), nil)
-
-		rec := h.do(http.MethodGet, cardStatusPath(), nil, htmx)
-
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
-		assert.Equal(t, "processing", attrOf(byTestID(parseHTML(t, rec.Body.String()), "card")[0], "data-state"))
-	})
-
-	t.Run("a card that was answered is drawn in its new state, without the poll", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil)
-
-		rec := h.do(http.MethodGet, cardStatusPath(), nil, htmx)
-
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, "paid", attrOf(byTestID(parseHTML(t, rec.Body.String()), "card")[0], "data-state"))
-		assert.NotContains(t, rec.Body.String(), "every 3s")
-	})
-
-	t.Run("without htmx it goes to the conversation", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(processingReply(t), nil)
-
-		rec := h.do(http.MethodGet, cardStatusPath(), nil, nil)
-
-		assert.Equal(t, http.StatusSeeOther, rec.Code)
-		assert.Equal(t, "/c/"+convID.String(), rec.Header().Get("Location"))
-	})
-
-	t.Run("a reply that is not there, or is not the user's, is not found", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, domain.ErrNotFound)
-
-		assert.Equal(t, http.StatusNotFound, h.do(http.MethodGet, cardStatusPath(), nil, nil).Code, "a page that asks without htmx gets the plain 404")
-	})
-
-	t.Run("a reply with no card draws no card", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(reply(domain.StatusComplete, "just text"), nil)
-
-		rec := h.do(http.MethodGet, cardStatusPath(), nil, htmx)
-
-		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Empty(t, byTestID(parseHTML(t, rec.Body.String()), "card"))
-	})
-
-	t.Run("a store that fails is a server error that says nothing of it", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, errors.New("db password=hunter2 down"))
-
-		rec := h.do(http.MethodGet, cardStatusPath(), nil, nil)
-
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-		assert.NotContains(t, rec.Body.String(), "hunter2")
-	})
-}
-
-// A claim that has had its time is one nobody is answering any more: the card goes back to what it was, so that it can be answered
-// again, and says why. The service ignores a repeat of an answer it already took, so asking again is safe.
-func TestCard_AClaimThatWentStaleOffersTheAnswerAgain(t *testing.T) {
-	claimedAt := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
-
-	t.Run("just before its time the card is still being answered", func(t *testing.T) {
-		h := newChatHarnessWithOptions(t, Options{Now: func() time.Time { return claimedAt.Add(domain.ClaimTTL - time.Second) }})
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(processingReply(t), nil)
-
-		root := parseHTML(t, h.do(http.MethodGet, cardStatusPath(), nil, htmx).Body.String())
-
-		assert.Equal(t, "processing", attrOf(byTestID(root, "card")[0], "data-state"))
-		assert.Empty(t, byTestID(root, "card-pay"))
-	})
-
-	t.Run("at its time the card is offered again, with the reason, and no longer polls", func(t *testing.T) {
-		h := newChatHarnessWithOptions(t, Options{Now: func() time.Time { return claimedAt.Add(domain.ClaimTTL) }})
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(processingReply(t), nil)
-
-		rec := h.do(http.MethodGet, cardStatusPath(), nil, htmx)
-		root := parseHTML(t, rec.Body.String())
-
-		assert.Equal(t, "pending", attrOf(byTestID(root, "card")[0], "data-state"))
-		assert.Len(t, byTestID(root, "card-pay"), 1)
-		assert.Len(t, byTestID(root, "card-reject"), 1)
-		assert.Contains(t, textContent(byTestID(root, "card-error")[0]), "no reply")
-		assert.Empty(t, byTestID(root, "card-processing"))
-		assert.NotContains(t, rec.Body.String(), "every 3s")
-	})
-
-	t.Run("a card that waited for a code asks for it again", func(t *testing.T) {
-		h := newChatHarnessWithOptions(t, Options{Now: func() time.Time { return claimedAt.Add(time.Hour) }})
-		m := cardReply(domain.InteractionOTPRequired)
-		claimed, err := m.Meta.Interaction.Claim("claim-1", claimedAt)
-		require.NoError(t, err)
-		m.Meta.Interaction = &claimed
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(m, nil)
-
-		root := parseHTML(t, h.do(http.MethodGet, cardStatusPath(), nil, htmx).Body.String())
-
-		assert.Equal(t, "otp_required", attrOf(byTestID(root, "card")[0], "data-state"))
-		assert.Len(t, byTestID(root, "card-otp-input"), 1)
-	})
-
-	t.Run("a contact card goes back to its candidates", func(t *testing.T) {
-		h := newChatHarnessWithOptions(t, Options{Now: func() time.Time { return claimedAt.Add(time.Hour) }})
-		m := reply(domain.StatusComplete, "Who is Maria?")
-		card := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionPending, RequestID: "req-1", RunID: "run-1", Query: "Maria"}
-		claimed, err := card.Claim("claim-1", claimedAt)
-		require.NoError(t, err)
-		m.Meta.Interaction = &claimed
-		h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(m, nil)
-
-		root := parseHTML(t, h.do(http.MethodGet, cardStatusPath(), nil, htmx).Body.String())
-
-		assert.NotEmpty(t, byTestID(root, "card-contact"))
-	})
-}
-
-// A reply that holds a payment cannot be regenerated: the new turn could ask for the same transfer again.
-func TestRegenerate_NotOfferedOnAReplyThatHoldsAPayment(t *testing.T) {
-	claimedAt := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
-	processing := processingReply(t)
-	for name, tc := range map[string]struct {
-		m       domain.Message
-		offered bool
-	}{
-		"a card being answered":        {processing, false},
-		"a card that paid":             {cardReply(domain.InteractionPaid), false},
-		"a card that waits for a code": {cardReply(domain.InteractionOTPRequired), false},
-		"a card nobody answered":       {cardReply(domain.InteractionPending), true},
-		"a card that was rejected":     {cardReply(domain.InteractionRejected), true},
-		"a reply with no card":         {reply(domain.StatusComplete, "hello"), true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := newChatHarnessWithOptions(t, Options{Now: func() time.Time { return claimedAt }})
-			h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(tc.m, nil)
-
-			root := parseHTML(t, h.do(http.MethodPost, stopPath(), nil, htmx).Body.String())
-
-			assert.Equal(t, tc.offered, len(byTestID(root, "regenerate")) == 1)
-			assert.Len(t, byTestID(root, "copy-message"), 1, "the text can still be copied")
-		})
-	}
-}
-
-// After a timeout the card stays claimed: nobody can answer it for a while, so it must not say "Try again".
-func TestCardFailed_AClaimedCardDoesNotInviteAnotherTry(t *testing.T) {
-	t.Run("a card that is still being answered shows no error", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).
-			Return(processingReply(t), fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, context.DeadlineExceeded))
-
-		root := parseHTML(t, h.do(http.MethodPost, cardPath("approve"), nil, htmx).Body.String())
-
-		assert.Equal(t, "processing", attrOf(byTestID(root, "card")[0], "data-state"))
-		assert.Empty(t, byTestID(root, "card-error"))
-		assert.Len(t, byTestID(root, "card-processing"), 1)
-	})
-
-	t.Run("a card that was given back shows the reason", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).
-			Return(cardReply(domain.InteractionPending), &domain.ActionError{Message: "Transfer is no longer open"})
-
-		root := parseHTML(t, h.do(http.MethodPost, cardPath("approve"), nil, htmx).Body.String())
-
-		assert.Contains(t, textContent(byTestID(root, "card-error")[0]), "no longer open")
-	})
-}
-
-// htmx asks again after every error, so a card that cannot be read tells the poll to stop (286) instead of failing every 3 seconds.
-func TestShowCard_AFailureStopsThePoll(t *testing.T) {
-	for name, err := range map[string]error{"the reply is gone": domain.ErrNotFound, "the store fails": errors.New("db password=hunter2 down")} {
-		t.Run(name, func(t *testing.T) {
-			h := newChatHarness(t)
-			h.convs.On("Message", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{}, err)
-
-			rec := h.do(http.MethodGet, cardStatusPath(), nil, htmx)
-
-			assert.Equal(t, 286, rec.Code)
-			assert.Empty(t, rec.Body.String())
-		})
-	}
-}

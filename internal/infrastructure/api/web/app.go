@@ -16,18 +16,21 @@ import (
 
 // Services are the use cases the handlers call.
 type Services struct {
-	Auth          service.Auth
-	Chat          service.Chat
-	Conversations service.Conversation
-	Interactions  service.Interactions
+	Auth service.Auth
+	Chat service.Chat
+	// History is the conversation history. It is nil when there is none (no HISTORY_BASE_URL): the page then has no Historial.
+	History      service.History
+	Interactions service.Interactions
 }
 
 // Options are the settings the handlers need.
 type Options struct {
 	// SecureCookies adds the Secure attribute to the session cookie (https).
 	SecureCookies bool
-	// Now is the clock; it is time.Now when nil. A card whose answer got no reply is offered again once its claim is stale.
+	// Now is the clock; it is time.Now when nil. It is what "today" is when the hours of the history are shown.
 	Now func() time.Time
+	// Location is the place whose hours the history is shown in; it is UTC when nil.
+	Location *time.Location
 	// FlushInterval is the shortest time between streamed updates.
 	FlushInterval time.Duration
 	// RateLimitRPS and RateLimitBurst set the token bucket for sending messages
@@ -54,6 +57,7 @@ type App struct {
 	md       *render.Markdown
 
 	sends   *rateLimiter // nil when limiting is off
+	reads   *rateLimiter // the pages and the Historial: each is a read of the history, so a user cannot make them without limit
 	answers *rateLimiter // the answers to cards: each is a call to the payment service
 	logins  *rateLimiter
 	ready   readyCache
@@ -78,16 +82,20 @@ func NewApp(log *slog.Logger, files fs.FS, svc Services, opts Options) (*App, er
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.Location == nil {
+		opts.Location = time.UTC
+	}
 	return &App{
 		log: log, renderer: renderer, static: static, svc: svc, opts: opts, md: render.NewMarkdown(),
 		sends:   newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		answers: newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		logins:  newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
+		reads:   newRateLimiter(opts.RateLimitRPS*readsFactor, opts.RateLimitBurst*readsFactor),
 		streams: streams, endStreams: endStreams,
 	}, nil
 }
 
-// EndStreams ends every running reply: each is saved as stopped with the text
+// EndStreams ends every running reply: each is ended as stopped with the text
 // so far, and its browser is told. Streams that start afterwards are sent away
 // to try again, so a reply is never stopped before it began. Call it when the
 // server starts shutting down.
@@ -125,18 +133,19 @@ func parseUUID(s string) (uuid.UUID, bool) {
 	return id, err == nil
 }
 
-// parseID reads the {id} of the path.
-func parseID(r *http.Request) (uuid.UUID, bool) { return parseUUID(r.PathValue("id")) }
+// messageRef names a live reply of the signed-in user, as the path of its routes does.
+type messageRef struct {
+	userID uuid.UUID
+	convID string
+	msgID  uuid.UUID
+}
 
-// messageRef names a message of the signed-in user, as the path of its routes does.
-type messageRef struct{ userID, convID, msgID uuid.UUID }
-
-// messageRefOf reads it from the request, answering 404 itself when the path
-// holds something other than ids.
+// messageRefOf reads it from the request, answering 404 itself when the path holds something other than the id of a conversation
+// (the form the UI makes) and the id of a reply.
 func messageRefOf(w http.ResponseWriter, r *http.Request) (messageRef, bool) {
-	convID, ok1 := parseUUID(r.PathValue("id"))
-	msgID, ok2 := parseUUID(r.PathValue("mid"))
-	if !ok1 || !ok2 {
+	convID, err := domain.ParseConversationID(r.PathValue("id"))
+	msgID, ok := parseUUID(r.PathValue("mid"))
+	if err != nil || !ok {
 		http.NotFound(w, r)
 		return messageRef{}, false
 	}
@@ -144,11 +153,11 @@ func messageRefOf(w http.ResponseWriter, r *http.Request) (messageRef, bool) {
 	return messageRef{userID: user.ID, convID: convID, msgID: msgID}, true
 }
 
-// answerWithReply answers a request that put a new reply in the place of one:
-// htmx gets the reply to swap in, a plain form post goes back to the conversation.
-func (a *App) answerWithReply(w http.ResponseWriter, r *http.Request, convID uuid.UUID, reply domain.Message) {
+// answerWithReply answers a request that put a reply in the place of one: htmx gets the reply to swap in, a plain form post goes back
+// to the conversation.
+func (a *App) answerWithReply(w http.ResponseWriter, r *http.Request, convID string, reply domain.Message) {
 	if !fromHTMX(r) {
-		redirect(w, r, "/c/"+convID.String())
+		redirect(w, r, "/c/"+convID)
 		return
 	}
 	a.block(w, r, http.StatusOK, "partial:reply", a.messageView(reply))
@@ -164,4 +173,17 @@ func (a *App) base(r *http.Request) basePage {
 		return basePage{User: &u}
 	}
 	return basePage{}
+}
+
+// block renders a template block as the response.
+func (a *App) block(w http.ResponseWriter, r *http.Request, status int, name string, data any, extra ...string) {
+	out, err := a.renderer.Block(name, data)
+	if err != nil {
+		a.serverError(w, r, err)
+		return
+	}
+	for _, more := range extra {
+		out += more
+	}
+	writeHTML(w, r, status, out)
 }

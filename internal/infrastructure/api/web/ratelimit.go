@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-	"uuid"
 )
 
 // sweepEvery is the shortest time between two sweeps: buckets nobody uses are
@@ -135,26 +134,26 @@ func limited(l *rateLimiter, key keyFunc, refuse func(w http.ResponseWriter, r *
 	}
 }
 
-// tooManySends answers a message, a new chat or a regenerate that is over the
-// limit. The text the visitor typed is kept.
+// tooManySends answers a message that is over the limit. The text the visitor typed stays in the box.
 func (a *App) tooManySends(w http.ResponseWriter, r *http.Request, wait time.Duration) {
 	message := fmt.Sprintf("You're sending messages too quickly. Try again in %s.", seconds(retrySeconds(wait)))
-	convID, ok := parseID(r)
-	if !ok {
-		convID = uuid.Nil() // a new chat has no conversation yet
-	}
-	a.composerProblem(w, r, convID, http.StatusTooManyRequests, r.PostFormValue("content"), message)
+	a.composerProblem(w, r, http.StatusTooManyRequests, message)
+}
+
+// readsFactor is how many times the limit of the sends the reads get: a page, and the Historial it loads, are a few requests, and a
+// reader is no load to the agent. It is there so that nobody can make the history work without end.
+const readsFactor = 10
+
+// tooManyReads answers a page, the Historial or a page of a conversation that is over the limit.
+func (a *App) tooManyReads(w http.ResponseWriter, r *http.Request, wait time.Duration) {
+	http.Error(w, fmt.Sprintf("You're loading pages too quickly. Try again in %s.", seconds(retrySeconds(wait))), http.StatusTooManyRequests)
 }
 
 // tooManyAnswers answers an answer to a card (Pay, Reject, a code, a contact) that is over the limit: each one is a call to the
 // payment service with the shared account's token, so none is made for it.
 func (a *App) tooManyAnswers(w http.ResponseWriter, r *http.Request, wait time.Duration) {
 	message := fmt.Sprintf("You're answering too quickly. Try again in %s.", seconds(retrySeconds(wait)))
-	convID, ok := parseID(r)
-	if !ok {
-		convID = uuid.Nil() // the contact picker is in the composer of a chat that may not exist yet
-	}
-	a.composerProblem(w, r, convID, http.StatusTooManyRequests, "", message)
+	a.composerProblem(w, r, http.StatusTooManyRequests, message)
 }
 
 // tooManyLogins answers a sign-in that is over the limit.

@@ -45,7 +45,8 @@ func (a *App) confirmCandidate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	contact, err := a.svc.Interactions.ConfirmCandidate(r.Context(), query, choice)
+	user, _ := UserFrom(r.Context())
+	contact, err := a.svc.Interactions.ConfirmCandidate(r.Context(), user.ID, query, choice)
 	if refused, ok := errors.AsType[*domain.ActionError](err); ok {
 		http.Error(w, refused.Message, http.StatusUnprocessableEntity)
 		return

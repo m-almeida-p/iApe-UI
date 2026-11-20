@@ -272,13 +272,13 @@ func TestService_TheHasherGetsTheContextOfTheRequest(t *testing.T) {
 			})
 		}
 	})
-	t.Run("creating the first user", func(t *testing.T) {
+	t.Run("creating the user of an account", func(t *testing.T) {
 		h := newHarness(t)
-		h.users.On("Count", ctx).Return(0, nil)
+		h.users.On("ByID", ctx, account).Return(domain.User{}, domain.ErrNotFound)
 		h.hasher.On("Hash", ctx, "a-long-enough-password").Return("admin-hash", nil)
 		h.users.On("Create", ctx, mock.Anything).Return(domain.User{}, nil)
 
-		created, err := h.svc.BootstrapAdmin(ctx, "admin@example.com", "a-long-enough-password")
+		created, err := h.svc.BootstrapAdmin(ctx, account, "admin@example.com", "a-long-enough-password")
 
 		require.NoError(t, err)
 		assert.True(t, created)
@@ -376,40 +376,75 @@ func TestLogout(t *testing.T) {
 	})
 }
 
+// The account the first user is made for: the id of a user is the id of their Yape account.
+var account = uuid.MustParse("25906ac5-9f18-4099-b3fd-e1b74d8549a4")
+
 func TestBootstrapAdmin(t *testing.T) {
 	const password = "a-long-enough-password"
 
-	t.Run("creates the first user", func(t *testing.T) {
+	t.Run("creates the user of the account, with the id of the account", func(t *testing.T) {
 		h := newHarness(t)
-		h.users.On("Count", mock.Anything).Return(0, nil)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{}, domain.ErrNotFound)
 		h.hasher.On("Hash", mock.Anything, password).Return("admin-hash", nil)
 		h.users.On("Create", mock.Anything, mock.MatchedBy(func(u domain.User) bool {
-			return u.Email == "admin@example.com" && u.PasswordHash == "admin-hash" && u.ID != uuid.Nil()
+			return u.Email == "admin@example.com" && u.PasswordHash == "admin-hash" && u.ID == account
 		})).Return(domain.User{}, nil)
 
-		created, err := h.svc.BootstrapAdmin(t.Context(), "  Admin@Example.com ", password)
+		created, err := h.svc.BootstrapAdmin(t.Context(), account, "  Admin@Example.com ", password)
 
 		require.NoError(t, err)
 		assert.True(t, created)
 	})
 
-	t.Run("does nothing when users already exist", func(t *testing.T) {
+	t.Run("makes the user even when others exist: it is the account that decides, not the count", func(t *testing.T) {
 		h := newHarness(t)
-		h.users.On("Count", mock.Anything).Return(2, nil)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{}, domain.ErrNotFound)
+		h.hasher.On("Hash", mock.Anything, password).Return("admin-hash", nil)
+		h.users.On("Create", mock.Anything, mock.Anything).Return(domain.User{}, nil)
 
-		created, err := h.svc.BootstrapAdmin(t.Context(), "admin@example.com", password)
+		created, err := h.svc.BootstrapAdmin(t.Context(), account, "second@example.com", password)
 
 		require.NoError(t, err)
+		assert.True(t, created)
+		h.users.AssertNotCalled(t, "Count", mock.Anything)
+	})
+
+	t.Run("leaves the user of the account as it is", func(t *testing.T) {
+		for name, email := range map[string]string{"the same email": "admin@example.com", "another email": "other@example.com"} {
+			t.Run(name, func(t *testing.T) {
+				h := newHarness(t)
+				h.users.On("ByID", mock.Anything, account).Return(domain.User{ID: account, Email: "admin@example.com", PasswordHash: "keep"}, nil)
+
+				created, err := h.svc.BootstrapAdmin(t.Context(), account, email, password)
+
+				require.NoError(t, err)
+				assert.False(t, created)
+				h.users.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+			})
+		}
+	})
+
+	t.Run("an email that is another user's is refused, and that user is not touched", func(t *testing.T) {
+		h := newHarness(t)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{}, domain.ErrNotFound).Twice()
+		h.hasher.On("Hash", mock.Anything, password).Return("admin-hash", nil)
+		h.users.On("Create", mock.Anything, mock.Anything).Return(domain.User{}, domain.ErrEmailTaken)
+
+		created, err := h.svc.BootstrapAdmin(t.Context(), account, "admin@example.com", password)
+
+		require.ErrorIs(t, err, domain.ErrEmailTaken)
+		assert.Contains(t, err.Error(), "use another email")
 		assert.False(t, created)
 	})
 
 	t.Run("losing a race to another instance is fine", func(t *testing.T) {
 		h := newHarness(t)
-		h.users.On("Count", mock.Anything).Return(0, nil)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{}, domain.ErrNotFound).Once()
 		h.hasher.On("Hash", mock.Anything, password).Return("admin-hash", nil)
 		h.users.On("Create", mock.Anything, mock.Anything).Return(domain.User{}, domain.ErrEmailTaken)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{ID: account}, nil).Once()
 
-		created, err := h.svc.BootstrapAdmin(t.Context(), "admin@example.com", password)
+		created, err := h.svc.BootstrapAdmin(t.Context(), account, "admin@example.com", password)
 
 		require.NoError(t, err)
 		assert.False(t, created)
@@ -417,17 +452,21 @@ func TestBootstrapAdmin(t *testing.T) {
 
 	t.Run("validates before touching anything", func(t *testing.T) {
 		tests := []struct {
-			name, email, password string
+			name    string
+			account uuid.UUID
+			email   string
+			pw      string
 		}{
-			{"bad email", "nope", password},
-			{"short password", "admin@example.com", "short"},
-			{"empty password", "admin@example.com", ""},
+			{"no account", uuid.Nil(), "admin@example.com", password},
+			{"bad email", account, "nope", password},
+			{"short password", account, "admin@example.com", "short"},
+			{"empty password", account, "admin@example.com", ""},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				h := newHarness(t)
 
-				_, err := h.svc.BootstrapAdmin(t.Context(), tc.email, tc.password)
+				_, err := h.svc.BootstrapAdmin(t.Context(), tc.account, tc.email, tc.pw)
 
 				var ve *domain.ValidationError
 				require.ErrorAs(t, err, &ve)
@@ -437,14 +476,22 @@ func TestBootstrapAdmin(t *testing.T) {
 
 	t.Run("store and hasher failures are errors", func(t *testing.T) {
 		h := newHarness(t)
-		h.users.On("Count", mock.Anything).Return(0, errors.New("db down"))
-		_, err := h.svc.BootstrapAdmin(t.Context(), "admin@example.com", password)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{}, errors.New("db down"))
+		_, err := h.svc.BootstrapAdmin(t.Context(), account, "admin@example.com", password)
 		require.Error(t, err)
 
 		h = newHarness(t)
-		h.users.On("Count", mock.Anything).Return(0, nil)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{}, domain.ErrNotFound)
 		h.hasher.On("Hash", mock.Anything, password).Return("", errors.New("no entropy"))
-		_, err = h.svc.BootstrapAdmin(t.Context(), "admin@example.com", password)
+		_, err = h.svc.BootstrapAdmin(t.Context(), account, "admin@example.com", password)
 		require.Error(t, err)
+
+		h = newHarness(t)
+		h.users.On("ByID", mock.Anything, account).Return(domain.User{}, domain.ErrNotFound)
+		h.hasher.On("Hash", mock.Anything, password).Return("admin-hash", nil)
+		h.users.On("Create", mock.Anything, mock.Anything).Return(domain.User{}, errors.New("disk full"))
+		_, err = h.svc.BootstrapAdmin(t.Context(), account, "admin@example.com", password)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, domain.ErrEmailTaken)
 	})
 }

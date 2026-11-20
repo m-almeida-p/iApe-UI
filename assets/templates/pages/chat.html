@@ -1,4 +1,4 @@
-{{define "page:title"}}{{if .Active}}{{.Active.Title}}{{else}}New chat{{end}}{{end}}
+{{define "page:title"}}Chat{{end}}
 
 {{define "page:bodyclass"}}app-fixed{{end}}
 
@@ -18,6 +18,7 @@
 
 {{define "page:main"}}
 <div id="messages" class="messages" data-testid="messages">
+  {{if .EarlierURL}}{{template "partial:earlier_button" .EarlierURL}}{{end}}
   {{range .Messages}}{{template "partial:message" .}}{{else}}
   <div class="empty-state text-center text-body-secondary">
     <h1 class="h4">How can I help?</h1>
@@ -25,8 +26,9 @@
   </div>
   {{end}}
 </div>
+{{if .Note}}<div class="alert alert-warning mx-3 mb-3" role="alert" data-testid="page-note">{{.Note}}</div>{{end}}
 <div class="composer-dock">
   <button type="button" id="jump-latest" class="btn btn-sm btn-secondary jump-latest" data-testid="jump-latest" hidden>Jump to latest</button>
-  {{template "partial:composer" .}}
+  {{if .CanWrite}}{{template "partial:composer" .}}{{else if not .Note}}<p class="text-body-secondary small text-center mb-3" data-testid="read-only">This conversation can be read here, but not continued.</p>{{end}}
 </div>
 {{end}}

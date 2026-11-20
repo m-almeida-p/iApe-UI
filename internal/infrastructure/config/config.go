@@ -18,6 +18,10 @@ import (
 	"unicode/utf8"
 	"uuid"
 
+	// The zone of the history is a name that the Web UI looks up: the data comes with it, so a container without
+	// /usr/share/zoneinfo shows the same hours.
+	_ "time/tzdata"
+
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/platform/envcfg"
 	"iape-ui/internal/platform/redact"
@@ -29,6 +33,7 @@ type Config struct {
 	HTTP      HTTP
 	DB        DB
 	Agent     Agent
+	History   History
 	Chat      Chat
 	RateLimit RateLimit
 	Session   Session
@@ -67,17 +72,32 @@ type Agent struct {
 	// BaseURL is the BFF, such as http://localhost:4000.
 	BaseURL        string
 	RequestTimeout time.Duration
-	// AccountID is the Yape account the BFF is asked as, in its canonical form.
-	AccountID string
 	// BearerBin is the program that prints the account's bearer token (yape-token).
 	BearerBin string
+}
+
+// History holds the settings of the conversation history the chats are read from. Without a BaseURL the page has no history.
+type History struct {
+	// BaseURL is the history API (ms-ml-conv-history-bs), such as http://localhost:3100. Empty means the history is off.
+	BaseURL        string
+	RequestTimeout time.Duration
+	// Timezone is the name of the place the hours of the history are shown in, such as America/Lima.
+	Timezone string
+}
+
+// Location is the place of Timezone. Load has checked the name, so it is always one.
+func (h History) Location() *time.Location {
+	loc, err := time.LoadLocation(h.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 // Chat holds chat behavior settings.
 type Chat struct {
 	MaxMessageChars     int
 	StreamFlushInterval time.Duration
-	ListLimit           int
 }
 
 // RateLimit holds the token bucket settings.
@@ -91,10 +111,13 @@ type Session struct {
 	TTL time.Duration
 }
 
-// Admin optionally bootstraps the first user.
+// Admin optionally creates the first user at startup: the person whose Yape account is AccountID. The id of a user is the id of their
+// Yape account, so that what the history holds for the account is what the user sees: the user is made with AccountID as its id.
 type Admin struct {
-	Email    string
-	Password envcfg.Secret
+	// AccountID is the Yape account of the first user, in its canonical form. It is required with Email and Password.
+	AccountID string
+	Email     string
+	Password  envcfg.Secret
 }
 
 // SecureCookies reports whether cookies must carry the Secure attribute.
@@ -104,16 +127,17 @@ func (c Config) SecureCookies() bool {
 }
 
 // LogValue implements slog.LogValuer: every setting, under the name of its
-// field. The two secrets hide themselves, the address of the first user is
-// hidden by the name of its field, and the two base URLs are shown without the
-// credentials or the query they may carry. Two attributes follow the settings:
+// field. The two secrets hide themselves, the address and the Yape account of
+// the first user are hidden by the names of their fields, and the base URLs are
+// shown without the credentials or the query they may carry. Two attributes follow the settings:
 // db is where the database is, its host and its name, and admin_bootstrap is
 // whether a first user is set.
 func (c Config) LogValue() slog.Value {
 	shown := c
 	shown.App.BaseURL = redact.URL(c.App.BaseURL)
 	shown.Agent.BaseURL = redact.URL(c.Agent.BaseURL)
-	view, err := redact.Struct(shown, "Email")
+	shown.History.BaseURL = redact.URL(c.History.BaseURL)
+	view, err := redact.Struct(shown, "Email", "AccountID")
 	if err != nil {
 		return view // the placeholder alone: nothing of the settings is shown
 	}
@@ -179,10 +203,13 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 			RequestTimeout: r.positive("AGENT_REQUEST_TIMEOUT", 120*time.Second, time.ParseDuration),
 			BearerBin:      r.str("YAPE_TOKEN_BIN", "yape-token"),
 		},
+		History: History{
+			RequestTimeout: r.positive("HISTORY_REQUEST_TIMEOUT", 10*time.Second, time.ParseDuration),
+			Timezone:       r.timezone("HISTORY_TIMEZONE", "America/Lima"),
+		},
 		Chat: Chat{
 			MaxMessageChars:     r.positive("CHAT_MAX_MESSAGE_CHARS", 8000, strconv.Atoi),
 			StreamFlushInterval: r.positive("CHAT_STREAM_FLUSH_INTERVAL", 50*time.Millisecond, time.ParseDuration),
-			ListLimit:           r.positive("CHAT_LIST_LIMIT", 100, strconv.Atoi),
 		},
 		RateLimit: RateLimit{
 			RPS:   r.positive("RATE_LIMIT_RPS", 2.0, parseFloat64),
@@ -196,8 +223,7 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 	c.App.BaseURL = strings.TrimRight(r.absoluteURL("APP_BASE_URL", r.str("APP_BASE_URL", "http://localhost:8300"), "http", "https"), "/")
 	c.DB.URL = envcfg.Secret(r.databaseURL("DB_URL", r.required("DB_URL")))
 	c.Agent.BaseURL = strings.TrimRight(r.baseURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
-	r.required("YAPE_ACCOUNT_ID") // names the key when it is missing; the value is read, and checked, next
-	c.Agent.AccountID = r.uuidString("YAPE_ACCOUNT_ID")
+	c.History.BaseURL = strings.TrimRight(r.baseURL("HISTORY_BASE_URL", r.str("HISTORY_BASE_URL", ""), "http", "https"), "/")
 	c.Admin = r.admin()
 
 	// The checks that compare keys run only when each key is sound by itself, so
@@ -305,6 +331,17 @@ func (r *reader) oneOf(key, def string, allowed ...string) string {
 	return v
 }
 
+// timezone is str for the name of a place in the time zone database, such as America/Lima. "Local" is the zone of the machine
+// and not a place, so it is refused: the hours would change with where the program runs.
+func (r *reader) timezone(key, def string) string {
+	v := r.str(key, def)
+	if _, err := time.LoadLocation(v); err != nil || v == "Local" {
+		r.fail("%s must be the name of a place in the time zone database, like America/Lima or UTC (got %q)", key, v)
+		return def
+	}
+	return v
+}
+
 // listenAddr is str for an address to listen on: a host, which may be left out,
 // and a port number. The scripts and the health check take the port from it.
 func (r *reader) listenAddr(key, def string) string {
@@ -377,6 +414,9 @@ func (r *reader) refuseURL(key string, schemes []string) {
 func (r *reader) admin() Admin {
 	email, hasEmail := r.raw("ADMIN_EMAIL")
 	password, hasPassword := r.raw("ADMIN_PASSWORD")
+	// The account is checked whenever it is set, and is required when the user is to be made: the user is the person of that account.
+	account := r.uuidString("YAPE_ACCOUNT_ID")
+	_, hasAccount := r.raw("YAPE_ACCOUNT_ID")
 	switch {
 	case hasEmail && !hasPassword:
 		r.fail("ADMIN_PASSWORD is required when ADMIN_EMAIL is set")
@@ -390,7 +430,10 @@ func (r *reader) admin() Admin {
 			r.fail("ADMIN_PASSWORD must be at least %d characters", domain.MinPasswordChars)
 		}
 	}
-	return Admin{Email: email, Password: envcfg.Secret(password)}
+	if (hasEmail || hasPassword) && !hasAccount {
+		r.missing = append(r.missing, "YAPE_ACCOUNT_ID") // the user to make is the person of an account
+	}
+	return Admin{AccountID: account, Email: email, Password: envcfg.Secret(password)}
 }
 
 func parseInt64(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }

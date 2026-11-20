@@ -143,6 +143,13 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 		{webAdapter, "internal/infrastructure/config", "what both programs share", ours("internal/platform/redact"), true},
 		{webAdapter, "internal/infrastructure/postgres", "another module", "github.com/jackc/pgx/v5", true},
 		{webAdapter, "internal/infrastructure/api/web", "a use case", ours("internal/core/chat"), false},
+		{webAdapter, "internal/infrastructure/historyapi", "the domain", ours("internal/core/domain"), true},
+		{webAdapter, "internal/infrastructure/historyapi", "a port", ours("internal/core/port/resource"), true},
+		{webAdapter, "internal/infrastructure/historyapi", "its settings", ours("internal/infrastructure/config"), true},
+		{webAdapter, "internal/infrastructure/historyapi", "a use case", ours("internal/core/chat"), false},
+		{webAdapter, "internal/infrastructure/historyapi", "the composition root", ours("internal/app"), false},
+		{webAdapter, "internal/infrastructure/historyapi", "net/http", "net/http", true},
+		{webUseCase, "internal/core/chat", "the history's adapter", ours("internal/infrastructure/historyapi"), false},
 		{webAdapter, "internal/infrastructure/api/web", "the composition root", ours("internal/app"), false},
 
 		{webRoot, "internal/app", "a use case", ours("internal/core/chat"), true},

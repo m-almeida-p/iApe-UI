@@ -32,7 +32,7 @@ type sseFrame struct {
 	At                          time.Duration // when it was flushed, if the recorder knows
 }
 
-func streamPath() string { return "/c/" + convID.String() + "/m/" + streamMsgID.String() + "/stream" }
+func streamPath() string { return "/c/" + convID + "/m/" + streamMsgID.String() + "/stream" }
 
 // flushRecorder records when each chunk was flushed. Every write the SSE writer
 // makes is flushed at once, so chunk i is frame i.
@@ -489,7 +489,7 @@ func TestStream_ClientThatStoppedReadingEndsTheRun(t *testing.T) {
 		h.app.log = log
 		ctxSeen := make(chan context.Context, 1)
 		h.chat.On("Stream", mock.Anything, alice.ID, convID, streamMsgID).
-			Return(func(ctx context.Context, _, _, _ uuid.UUID) iter.Seq2[service.StreamEvent, error] {
+			Return(func(ctx context.Context, _ uuid.UUID, _ string, _ uuid.UUID) iter.Seq2[service.StreamEvent, error] {
 				ctxSeen <- ctx
 				return scripted(nil, snap("a"), 10*time.Millisecond, snap("ab"), 10*time.Millisecond, snap("abc"), time.Hour)
 			})
@@ -572,7 +572,7 @@ func TestStream_AClientThatLeavesEndsTheRunWhileAWriteIsHeld(t *testing.T) {
 }
 
 func TestStream_RefusesBadIDs(t *testing.T) {
-	for _, path := range []string{"/c/nope/m/" + streamMsgID.String() + "/stream", "/c/" + convID.String() + "/m/nope/stream"} {
+	for _, path := range []string{"/c/nope/m/" + streamMsgID.String() + "/stream", "/c/" + convID + "/m/nope/stream"} {
 		t.Run(path, func(t *testing.T) {
 			h := newChatHarness(t)
 			req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -588,7 +588,7 @@ func TestStream_RefusesBadIDs(t *testing.T) {
 
 func TestStream_AnonymousEventSourceGetsAMessageNotARedirect(t *testing.T) {
 	authMock := mocks.NewAuth(t)
-	route := testAppWith(t, Services{Auth: authMock, Chat: mocks.NewChat(t), Conversations: mocks.NewConversation(t)}, Options{}).Routes()
+	route := testAppWith(t, Services{Auth: authMock, Chat: mocks.NewChat(t)}, Options{}).Routes()
 	req := httptest.NewRequest(http.MethodGet, streamPath(), nil)
 	req.Header.Set("Accept", "text/event-stream")
 	rec := httptest.NewRecorder()

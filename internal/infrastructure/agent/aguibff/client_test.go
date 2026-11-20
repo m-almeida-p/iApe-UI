@@ -27,18 +27,22 @@ type fakeTokens struct {
 	fresh     string
 	err       error
 	refreshed int
+	// asked is the account of every call, in order.
+	asked []uuid.UUID
 }
 
-func (f *fakeTokens) Token(context.Context) (string, error) {
+func (f *fakeTokens) Token(_ context.Context, account uuid.UUID) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.asked = append(f.asked, account)
 	return f.token, f.err
 }
 
-func (f *fakeTokens) Refresh(context.Context) (string, error) {
+func (f *fakeTokens) Refresh(_ context.Context, account uuid.UUID) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.refreshed++
+	f.asked = append(f.asked, account)
 	f.token = f.fresh
 	return f.fresh, f.err
 }
@@ -82,11 +86,14 @@ func serveFixture(t *testing.T, name string) func(http.ResponseWriter, *http.Req
 }
 
 func clientFor(b *bff, tokens aguibff.TokenSource) *aguibff.Client {
-	return aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, AccountID: account, RequestTimeout: 5 * time.Second}, tokens, nil)
+	return aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: 5 * time.Second}, tokens, nil)
 }
 
+// threadID is the id of a conversation, as the UI makes it.
+func threadID() string { return "conv_v1_" + uuid.NewV4().String() }
+
 func turn(text string) domain.AgentRequest {
-	return domain.AgentRequest{UserID: uuid.New(), ConversationID: uuid.New(), Text: text}
+	return domain.AgentRequest{UserID: accountID, ConversationID: threadID(), Text: text}
 }
 
 func TestClient_RunAsksTheBFFAsTheAccount(t *testing.T) {
@@ -120,7 +127,7 @@ func TestClient_RunAsksTheBFFAsTheAccount(t *testing.T) {
 		ForwardedProps map[string]any `json:"forwardedProps"`
 	}
 	require.NoError(t, json.Unmarshal(b.bodies[0], &got))
-	assert.Equal(t, req.ConversationID.String(), got.ThreadID, "the conversation is the thread: the agent remembers it")
+	assert.Equal(t, req.ConversationID, got.ThreadID, "the conversation is the thread: the agent remembers it")
 	_, err = uuid.Parse(got.RunID)
 	assert.NoError(t, err, "every turn is a new run")
 	require.Len(t, got.Messages, 1)
@@ -220,7 +227,7 @@ func TestClient_AnotherContentTypeIsNotAStream(t *testing.T) {
 
 func TestClient_AServerThatDoesNotAnswerTimesOut(t *testing.T) {
 	b := newBFF(t, func(w http.ResponseWriter, r *http.Request, _ int) { <-r.Context().Done() })
-	c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, AccountID: account, RequestTimeout: 150 * time.Millisecond}, &fakeTokens{token: "t"}, nil)
+	c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: 150 * time.Millisecond}, &fakeTokens{token: "t"}, nil)
 
 	_, err := collect(c.Run(t.Context(), turn("Hola")))
 

@@ -4,17 +4,15 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
-	"uuid"
+	"time"
 
 	"iape-ui/internal/core/domain"
 )
 
-type conversationItem struct {
-	ID     string
-	Title  string
-	Active bool
-}
+// transcriptPageSize is how many messages of a conversation a page of the transcript holds: what the history gives at most.
+const transcriptPageSize = domain.MaxPageSize
 
 // messageView is what the message templates draw.
 type messageView struct {
@@ -28,11 +26,8 @@ type messageView struct {
 	// Streaming is true while a reply is unfinished: its wrapper opens the
 	// event stream, which fills it in.
 	Streaming bool
-	// Actions is true when the reply offers Regenerate (or Retry): it is
-	// finished and the latest. loadChat clears it on earlier replies.
-	Actions bool
-	// Copy is true when there is a finished reply text to copy.
-	Copy             bool
+	// Raw is the text of a finished reply as it is, Markdown, for the Copy button; empty when there is nothing to copy.
+	Raw              string
 	TTFTMs           int64
 	DurationMs       int64
 	PromptTokens     int
@@ -42,10 +37,11 @@ type messageView struct {
 	Card *cardView
 }
 
+// messageView draws a live message: what the user just wrote, or the reply being written.
 func (a *App) messageView(m domain.Message) messageView {
 	v := messageView{
 		ID:             m.ID.String(),
-		ConversationID: m.ConversationID.String(),
+		ConversationID: m.ConversationID,
 		Role:           string(m.Role),
 		Status:         string(m.Status),
 		Error:          m.Error,
@@ -56,157 +52,191 @@ func (a *App) messageView(m domain.Message) messageView {
 	}
 	if m.Status.Terminal() {
 		v.Body = a.md.RenderFinal(m.Content)
+		v.Raw = m.Content
+		v.TTFTMs, v.DurationMs = m.Meta.TTFTMs, m.Meta.DurationMs
+		v.PromptTokens, v.CompletionTokens = m.Meta.Usage.Prompt, m.Meta.Usage.Completion
+		v.ToolCalls = strings.Join(m.Meta.ToolCalls, ",")
 	} else {
 		v.Body = a.md.Render(m.Content)
 	}
 	v.Streaming = !m.Status.Terminal()
-	// A reply that holds a payment is not regenerated: the new turn could ask for the same transfer again.
-	v.Actions = m.Status.Terminal() && (m.Meta.Interaction == nil || !m.Meta.Interaction.HoldsPayment())
-	v.Copy = m.Status.Terminal() && m.Content != ""
-	if m.Status.Terminal() {
-		v.TTFTMs, v.DurationMs = m.Meta.TTFTMs, m.Meta.DurationMs
-		v.PromptTokens, v.CompletionTokens = m.Meta.Usage.Prompt, m.Meta.Usage.Completion
-		v.ToolCalls = strings.Join(m.Meta.ToolCalls, ",")
-	}
-	// A card is for a reply that completed: one that failed or was stopped is not one to pay or choose on, even if it was saved
-	// with a card.
+	// A card is for a reply that completed: one that failed or was stopped is not one to pay or choose on, even if it had one.
 	if m.Status == domain.StatusComplete {
-		v.Card = newCardViewAt(m, a.opts.Now())
+		v.Card = newCardView(m)
 	}
 	return v
 }
 
+// transcriptView draws a message of the history. It is finished, and it has no card: a card is live in this server only.
+func (a *App) transcriptView(convID string, m domain.TranscriptMessage) messageView {
+	v := messageView{ID: "h" + m.ID, ConversationID: convID, Role: string(m.Role), Status: string(domain.StatusComplete)}
+	text := plain(m.Text) // what the history holds is data: no control or direction-changing characters reach the page
+	if m.Role == domain.RoleUser {
+		v.Text = text
+		return v
+	}
+	v.Body = a.md.RenderFinal(text)
+	v.Raw = text
+	return v
+}
+
+// chatPage is the page of a chat: the one that is being started, or a conversation of the history.
 type chatPage struct {
 	basePage
-	Conversations []conversationItem
-	Active        *conversationItem
-	Messages      []messageView
-	Draft         string // what the visitor typed, when the page is shown again after a problem
-	Error         string
+	// ConversationID is the chat on screen: the one being started, or the one opened.
+	ConversationID string
+	// HistoryOn is whether the sidebar has the Historial: there is a history to read. HistoryURL is where its list is loaded from.
+	HistoryOn  bool
+	HistoryURL string
+	// CanWrite is whether the composer is there. A conversation whose id is not of the form the agent takes can be read, not continued.
+	CanWrite bool
+	Messages []messageView
+	// EarlierURL is where the messages before these are, empty when these are the first.
+	EarlierURL string
+	// Note says what could not be done with the page (the history was not read).
+	Note  string
+	Draft string // what the visitor typed, when the page is shown again after a problem
+	Error string
 }
 
-// loadChat builds the page: the sidebar, and the active conversation with its
-// messages when active is set. A missing or foreign conversation is
-// domain.ErrNotFound.
-func (a *App) loadChat(r *http.Request, active *uuid.UUID) (chatPage, error) {
-	user, _ := UserFrom(r.Context())
-	page := chatPage{basePage: a.base(r)}
+func (a *App) historyOn() bool { return a.svc.History != nil }
 
-	var msgs []domain.Message
-	if active != nil {
-		view, err := a.svc.Conversations.Get(r.Context(), user.ID, *active)
-		if err != nil {
-			return chatPage{}, err
-		}
-		msgs = view.Messages
-		page.Active = &conversationItem{ID: view.Conversation.ID.String(), Title: view.Conversation.Title, Active: true}
-	}
-	list, err := a.svc.Conversations.List(r.Context(), user.ID)
-	if err != nil {
-		return chatPage{}, err
-	}
-	for _, c := range list {
-		page.Conversations = append(page.Conversations, conversationItem{
-			ID: c.ID.String(), Title: c.Title, Active: active != nil && c.ID == *active,
-		})
-	}
-	for _, m := range msgs {
-		page.Messages = append(page.Messages, a.messageView(m))
-	}
-	// Only the latest reply can be regenerated.
-	for i := range len(page.Messages) - 1 {
-		page.Messages[i].Actions = false
-	}
-	return page, nil
-}
-
+// renderChat renders the chat page.
 func (a *App) renderChat(w http.ResponseWriter, r *http.Request, status int, page chatPage) {
+	page.basePage = a.base(r)
+	page.HistoryOn = a.historyOn()
+	page.HistoryURL = historyURL(page.ConversationID, "")
 	if err := a.renderer.Page(w, r, status, "chat", page); err != nil {
 		a.serverError(w, r, err)
 	}
 }
 
-// newChatPage is the empty state: the sidebar and a composer that starts a
-// conversation.
+// newChatPage is the empty state: a chat that has not started, with the id it will have, which only this user can write to.
 func (a *App) newChatPage(w http.ResponseWriter, r *http.Request) {
-	page, err := a.loadChat(r, nil)
-	if err != nil {
-		a.serverError(w, r, err)
+	user, _ := UserFrom(r.Context())
+	a.renderChat(w, r, http.StatusOK, chatPage{ConversationID: a.svc.Chat.NewConversation(user.ID), CanWrite: true})
+}
+
+// conversationPage shows a conversation: what the history has of it, and a composer to go on. One that was started here and the
+// history does not know yet is shown empty. One that is not the user's, or that does not exist, is a 404.
+func (a *App) conversationPage(w http.ResponseWriter, r *http.Request) {
+	user, _ := UserFrom(r.Context())
+	id := r.PathValue("id")
+	_, idErr := domain.ParseConversationID(id)
+	page := chatPage{ConversationID: id, CanWrite: idErr == nil}
+
+	if a.historyOn() {
+		t, err := a.svc.History.Transcript(r.Context(), user.ID, id, domain.PageRequest{Size: transcriptPageSize})
+		switch {
+		case err == nil:
+			page.Messages, page.EarlierURL = a.transcriptViews(id, t)
+		case errors.Is(err, domain.ErrNotFound):
+			if !a.svc.Chat.Owns(user.ID, id) {
+				http.NotFound(w, r)
+				return
+			}
+		case errors.Is(err, domain.ErrHistoryUnavailable):
+			if !a.svc.Chat.Owns(user.ID, id) {
+				page.Note, page.CanWrite = historyDown, false
+				a.renderChat(w, r, http.StatusServiceUnavailable, page)
+				return
+			}
+			page.Note = historyDown // a chat started here goes on, with what the history would show missing
+		default:
+			a.serverError(w, r, err)
+			return
+		}
+	} else if !a.svc.Chat.Owns(user.ID, id) {
+		http.NotFound(w, r)
 		return
 	}
 	a.renderChat(w, r, http.StatusOK, page)
 }
 
-// startConversation creates a conversation from the first message and goes to
-// it. The conversation page opens the reply's stream as it loads, so there is
-// a single path to a streaming reply. The empty-state form is boosted: htmx
-// follows the redirect and swaps the page in without reloading the document.
-func (a *App) startConversation(w http.ResponseWriter, r *http.Request) {
-	if !a.parseForm(w, r) {
-		return
-	}
-	user, _ := UserFrom(r.Context())
-	content := r.PostFormValue("content")
+// historyDown is what the page says when the history cannot be read.
+const historyDown = "The history is not available right now. Try again in a moment."
 
-	turn, err := a.svc.Chat.StartConversation(r.Context(), user.ID, content)
-	if ve, ok := errors.AsType[*domain.ValidationError](err); ok {
-		a.composerProblem(w, r, uuid.Nil(), http.StatusUnprocessableEntity, content, ve.Message)
-		return
+// transcriptViews draws a page of a transcript, and says where the page before it is.
+func (a *App) transcriptViews(convID string, t domain.Transcript) ([]messageView, string) {
+	views := make([]messageView, 0, len(t.Messages))
+	for _, m := range t.Messages {
+		views = append(views, a.transcriptView(convID, m))
 	}
-	if err != nil {
-		a.serverError(w, r, err)
-		return
+	earlier := ""
+	if t.Older != "" {
+		earlier = "/c/" + url.PathEscape(convID) + "/earlier?" + url.Values{"before": {t.Older}}.Encode()
 	}
-	redirect(w, r, "/c/"+turn.Conversation.ID.String())
+	return views, earlier
 }
 
-func (a *App) conversationPage(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(r)
-	if !ok {
+// earlierMessages answers with the page of the conversation before the one on screen, to put above it, and the button for the
+// page before that. A cursor that is not one of the history's is a 400.
+func (a *App) earlierMessages(w http.ResponseWriter, r *http.Request) {
+	if !a.historyOn() {
 		http.NotFound(w, r)
 		return
 	}
-	page, err := a.loadChat(r, &id)
-	if err != nil {
+	user, _ := UserFrom(r.Context())
+	id := r.PathValue("id")
+	t, err := a.svc.History.Transcript(r.Context(), user.ID, id, domain.PageRequest{Before: r.URL.Query().Get("before"), Size: transcriptPageSize})
+	switch {
+	case errors.Is(err, domain.ErrInvalidPage):
+		http.Error(w, "That page of the conversation does not exist.", http.StatusBadRequest)
+		return
+	case errors.Is(err, domain.ErrHistoryUnavailable):
+		w.Header().Set("HX-Reswap", "none")
+		http.Error(w, historyDown, http.StatusServiceUnavailable)
+		return
+	case err != nil:
 		a.fail(w, r, err)
 		return
 	}
-	a.renderChat(w, r, http.StatusOK, page)
+	views, earlier := a.transcriptViews(id, t)
+	w.Header().Set("Cache-Control", "no-store")
+	a.block(w, r, http.StatusOK, "partial:earlier", struct {
+		Messages   []messageView
+		EarlierURL string
+	}{views, earlier})
 }
 
-// sendMessage adds a message to a conversation. htmx gets the two new bubbles
-// to append (the reply's wrapper opens its stream); a plain form post goes back
-// to the conversation page.
+// sendMessage adds a message to a conversation. htmx gets the two new bubbles to append (the reply's wrapper opens its stream) and
+// the address of the conversation, which a chat that was just started now has.
 func (a *App) sendMessage(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(r)
-	if !ok {
-		http.NotFound(w, r)
+	id := r.PathValue("id")
+	user, _ := UserFrom(r.Context())
+	if !fromHTMX(r) { // a reply is read from a stream, which the page opens: without it there is nothing to send to
+		if !a.svc.Chat.Owns(user.ID, id) {
+			http.NotFound(w, r) // a conversation that is not theirs is answered as one that does not exist
+			return
+		}
+		redirect(w, r, "/c/"+url.PathEscape(id))
 		return
 	}
 	if !a.parseForm(w, r) {
 		return
 	}
-	user, _ := UserFrom(r.Context())
 	content := r.PostFormValue("content")
 
 	turn, err := a.svc.Chat.Send(r.Context(), user.ID, id, content)
-	if errors.Is(err, domain.ErrInvalidState) {
-		a.composerProblem(w, r, id, http.StatusConflict, content, "Wait for the current reply to finish.")
+	switch {
+	case errors.Is(err, domain.ErrInvalidConversationID):
+		http.NotFound(w, r)
 		return
-	}
-	if ve, ok := errors.AsType[*domain.ValidationError](err); ok {
-		a.composerProblem(w, r, id, http.StatusUnprocessableEntity, content, ve.Message)
+	case errors.Is(err, domain.ErrInvalidState):
+		a.composerProblem(w, r, http.StatusConflict, "Wait for the current reply to finish.")
 		return
-	}
-	if err != nil {
+	case errors.Is(err, domain.ErrHistoryUnavailable), errors.Is(err, domain.ErrBusy):
+		a.composerProblem(w, r, http.StatusServiceUnavailable, "That can't be sent right now. Try again in a moment.")
+		return
+	case err != nil:
+		if ve, ok := errors.AsType[*domain.ValidationError](err); ok {
+			a.composerProblem(w, r, http.StatusUnprocessableEntity, ve.Message)
+			return
+		}
 		a.fail(w, r, err)
 		return
 	}
 
-	if !fromHTMX(r) {
-		redirect(w, r, "/c/"+id.String())
-		return
-	}
 	var out strings.Builder
 	for _, m := range []domain.Message{turn.User, turn.Reply} {
 		html, err := a.renderer.Block("partial:message", a.messageView(m))
@@ -222,37 +252,25 @@ func (a *App) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.WriteString(clear)
+	// A chat that was just started is at /; from now on it is at its own address, which a reload opens.
+	w.Header().Set("HX-Replace-Url", "/c/"+url.PathEscape(id))
 	writeHTML(w, r, http.StatusOK, out.String())
 }
 
-// composerProblem reports a problem with what was typed. htmx updates only the
-// composer's message line and leaves the conversation alone; a plain form post
-// shows the whole page again with the text kept. uuid.Nil() as convID means the
-// request is not about a conversation yet (a new chat).
-func (a *App) composerProblem(w http.ResponseWriter, r *http.Request, convID uuid.UUID, status int, draft, message string) {
-	if fromHTMX(r) {
-		html, err := a.renderer.Block("partial:composer_error", message)
-		if err != nil {
-			a.serverError(w, r, err)
-			return
-		}
-		w.Header().Set("HX-Reswap", "none")
-		// A boosted form would otherwise leave its action (/c) in the address bar.
-		w.Header().Set("HX-Push-Url", "false")
-		writeHTML(w, r, status, html)
-		return
-	}
-	var active *uuid.UUID
-	if convID != uuid.Nil() {
-		active = &convID
-	}
-	page, err := a.loadChat(r, active)
+// composerProblem reports a problem with what was typed: htmx updates only the composer's message line and leaves the conversation
+// alone.
+func (a *App) composerProblem(w http.ResponseWriter, r *http.Request, status int, message string) {
+	html, err := a.renderer.Block("partial:composer_error", message)
 	if err != nil {
-		a.fail(w, r, err)
+		a.serverError(w, r, err)
 		return
 	}
-	page.Draft, page.Error = draft, message
-	a.renderChat(w, r, status, page)
+	if !fromHTMX(r) {
+		http.Error(w, message, status)
+		return
+	}
+	w.Header().Set("HX-Reswap", "none")
+	writeHTML(w, r, status, html)
 }
 
 // parseForm reads the form, answering 413 or 400 itself when it cannot.
@@ -268,4 +286,20 @@ func (a *App) parseForm(w http.ResponseWriter, r *http.Request) bool {
 
 func writeHTML(w http.ResponseWriter, r *http.Request, status int, html string) {
 	sendHTML(w, r, status, []byte(html))
+}
+
+// shortTime is the time of a message or a conversation as a person reads it, in the place of the history: the hour for today, the
+// day and the hour for any other.
+func (a *App) shortTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	at, now := t.In(a.opts.Location), a.opts.Now().In(a.opts.Location)
+	if at.Year() == now.Year() && at.YearDay() == now.YearDay() {
+		return at.Format("15:04")
+	}
+	if at.Year() == now.Year() {
+		return at.Format("2 Jan 15:04")
+	}
+	return at.Format("2 Jan 2006 15:04")
 }

@@ -10,13 +10,13 @@ import (
 	"iape-ui/internal/explore"
 )
 
-func TestCatalog_HasTheSevenFlowsAndTheContactCard(t *testing.T) {
+func TestCatalog_HasTheFlowsTheHistoryAndTheContactCard(t *testing.T) {
 	var ids []string
 	for _, p := range explore.Paths() {
 		ids = append(ids, p.ID)
 	}
 
-	assert.Equal(t, []string{"card", "pay", "otp", "otp-tag", "reject", "limit", "guard", "contact"}, ids)
+	assert.Equal(t, []string{"card", "pay", "otp", "otp-tag", "reject", "limit", "guard", "history", "contact"}, ids)
 }
 
 func TestCatalog_EveryPathParsesAndEndsInAnExpectation(t *testing.T) {

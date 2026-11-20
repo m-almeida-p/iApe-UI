@@ -89,14 +89,13 @@ func kept(t *testing.T, res *stack.Response, pattern, who string) {
 	}
 }
 
-// snapshot is everything the Web UI keeps about conversations and sessions, as
-// one string, so that "nothing changed" can be asserted.
+// snapshot is everything the Web UI keeps, as one string (the users and the sessions: the chats are not kept here), so that "nothing
+// changed" can be asserted.
 func snapshot(t *testing.T, s *stack.Stack) string {
 	t.Helper()
 	var b strings.Builder
 	for _, query := range []string{
-		`SELECT id::text || ' ' || title || ' ' || updated_at::text FROM conversations ORDER BY id`,
-		`SELECT id::text || ' ' || seq || ' ' || status || ' ' || content || ' ' || updated_at::text FROM messages ORDER BY id`,
+		`SELECT id::text || ' ' || email || ' ' || password_hash FROM users ORDER BY id`,
 		`SELECT id FROM sessions ORDER BY id`,
 	} {
 		rows, err := s.Pool.Query(t.Context(), query)
@@ -275,7 +274,7 @@ func TestSecuritySuite(t *testing.T) {
 
 	t.Run("another user's conversations can't be reached, seen or changed (SC-10)", func(t *testing.T) {
 		bobs := finished(t, bob, secret+"bob")
-		missing := ids{uuid.New().String(), uuid.New().String()}
+		missing := ids{"conv_v1_" + uuid.NewV4().String(), uuid.New().String()}
 		before := snapshot(t, s)
 		runs := s.BFF.Probe().Runs()
 
@@ -304,32 +303,26 @@ func TestSecuritySuite(t *testing.T) {
 		assert.Equal(t, before, snapshot(t, s), "the other user's data is as it was")
 		assert.Equal(t, runs, s.BFF.Probe().Runs(), "and the agent was not asked anything")
 		assert.NotContains(t, alice.Get("/").Body, secret+"bob", "it is not listed either")
-		kept := bob.Messages(bobs.conv)
-		require.Len(t, kept, 2)
-		assert.Equal(t, secret+"bob", kept[0].Text)
+		assert.Equal(t, "complete", stack.MessagesIn(t, strings.Join(eventData(bob.OpenStream(within(t, 20*time.Second), bobs.conv, bobs.reply).Drain()), ""))[0].Status,
+			"bob still has his reply")
 	})
 
-	t.Run("the raw text is what was stored, for its owner only, and never cached (SC-21)", func(t *testing.T) {
+	t.Run("Copy holds the reply as it was written, and the reply is its owner's only (SC-21)", func(t *testing.T) {
 		x := finished(t, alice, "show it #markdown")
 
-		res := alice.Raw(x.conv, x.reply)
+		events := alice.OpenStream(within(t, 20*time.Second), x.conv, x.reply).Drain() // a finished reply is replayed
+		final := stack.MessagesIn(t, stack.Named(events, "delta")[0].Data)[0]
+		raw := stack.RawOf(final)
 
-		require.Equal(t, http.StatusOK, res.Status)
-		assert.Equal(t, "text/plain; charset=utf-8", res.Header.Get("Content-Type"))
-		assert.Equal(t, "no-store", res.Header.Get("Cache-Control"))
-		assert.Equal(t, "nosniff", res.Header.Get("X-Content-Type-Options"))
-		var stored string
-		require.NoError(t, s.Pool.QueryRow(t.Context(), `SELECT content FROM messages WHERE id = $1`, x.reply).Scan(&stored))
-		assert.Equal(t, stored, res.Body, "the bytes in the database")
-		assert.Contains(t, res.Body, "# Report", "Markdown as written, not rendered")
-		assert.Contains(t, res.Body, "```go")
-		assert.Equal(t, http.StatusNotFound, bob.Raw(x.conv, x.reply).Status)
-
-		conv, reply := alice.Start("not read yet")
-		assert.Equal(t, http.StatusConflict, alice.Raw(conv, reply).Status, "a reply that isn't finished has no text yet")
+		assert.Contains(t, raw, "# Report", "Markdown as written, not rendered")
+		assert.Contains(t, raw, "```go")
+		foreign := bob.OpenStream(within(t, 20*time.Second), x.conv, x.reply).Drain()
+		for _, ev := range foreign {
+			assert.NotContains(t, ev.Data, "# Report", "bob is not given alice's reply")
+		}
 	})
 
-	t.Run("hostile replies are shown as inert text, streamed or reloaded (SC-8)", func(t *testing.T) {
+	t.Run("hostile replies are shown as inert text (SC-8)", func(t *testing.T) {
 		conv, reply := alice.Start("show me #html")
 
 		events := alice.OpenStream(within(t, 20*time.Second), conv, reply).Drain()
@@ -341,11 +334,7 @@ func TestSecuritySuite(t *testing.T) {
 			require.Len(t, messages, 1)
 			inert(t, bodyOf(t, messages[0]), fmt.Sprintf("update %d", i+1))
 		}
-		page := alice.Get("/c/" + conv)
-		for _, m := range stack.MessagesIn(t, page.Body) {
-			inert(t, bodyOf(t, m), "the reloaded page")
-		}
-		pageIsCSPClean(t, page.Body, "the chat page")
+		pageIsCSPClean(t, alice.Get("/c/"+conv).Body, "the chat page")
 		last := stack.MessagesIn(t, shown[len(shown)-1].Data)[0]
 		assert.Contains(t, last.Text, "alert(1)", "the hostile text is there to read, not dropped")
 		assert.Contains(t, stack.Text(stack.Find(last.Node, stack.TestID("message-body"))), "<script>", "as text")
@@ -353,18 +342,18 @@ func TestSecuritySuite(t *testing.T) {
 
 	t.Run("what a user types is shown as text (SC-8)", func(t *testing.T) {
 		hostile := `<img src=x onerror=alert(1)> <script>alert(2)</script> [x](javascript:alert(3))`
-		conv, reply := alice.Start(hostile)
-		alice.OpenStream(within(t, 20*time.Second), conv, reply).Drain()
+		conv := alice.NewChat()
 
-		page := alice.Get("/c/" + conv)
+		res := alice.Post("/c/"+conv+"/messages", url.Values{"content": {hostile}}, "HX-Request", "true")
 
-		messages := stack.MessagesIn(t, page.Body)
+		require.Equal(t, http.StatusOK, res.Status)
+		messages := stack.MessagesIn(t, res.Body)
 		require.Len(t, messages, 2)
 		assert.Equal(t, hostile, messages[0].Text, "the words as typed")
 		for _, m := range messages {
 			inert(t, bodyOf(t, m), m.Role)
 		}
-		pageIsCSPClean(t, page.Body, "the chat page")
+		pageIsCSPClean(t, alice.Get("/c/"+conv).Body, "the chat page")
 	})
 
 	t.Run("the pages load nothing from other hosts, and nothing inline (SC-8)", func(t *testing.T) {
@@ -426,7 +415,7 @@ func TestSecuritySuite(t *testing.T) {
 
 		tooLong := strings.Repeat("a", limit+1)
 		inConversation := alice.Post("/c/"+x.conv+"/messages", url.Values{"content": {tooLong}}, "HX-Request", "true")
-		firstMessage := alice.Post("/c", url.Values{"content": {tooLong}})
+		firstMessage := alice.Post("/c/"+alice.NewChat()+"/messages", url.Values{"content": {tooLong}}, "HX-Request", "true")
 		hugeBody := alice.Post("/c/"+x.conv+"/messages", url.Values{"content": {strings.Repeat("a", bodyLimit+1)}})
 		hugeLogin := s.Anonymous().Post("/login", url.Values{"email": {strings.Repeat("a", bodyLimit+1)}})
 
@@ -450,13 +439,11 @@ func TestSecuritySuite(t *testing.T) {
 			"bytes that are not UTF-8": "hello \xff\xfe",
 		} {
 			inConversation := alice.Post("/c/"+x.conv+"/messages", url.Values{"content": {text}}, "HX-Request", "true")
-			firstMessage := alice.Post("/c", url.Values{"content": {text}})
-			renamed := alice.Do(http.MethodPatch, "/c/"+x.conv, url.Values{"title": {text}}, "HX-Request", "true")
+			firstMessage := alice.Post("/c/"+alice.NewChat()+"/messages", url.Values{"content": {text}}, "HX-Request", "true")
 
 			assert.Equal(t, http.StatusUnprocessableEntity, inConversation.Status, "%s in a message", name)
 			assert.Contains(t, inConversation.Body, "can&#39;t be saved", "%s: it says what is wrong", name)
 			assert.Equal(t, http.StatusUnprocessableEntity, firstMessage.Status, "%s in a first message", name)
-			assert.Equal(t, http.StatusUnprocessableEntity, renamed.Status, "%s in a title", name)
 		}
 		assert.Equal(t, before, snapshot(t, s), "none of it was saved")
 	})
@@ -520,7 +507,6 @@ func TestSecurity_SendingIsLimitedPerUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Positive(t, wait)
 	assert.Contains(t, plain.Body, "too quickly", "it says why")
-	assert.Contains(t, plain.Body, "too many", "and keeps what was typed")
 	assert.Equal(t, http.StatusTooManyRequests, htmx.Status)
 	assert.Equal(t, "none", htmx.Header.Get("HX-Reswap"), "the page around the composer is left alone")
 	hardened(t, htmx, "a refused send")
@@ -552,4 +538,15 @@ func TestSecurity_OverHTTPS(t *testing.T) {
 	assert.Equal(t, "max-age=31536000; includeSubDomains", res.Header.Get("Strict-Transport-Security"), "and is told to stay on https")
 	out := c.Post("/logout", nil)
 	assert.True(t, sessionCookie(t, out).Secure, "the cookie that signs out is Secure too")
+}
+
+// eventData is the data of each event.
+func eventData(events []stack.Event) []string {
+	var out []string
+	for _, ev := range events {
+		if ev.Name == "delta" {
+			out = append(out, ev.Data)
+		}
+	}
+	return out
 }

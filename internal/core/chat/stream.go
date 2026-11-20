@@ -11,29 +11,23 @@ import (
 	"uuid"
 
 	"iape-ui/internal/core/domain"
-	"iape-ui/internal/core/port/resource"
 	"iape-ui/internal/core/port/service"
 )
 
 // Stream implements service.Chat.
 //
 // Pattern: State-Dispatched Stream
-func (s *Service) Stream(ctx context.Context, userID, convID, msgID uuid.UUID) iter.Seq2[service.StreamEvent, error] {
+func (s *Service) Stream(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) iter.Seq2[service.StreamEvent, error] {
 	return func(yield func(service.StreamEvent, error) bool) {
-		msg, err := s.deps.Messages.Get(ctx, userID, convID, msgID)
+		msg, err := s.deps.Live.Get(userID, convID, msgID)
 		if err != nil {
 			yield(service.StreamEvent{}, err)
-			return
-		}
-		if msg.Role != domain.RoleAssistant {
-			yield(service.StreamEvent{}, fmt.Errorf("a %s message cannot be streamed: %w", msg.Role, domain.ErrInvalidState))
 			return
 		}
 
 		switch {
 		case msg.Status.Terminal():
-			// Already produced (a reconnect, a reload): replay it as one final
-			// event, without bothering the agent again. The event carries the
+			// Already produced (a reconnect): replay it as one final event, without bothering the agent again. The event carries the
 			// whole text, so no snapshot comes first.
 			yield(doneEvent(msg.Status, msg.Content, msg.Error, msg.Meta), nil)
 			return
@@ -42,7 +36,7 @@ func (s *Service) Stream(ctx context.Context, userID, convID, msgID uuid.UUID) i
 				yield(service.StreamEvent{}, domain.ErrAlreadyStreaming) // another connection is on it
 				return
 			}
-			ended, err := s.endLost(ctx, userID, msg)
+			ended, err := s.endLost(userID, msg)
 			if err != nil {
 				yield(service.StreamEvent{}, err)
 				return
@@ -51,8 +45,7 @@ func (s *Service) Stream(ctx context.Context, userID, convID, msgID uuid.UUID) i
 			return
 		}
 
-		// Register before claiming, so a stop request that arrives in between
-		// finds this run.
+		// Register before starting, so a stop request that arrives in between finds this run.
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		active, ok := s.runs.begin(msgID, cancel)
@@ -62,16 +55,22 @@ func (s *Service) Stream(ctx context.Context, userID, convID, msgID uuid.UUID) i
 		}
 		defer s.runs.end(msgID, active)
 
-		claimed, err := s.claim(ctx, userID, convID, msgID)
+		started, err := s.deps.Live.Update(userID, convID, msgID, func(m domain.Message) (domain.Message, error) {
+			if m.Status != domain.StatusPending {
+				return m, domain.ErrInvalidState // another stream or a stop got there first
+			}
+			m.Status = domain.StatusStreaming
+			return m, nil
+		})
 		if err != nil {
 			yield(service.StreamEvent{}, err)
 			return
 		}
-		s.run(runCtx, userID, convID, claimed, yield)
+		s.run(runCtx, userID, started, yield)
 	}
 }
 
-func (s *Service) run(ctx context.Context, userID, convID uuid.UUID, claimed resource.Claimed, yield func(service.StreamEvent, error) bool) {
+func (s *Service) run(ctx context.Context, userID uuid.UUID, started domain.Message, yield func(service.StreamEvent, error) bool) {
 	start := time.Now()
 	var acc accumulator
 	var runErr error
@@ -83,20 +82,16 @@ func (s *Service) run(ctx context.Context, userID, convID uuid.UUID, claimed res
 	// finishes it below.
 	defer func() {
 		if rec := recover(); rec != nil {
-			reply := claimed.Reply
+			reply := started
 			reply.Content = acc.text()
-			// The run's context may be over (a Stop, a browser that left), so the
-			// guard works on a context of its own, with the time limit of a save.
-			endCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-			defer cancel()
-			if _, err := s.endLost(endCtx, userID, reply); err != nil {
+			if _, err := s.endLost(userID, reply); err != nil {
 				s.deps.Logger.ErrorContext(ctx, "ending a reply after a panic failed", "message_id", reply.ID, "error", err)
 			}
 			panic(rec)
 		}
 	}()
 
-	events := s.deps.Agent.Run(ctx, domain.AgentRequest{UserID: userID, ConversationID: convID, Text: claimed.Prompt})
+	events := s.deps.Agent.Run(ctx, domain.AgentRequest{UserID: userID, ConversationID: started.ConversationID, Text: started.Prompt})
 	for ev, err := range events {
 		if err != nil {
 			runErr = err
@@ -114,7 +109,7 @@ func (s *Service) run(ctx context.Context, userID, convID uuid.UUID, claimed res
 	}
 
 	content := acc.text()
-	status, reason := s.outcome(ctx, claimed.Reply.ID, outcomeInput{consumerGone: consumerGone, tooLong: tooLong, err: runErr, content: content})
+	status, reason := s.outcome(ctx, started.ID, outcomeInput{consumerGone: consumerGone, tooLong: tooLong, err: runErr, content: content})
 	meta := domain.Meta{
 		TTFTMs:     ceilMillis(acc.ttft),
 		DurationMs: ceilMillis(time.Since(start)),
@@ -127,21 +122,21 @@ func (s *Service) run(ctx context.Context, userID, convID uuid.UUID, claimed res
 		meta.Interaction = acc.card
 	}
 
-	// The request may be gone, so save on a context that outlives it.
-	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-	defer cancel()
-	err := s.deps.Messages.Finish(saveCtx, claimed.Reply.ID, resource.Outcome{
-		Content: content, Status: status, Error: reason, Meta: meta,
+	_, err := s.deps.Live.Update(userID, started.ConversationID, started.ID, func(m domain.Message) (domain.Message, error) {
+		if m.Status.Terminal() {
+			return m, domain.ErrInvalidState // ended already (a Stop got there first): a finished reply is never overwritten
+		}
+		m.Content, m.Status, m.Error, m.Meta, m.Prompt = content, status, reason, meta, ""
+		return m, nil
 	})
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		// The conversation was deleted while the reply was being written.
-		s.deps.Logger.InfoContext(ctx, "discarded a reply whose conversation was deleted", "message_id", claimed.Reply.ID)
+		// The server forgot the reply while it was being written.
+		s.deps.Logger.InfoContext(ctx, "discarded a reply that was forgotten", "message_id", started.ID)
+	case errors.Is(err, domain.ErrInvalidState):
+		// It was ended in the meantime: whoever did it said how.
 	case err != nil:
-		s.deps.Logger.ErrorContext(ctx, "saving a reply failed", "message_id", claimed.Reply.ID, "error", err)
-		if !consumerGone {
-			yield(service.StreamEvent{}, fmt.Errorf("saving reply: %w", err))
-		}
+		s.deps.Logger.ErrorContext(ctx, "keeping a reply failed", "message_id", started.ID, "error", err)
 	case !consumerGone:
 		yield(doneEvent(status, content, reason, meta), nil)
 	}

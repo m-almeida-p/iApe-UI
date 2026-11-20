@@ -24,22 +24,8 @@ var sqlFiles embed.FS
 // Statements is the SQL that the stores send, filled in and ready for the
 // driver. It comes from LoadStatements; the zero value holds no SQL.
 type Statements struct {
-	conversation conversationSQL
-	message      messageSQL
-	user         userSQL
-	session      sessionSQL
-}
-
-type conversationSQL struct {
-	create, get, list, rename, remove string
-}
-
-type messageSQL struct {
-	lockConversation, ownsConversation, touchConversation string
-	latest, insert, list, get, claim, finish              string
-	saveInteraction                                       string
-	exists, existsInConversation, remove                  string
-	recoverInterrupted                                    string
+	user    userSQL
+	session sessionSQL
 }
 
 type userSQL struct {
@@ -53,27 +39,6 @@ type sessionSQL struct {
 // templates says which file fills which statement.
 func (s *Statements) templates() map[string]*string {
 	return map[string]*string{
-		"sql/conversation/create.gotmpl": &s.conversation.create,
-		"sql/conversation/get.gotmpl":    &s.conversation.get,
-		"sql/conversation/list.gotmpl":   &s.conversation.list,
-		"sql/conversation/rename.gotmpl": &s.conversation.rename,
-		"sql/conversation/delete.gotmpl": &s.conversation.remove,
-
-		"sql/message/lock_conversation.gotmpl":      &s.message.lockConversation,
-		"sql/message/owns_conversation.gotmpl":      &s.message.ownsConversation,
-		"sql/message/touch_conversation.gotmpl":     &s.message.touchConversation,
-		"sql/message/latest.gotmpl":                 &s.message.latest,
-		"sql/message/insert.gotmpl":                 &s.message.insert,
-		"sql/message/list.gotmpl":                   &s.message.list,
-		"sql/message/get.gotmpl":                    &s.message.get,
-		"sql/message/claim.gotmpl":                  &s.message.claim,
-		"sql/message/finish.gotmpl":                 &s.message.finish,
-		"sql/message/save_interaction.gotmpl":       &s.message.saveInteraction,
-		"sql/message/exists.gotmpl":                 &s.message.exists,
-		"sql/message/exists_in_conversation.gotmpl": &s.message.existsInConversation,
-		"sql/message/delete.gotmpl":                 &s.message.remove,
-		"sql/message/recover_interrupted.gotmpl":    &s.message.recoverInterrupted,
-
 		"sql/user/create.gotmpl":   &s.user.create,
 		"sql/user/by_email.gotmpl": &s.user.byEmail,
 		"sql/user/by_id.gotmpl":    &s.user.byID,

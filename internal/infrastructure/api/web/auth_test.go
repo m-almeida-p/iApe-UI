@@ -377,7 +377,7 @@ func TestAuthenticateMiddleware(t *testing.T) {
 
 	t.Run("a valid session puts the user on the page", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.expectSidebar()
+		h.chat.On("NewConversation", alice.ID).Return(convID).Once()
 
 		rec := h.do(http.MethodGet, "/", nil, nil)
 

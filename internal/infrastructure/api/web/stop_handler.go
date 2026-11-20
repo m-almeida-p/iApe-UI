@@ -8,7 +8,7 @@ import (
 )
 
 // stopMessage ends a reply that is being written and answers with the reply as
-// saved, to replace the one on screen. Replacing the streaming wrapper is what
+// it is kept, to replace the one on screen. Replacing the streaming wrapper is what
 // closes the browser's event stream.
 func (a *App) stopMessage(w http.ResponseWriter, r *http.Request) {
 	ref, ok := messageRefOf(w, r)

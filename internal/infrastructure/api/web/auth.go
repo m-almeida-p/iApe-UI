@@ -248,9 +248,10 @@ func (a *App) sessionEndedStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The mux has not run yet, so path values are not set: read the ids from the path.
-	var convID, msgID uuid.UUID
+	var convID string
+	var msgID uuid.UUID
 	if parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/"); len(parts) >= 4 {
-		convID, _ = parseUUID(parts[1])
+		convID, _ = domain.ParseConversationID(parts[1])
 		msgID, _ = parseUUID(parts[3])
 	}
 	html, err := a.replyHTML(convID, msgID, domain.StatusFailed, "", sessionEnded, domain.Meta{})

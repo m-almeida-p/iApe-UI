@@ -58,7 +58,7 @@ func TestLiveSuite(t *testing.T) {
 		assert.Equal(t, "complete", final.Status, "the reply: %q", final.Text)
 		assert.NotEmpty(t, strings.TrimSpace(final.Text))
 		assert.NotEmpty(t, stack.Attr(final.Node, "data-ttft-ms"), "the time to the first token was measured")
-		assert.Equal(t, strings.TrimSpace(c.Raw(conv, reply).Body), final.Text, "what is stored is what was shown")
+		assert.Equal(t, strings.TrimSpace(stack.RawOf(final)), final.Text, "what Copy holds is what was shown")
 		t.Logf("%d updates, reply of %d characters, first token after %s ms", len(stack.Named(events, "delta")), len(final.Text), stack.Attr(final.Node, "data-ttft-ms"))
 	})
 
@@ -80,6 +80,7 @@ func TestLiveSuite(t *testing.T) {
 		}
 		assert.Equal(t, "stopped", stack.MessagesIn(t, res.Body)[0].Status)
 		assert.Less(t, time.Since(pressed), time.Second)
-		assert.NotEmpty(t, c.Raw(conv, reply).Body, "the text so far is kept")
+		replay := stack.MessagesIn(t, stack.Named(c.OpenStream(patient(), conv, reply).Drain(), "delta")[0].Data)[0]
+		assert.Equal(t, "stopped", replay.Status, "the server keeps the reply as it ended")
 	})
 }

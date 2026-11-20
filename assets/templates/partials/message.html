@@ -16,5 +16,5 @@
   {{if eq .Status "stopped"}}<div class="text-body-secondary small mt-1" data-testid="stopped-note">Stopped</div>{{end}}
   {{if .Error}}<div class="alert alert-warning mt-2 mb-0" role="alert" data-testid="error">{{.Error}}</div>{{end}}
   {{if .Card}}{{template "partial:card" .Card}}{{end}}
-  {{if or .Actions .Copy}}{{template "partial:message_actions" .}}{{end}}
+  {{if .Raw}}{{template "partial:message_actions" .}}{{end}}
 </article>{{end}}

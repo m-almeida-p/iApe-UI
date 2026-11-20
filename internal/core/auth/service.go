@@ -169,7 +169,10 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 }
 
 // BootstrapAdmin implements service.Auth.
-func (s *Service) BootstrapAdmin(ctx context.Context, email, password string) (bool, error) {
+func (s *Service) BootstrapAdmin(ctx context.Context, account uuid.UUID, email, password string) (bool, error) {
+	if account == uuid.Nil() {
+		return false, &domain.ValidationError{Code: "account_missing", Field: "account", Message: "A Yape account is needed."}
+	}
 	email, err := domain.NormalizeEmail(email)
 	if err != nil {
 		return false, err
@@ -181,23 +184,27 @@ func (s *Service) BootstrapAdmin(ctx context.Context, email, password string) (b
 		}
 	}
 
-	count, err := s.deps.Users.Count(ctx)
-	if err != nil {
-		return false, fmt.Errorf("counting users: %w", err)
-	}
-	if count > 0 {
+	// The user of the account is already there: it is left as it is, with its password and its chats, whatever the email says now.
+	if _, err := s.deps.Users.ByID(ctx, account); err == nil {
 		return false, nil
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return false, fmt.Errorf("looking for the user of the account: %w", err)
 	}
 	hash, err := s.deps.Hasher.Hash(ctx, password)
 	if err != nil {
 		return false, fmt.Errorf("hashing password: %w", err)
 	}
-	_, err = s.deps.Users.Create(ctx, domain.User{ID: uuid.NewV7(), Email: email, PasswordHash: hash})
+	// The id of the user is the id of the Yape account: the history is kept by account, and the user reads what is kept for theirs.
+	_, err = s.deps.Users.Create(ctx, domain.User{ID: account, Email: email, PasswordHash: hash})
 	switch {
 	case errors.Is(err, domain.ErrEmailTaken):
-		return false, nil // another instance got there first
+		if _, byID := s.deps.Users.ByID(ctx, account); byID == nil {
+			return false, nil // another instance got there first
+		}
+		// The email is another user's. That user is not touched: the account's user needs an email of their own.
+		return false, fmt.Errorf("%w by another user than the account's: use another email", domain.ErrEmailTaken)
 	case err != nil:
-		return false, fmt.Errorf("creating the first user: %w", err)
+		return false, fmt.Errorf("creating the user of the account: %w", err)
 	}
 	return true, nil
 }

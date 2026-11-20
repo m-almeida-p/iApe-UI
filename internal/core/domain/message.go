@@ -2,7 +2,6 @@ package domain
 
 import (
 	"strings"
-	"time"
 	"unicode/utf8"
 	"uuid"
 )
@@ -20,8 +19,7 @@ const (
 //
 //	pending   -> streaming -> complete | stopped | failed
 //
-// Terminal messages never change again. Regenerating or retrying replaces the
-// message with a new pending one.
+// Terminal messages never change again.
 //
 // Pattern: Store-Enforced State Machine
 type Status string
@@ -40,7 +38,7 @@ func (s Status) Terminal() bool {
 	return s == StatusComplete || s == StatusStopped || s == StatusFailed
 }
 
-// What the user is told when a reply fails. These are stored with the reply as
+// What the user is told when a reply fails. These are kept with the reply as
 // its Error and shown in the chat as they are. Technical detail goes to the
 // logs, never here.
 //
@@ -53,8 +51,8 @@ const (
 	FailureTooLong     = "The agent's answer grew too long and was stopped."
 	FailureUnknown     = "Something went wrong while writing the reply."
 	// FailureInterrupted is for a reply that was cut off with nothing left to
-	// finish it: a crash or restart recovered at startup, or a run that was lost
-	// on the way.
+	// finish it: a run that was lost on the way (a failed write, a bug that
+	// panicked).
 	FailureInterrupted = "This reply was interrupted before it finished."
 )
 
@@ -65,7 +63,7 @@ type Usage struct {
 }
 
 // Meta is what we learned while producing a reply. Zero values mean unknown
-// and are left out of the stored JSON and of the page.
+// and are left out of the page.
 type Meta struct {
 	// TTFTMs is the time from sending the upstream request to the first
 	// non-empty piece of text, measured on the server.
@@ -77,19 +75,20 @@ type Meta struct {
 	Interaction *Interaction `json:"interaction,omitzero"`
 }
 
-// Message is one turn of a conversation. Content is Markdown exactly as typed
-// or as the agent produced it.
+// Message is one turn of a conversation that is live in this server: what the user just wrote, and the reply being written (the
+// conversation's history, the only record of the chats, is read through the HistoryGateway). Content is Markdown exactly as typed or as
+// the agent produced it.
 type Message struct {
-	ID             uuid.UUID
-	ConversationID uuid.UUID
-	Seq            int
+	ID uuid.UUID
+	// ConversationID is the id the UI made when the chat started (see NewConversationID).
+	ConversationID string
 	Role           Role
 	Content        string
-	Status         Status
-	Error          string
-	Meta           Meta
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// Prompt is what the user wrote, for the reply that answers it while it is not started: the agent is asked with it.
+	Prompt string
+	Status Status
+	Error  string
+	Meta   Meta
 }
 
 // NormalizeContent trims raw and checks it against the limit, counted in
@@ -107,6 +106,6 @@ func NormalizeContent(raw string, maxChars int) (string, error) {
 	return content, nil
 }
 
-// storable reports whether s can be saved as text: valid UTF-8, and no NUL
-// character, which the database refuses.
+// storable reports whether s can be kept as text: valid UTF-8, and no NUL
+// character, which the history and the pages made from it cannot hold.
 func storable(s string) bool { return utf8.ValidString(s) && !strings.ContainsRune(s, 0) }

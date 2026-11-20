@@ -130,6 +130,7 @@
     if (log) log.setAttribute('aria-busy', String(streaming));
     if (wasStreaming && !streaming) {
       announceOutcome();
+      refreshHistory();
       const active = document.activeElement;
       const box = input();
       if (box && (active === document.body || (form() && form().contains(active)) || active === stop)) {
@@ -137,6 +138,17 @@
       }
     }
     wasStreaming = streaming;
+  }
+
+  // refreshHistory reloads the Historial once a reply has ended, a moment later: the conversation reaches the history through the
+  // event store, Kafka and the consumer, which takes about a second. One refresh is enough: the list does not poll.
+  const HISTORY_LAG_MS = 1500;
+  let historyTimer = null;
+  function refreshHistory() {
+    const list = $('#history');
+    if (!list || typeof htmx === 'undefined') return;
+    window.clearTimeout(historyTimer);
+    historyTimer = window.setTimeout(() => htmx.trigger(list, 'history:refresh'), HISTORY_LAG_MS);
   }
 
   // announce says something to screen readers, politely and once.
@@ -157,7 +169,7 @@
     if (message) announce(message);
   }
 
-  // Stop asks the server to end the reply. The answer is the reply as saved,
+  // Stop asks the server to end the reply. The answer is the reply as it is kept,
   // which replaces the streaming one and so closes its connection.
   function stopStreaming() {
     const article = inFlight();
@@ -217,6 +229,27 @@
     syncJumpButton();
   }
 
+  // Earlier messages go in above what is on screen. The reader is reading the top of the list, so what they were looking at is kept where
+  // it is: the list grows upward by as much as the new messages take, and the scroll position grows with it.
+  let loadingEarlier = null;
+  document.body.addEventListener('htmx:beforeRequest', (event) => {
+    const log = scroller();
+    if (!log || !(event.target instanceof Element) || !event.target.closest('#earlier')) return;
+    loadingEarlier = { xhr: event.detail.xhr, height: log.scrollHeight, top: log.scrollTop };
+  });
+  document.body.addEventListener('htmx:afterSettle', (event) => {
+    if (!loadingEarlier || event.detail.xhr !== loadingEarlier.xhr) return;
+    const log = scroller();
+    if (log) {
+      log.scrollTop = loadingEarlier.top + (log.scrollHeight - loadingEarlier.height);
+      seenHeight = log.scrollHeight;
+      following = atEnd(log, seenHeight);
+      syncJumpButton();
+    }
+    loadingEarlier = null;
+  });
+  document.body.addEventListener('htmx:responseError', () => { loadingEarlier = null; });
+
   // --- Code blocks: copy -------------------------------------------------------
 
   // decorateCode puts a Copy button in each code block of a finished reply. The
@@ -264,16 +297,11 @@
     return copied;
   }
 
-  // copyMessage copies a reply as it is stored (Markdown), fetched from the
-  // server, not the page's rendering of it.
+  // copyMessage copies a reply as it is (Markdown), which its button holds, not the page's rendering of it.
   async function copyMessage(button) {
     let copied = false;
     try {
-      const response = await fetch(button.dataset.rawUrl, { credentials: 'same-origin' });
-      // The reply's text is plain text. Anything else that answers 200, such as
-      // a sign-in page from a proxy, is not the reply.
-      const plain = (response.headers.get('Content-Type') || '').startsWith('text/plain');
-      if (response.ok && plain) copied = await copyText(await response.text());
+      copied = await copyText(button.dataset.raw || '');
     } catch {
       copied = false;
     }
@@ -290,64 +318,6 @@
     announce(copied ? 'Code copied.' : 'Copying failed.');
     window.setTimeout(() => { button.textContent = 'Copy'; }, 2000);
   }
-
-  // --- Sidebar: rename and delete ---------------------------------------------
-
-  // A rename field takes focus with its text selected, so typing replaces the
-  // title; Escape cancels. htmx may already have focused the field (autofocus),
-  // so what matters is that this field is new, not whether it has focus.
-  let renameField = null;
-  document.body.addEventListener('htmx:afterSettle', () => {
-    const field = $('[data-testid="rename-input"]');
-    if (field && field !== renameField) {
-      field.focus();
-      field.select();
-    }
-    renameField = field;
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && event.target instanceof Element && event.target.matches('[data-testid="rename-input"]')) {
-      const cancel = event.target.closest('form').querySelector('[data-testid="rename-cancel"]');
-      if (cancel) cancel.click();
-    }
-  });
-
-  // The delete confirmation arrives as HTML in #modal-root. Show it, and clean
-  // up once it is closed, handing focus back to where the reader was.
-  document.body.addEventListener('htmx:afterSwap', (event) => {
-    if (!(event.target instanceof Element) || event.target.id !== 'modal-root' || typeof bootstrap === 'undefined') return;
-    const dialog = event.target.querySelector('.modal');
-    if (!dialog) return;
-    const opener = document.activeElement;
-    // On a small screen the list is a drawer; it makes way for the dialog. Focus
-    // leaves it first: a hidden drawer must not hold focus.
-    const drawer = document.getElementById('sidebar');
-    const drawerWasOpen = drawer && drawer.classList.contains('show');
-    if (drawerWasOpen) {
-      if (drawer.contains(document.activeElement)) document.activeElement.blur();
-      bootstrap.Offcanvas.getInstance(drawer)?.hide();
-    }
-    // Bootstrap marks the dialog aria-hidden once it has faded out, and Chrome
-    // warns when that lands on something that still holds focus. A blur (unlike
-    // a move) does not set off the focus trap.
-    dialog.addEventListener('hide.bs.modal', () => {
-      if (dialog.contains(document.activeElement)) document.activeElement.blur();
-    }, { once: true });
-    // Focus goes back once the dialog has finished hiding: until then the focus
-    // trap pulls it back inside.
-    dialog.addEventListener('hidden.bs.modal', () => {
-      bootstrap.Modal.getInstance(dialog)?.dispose();
-      event.target.replaceChildren();
-      const toggle = $('[data-testid="sidebar-toggle"]');
-      for (const candidate of [opener, drawerWasOpen ? toggle : null, input()]) {
-        if (!(candidate instanceof HTMLElement) || !candidate.isConnected) continue;
-        candidate.focus({ preventScroll: true });
-        if (document.activeElement === candidate) return;
-      }
-    }, { once: true });
-    bootstrap.Modal.getOrCreateInstance(dialog).show();
-  });
 
   // --- Wiring -----------------------------------------------------------------
 

@@ -1,21 +1,24 @@
 {{/*
-  The conversation list. From the lg breakpoint up it is a column beside the
-  chat; below that it slides in from the left (Bootstrap's offcanvas-lg), opened
-  by the button in the header.
+  The side menu. From the lg breakpoint up it is a column beside the chat; below that it slides in from the left (Bootstrap's
+  offcanvas-lg), opened by the button in the header. With a history to read, it has the Historial: the list of the user's
+  conversations, loaded when the page is, and again a moment after a reply ends (see app.js), so the conversation that was just
+  written shows up.
 */}}
 {{define "partial:sidebar"}}
 <nav class="sidebar offcanvas-lg offcanvas-start" id="sidebar" tabindex="-1" aria-labelledby="sidebar-title" data-testid="sidebar">
   <div class="offcanvas-header d-lg-none">
-    <h2 class="offcanvas-title h5" id="sidebar-title">Conversations</h2>
-    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close conversations"></button>
+    <h2 class="offcanvas-title h5" id="sidebar-title">Menu</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close menu"></button>
   </div>
   <div class="offcanvas-body sidebar-body">
     <a href="/" class="btn btn-primary w-100 mb-3" data-testid="new-chat">New chat</a>
-    <ul class="list-unstyled conversation-list mb-0" data-testid="conversation-list" aria-label="Your conversations">
-      {{range .Conversations}}{{template "partial:conversation_item" .}}{{else}}
-      <li class="text-body-secondary small px-2">No conversations yet.</li>
-      {{end}}
-    </ul>
+    {{if .HistoryOn}}
+    <h2 class="sidebar-heading h6 text-body-secondary px-2 mb-2" id="history-title" data-testid="history-title">Historial</h2>
+    <div id="history" class="history" aria-labelledby="history-title" data-testid="history"
+         hx-get="{{.HistoryURL}}" hx-trigger="load, history:refresh" hx-swap="innerHTML">
+      <p class="text-body-secondary small px-2" role="status">Loading…</p>
+    </div>
+    {{end}}
   </div>
 </nav>
 {{end}}

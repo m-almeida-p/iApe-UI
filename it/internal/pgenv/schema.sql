@@ -3,7 +3,7 @@
 CREATE SCHEMA IF NOT EXISTS web_ui;
 
 COMMENT ON SCHEMA web_ui IS
-    'iApe-UI: its users, sessions and chat conversations with the messages of each.';
+    'iApe-UI: its users and sessions. conversations and messages below are the chats it kept before the history took over: nothing reads or writes them any more, and they are not deleted.';
 
 -- The tables, in the schema web_ui.
 

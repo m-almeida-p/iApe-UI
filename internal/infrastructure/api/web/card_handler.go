@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
 	"iape-ui/internal/core/domain"
@@ -21,7 +20,6 @@ type cardView struct {
 	CanPay      bool   // pending, and it says how much and to whom: Pay and Reject
 	Unpayable   bool   // pending, but it does not say how much or to whom: Reject only
 	AsksForCode bool   // the bank asked for a code: the field, and Reject
-	Processing  bool   // the answer is on its way to the service: nothing is offered
 	Amount      string
 	Name, Phone string
 	Message     string
@@ -30,7 +28,6 @@ type cardView struct {
 	ApproveURL  string
 	RejectURL   string
 	CodeURL     string
-	StatusURL   string // where a card being answered asks how it is
 	// A contact card: who the user may choose (each button posts its index) and whom they chose.
 	IsContact  bool
 	Candidates []candidateView
@@ -44,25 +41,13 @@ type candidateView struct {
 	Choice      string
 }
 
-// staleNote is what a card says when its answer got no reply and it is offered again.
-const staleNote = "The last answer got no reply. Answering again is safe: the service ignores a repeat."
-
-// newCardViewAt draws the card of m as it is at now. A card whose claim has had its time is drawn as what it was before it was
-// claimed, with a note: nobody is answering it any more.
-func newCardViewAt(m domain.Message, now time.Time) *cardView {
+// newCardView draws the card of m. The buttons post to the reply's own routes.
+func newCardView(m domain.Message) *cardView {
 	card := m.Meta.Interaction
 	if card == nil {
 		return nil
 	}
-	if card.Stale(now) {
-		base := card.Base()
-		v := newCardViewAt(domain.Message{ID: m.ID, ConversationID: m.ConversationID, Meta: domain.Meta{Interaction: &base}}, now)
-		if v != nil {
-			v.Error = staleNote
-		}
-		return v
-	}
-	base := "/c/" + m.ConversationID.String() + "/m/" + m.ID.String() + "/card/"
+	base := "/c/" + m.ConversationID + "/m/" + m.ID.String() + "/card/"
 	if card.Kind == domain.InteractionContact {
 		return newContactView(card, base)
 	}
@@ -76,7 +61,6 @@ func newCardViewAt(m domain.Message, now time.Time) *cardView {
 		CanPay:      pending && payable(card.Transfer),
 		Unpayable:   pending && !payable(card.Transfer),
 		AsksForCode: card.State == domain.InteractionOTPRequired,
-		Processing:  card.State == domain.InteractionProcessing,
 		Amount:      amountText(card.Transfer),
 		Name:        plain(card.Transfer.DestinationName),
 		Phone:       plain(card.Transfer.DestinationPhone),
@@ -85,13 +69,12 @@ func newCardViewAt(m domain.Message, now time.Time) *cardView {
 		ApproveURL:  base + "approve",
 		RejectURL:   base + "reject",
 		CodeURL:     base + "otp",
-		StatusURL:   strings.TrimSuffix(base, "/"),
 	}
 }
 
 // newContactView draws a contact card: the candidates while it is pending, whom the user chose once it is confirmed.
 func newContactView(card *domain.Interaction, base string) *cardView {
-	v := &cardView{State: string(card.State), Open: card.Open(), Processing: card.State == domain.InteractionProcessing, IsContact: true, ContactURL: base + "contact", StatusURL: strings.TrimSuffix(base, "/")}
+	v := &cardView{State: string(card.State), Open: card.Open(), IsContact: true, ContactURL: base + "contact"}
 	if card.State == domain.InteractionPending {
 		for i, c := range domain.Candidates(card.Query) {
 			v.Candidates = append(v.Candidates, candidateView{Name: c.Name, Phone: c.Phone, Choice: strconv.Itoa(i)})
@@ -123,7 +106,7 @@ func plain(s string) string {
 		switch {
 		case r == '\n' || r == '\t':
 			return r
-		case unicode.IsControl(r), r == '\u061c', r == '\u200e', r == '\u200f', r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
+		case unicode.IsControl(r), r == '\u061c', r == '\u200e', r == '\u200f', r == '\u2028', r == '\u2029', r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
 			return -1
 		}
 		return r
@@ -138,33 +121,6 @@ func amountText(t domain.Transfer) string {
 	}
 	return fmt.Sprintf("%.2f %s", t.Amount, plain(currency))
 }
-
-// showCard answers with the reply as it is now, for a card that is being answered to ask how it is: the answer replaces the reply,
-// and the new one polls no more once the card is no longer being answered.
-func (a *App) showCard(w http.ResponseWriter, r *http.Request) {
-	ref, ok := messageRefOf(w, r)
-	if !ok {
-		return
-	}
-	msg, err := a.svc.Conversations.Message(r.Context(), ref.userID, ref.convID, ref.msgID)
-	if err != nil {
-		if fromHTMX(r) {
-			// htmx asks again after any error: 286 is the status that tells it to stop, and the config of the page swaps nothing for it
-			if !errors.Is(err, domain.ErrNotFound) {
-				a.log.ErrorContext(r.Context(), "a card could not be read", "error", err)
-			}
-			w.WriteHeader(statusStopPolling)
-			return
-		}
-		a.fail(w, r, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	a.answerWithReply(w, r, ref.convID, msg)
-}
-
-// statusStopPolling is the status with which htmx stops polling an element.
-const statusStopPolling = 286
 
 func (a *App) approveCard(w http.ResponseWriter, r *http.Request) {
 	a.answerCard(w, r, func(ref messageRef) (domain.Message, error) {
@@ -214,11 +170,11 @@ func (a *App) cardFailed(w http.ResponseWriter, r *http.Request, ref messageRef,
 		a.cardAnsweredElsewhere(w, r, ref)
 	case isRefusal || errors.Is(err, domain.ErrAgentUnavailable):
 		view := a.messageView(msg)
-		if view.Card != nil && !view.Card.Processing { // a claimed card cannot be tried again yet: no "try again"
+		if view.Card != nil {
 			view.Card.Error = cardErrorText(refused)
 		}
 		if !fromHTMX(r) {
-			redirect(w, r, "/c/"+ref.convID.String())
+			redirect(w, r, "/c/"+ref.convID)
 			return
 		}
 		a.block(w, r, http.StatusOK, "partial:reply", view)
@@ -227,11 +183,11 @@ func (a *App) cardFailed(w http.ResponseWriter, r *http.Request, ref messageRef,
 	}
 }
 
-// cardAnsweredElsewhere answers a request for a card that was answered already (a second tab, a phone, the claim of another): the
+// cardAnsweredElsewhere answers a request for a card that was answered already (a second tab, a phone, an answer that came first): the
 // page is given the reply as it is now, with the card in its real state. A 409 would be swapped by htmx over the whole reply and
 // wipe it off the page, so when the reply cannot be read the 409 tells htmx to swap nothing.
 func (a *App) cardAnsweredElsewhere(w http.ResponseWriter, r *http.Request, ref messageRef) {
-	msg, err := a.svc.Conversations.Message(r.Context(), ref.userID, ref.convID, ref.msgID)
+	msg, err := a.svc.Chat.Reply(r.Context(), ref.userID, ref.convID, ref.msgID)
 	if err != nil {
 		w.Header().Set("HX-Reswap", "none")
 		http.Error(w, "That card was answered already.", http.StatusConflict)
@@ -272,7 +228,7 @@ func (a *App) chooseContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !fromHTMX(r) {
-		redirect(w, r, "/c/"+ref.convID.String())
+		redirect(w, r, "/c/"+ref.convID)
 		return
 	}
 	card, err := a.renderer.Block("partial:reply", a.messageView(msg))

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"uuid"
 
@@ -23,10 +22,10 @@ var bob = domain.User{ID: uuid.NewV7(), Email: "bob@example.com"}
 // matter during a test, and two signed-in users.
 func limitedHarness(t *testing.T, burst int) *chatHarness {
 	t.Helper()
-	h := &chatHarness{t: t, auth: mocks.NewAuth(t), chat: mocks.NewChat(t), convs: mocks.NewConversation(t)}
+	h := &chatHarness{t: t, auth: mocks.NewAuth(t), chat: mocks.NewChat(t), cards: mocks.NewInteractions(t)}
 	h.auth.On("Authenticate", mock.Anything, "tok").Return(alice, nil).Maybe()
 	h.auth.On("Authenticate", mock.Anything, "tok2").Return(bob, nil).Maybe()
-	h.route = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Conversations: h.convs},
+	h.route = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Interactions: h.cards},
 		Options{RateLimitRPS: 0.0001, RateLimitBurst: burst}).Routes()
 	return h
 }
@@ -43,13 +42,12 @@ func (h *chatHarness) as(token, method, path string, form url.Values, headers ma
 
 func TestRateLimit_Sends(t *testing.T) {
 	turn := service.Turn{
-		Conversation: domain.Conversation{ID: convID, UserID: alice.ID, Title: "t"},
-		User:         domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "hi"},
-		Reply:        domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending},
+		User:  domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "hi"},
+		Reply: domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending},
 	}
-	sendPath := "/c/" + convID.String() + "/messages"
+	sendPath := "/c/" + convID + "/messages"
 
-	t.Run("a message over the limit is refused, with the wait and a friendly line, and keeps its text", func(t *testing.T) {
+	t.Run("a message over the limit is refused, with the wait and a friendly line, and the text stays in the box", func(t *testing.T) {
 		h := limitedHarness(t, 2)
 		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(turn, nil).Twice()
 		for range 2 {
@@ -67,34 +65,16 @@ func TestRateLimit_Sends(t *testing.T) {
 		h.chat.AssertNumberOfCalls(t, "Send", 2) // the third never reached the use case
 	})
 
-	t.Run("a plain form post gets the whole page back with what was typed", func(t *testing.T) {
+	t.Run("a post that is not from htmx is told in plain words", func(t *testing.T) {
 		h := limitedHarness(t, 1)
 		h.chat.On("Send", mock.Anything, alice.ID, convID, "first").Return(turn, nil).Once()
-		h.as("tok", http.MethodPost, sendPath, url.Values{"content": {"first"}}, nil)
-		h.convs.On("Get", mock.Anything, alice.ID, convID).Return(service.ConversationView{Conversation: conv(convID, "t")}, nil)
-		h.convs.On("List", mock.Anything, alice.ID).Return([]domain.Conversation{conv(convID, "t")}, nil)
+		h.as("tok", http.MethodPost, sendPath, url.Values{"content": {"first"}}, htmx)
 
-		rec := h.as("tok", http.MethodPost, sendPath, url.Values{"content": {"second, kept"}}, nil)
+		rec := h.as("tok", http.MethodPost, sendPath, url.Values{"content": {"second"}}, nil)
 
 		require.Equal(t, http.StatusTooManyRequests, rec.Code)
-		root := parseHTML(t, rec.Body.String())
-		assert.Equal(t, "second, kept", strings.TrimSpace(textContent(byTestID(root, "composer-input")[0])))
-		assert.Contains(t, textContent(byTestID(root, "composer-error")[0]), "too quickly")
+		assert.Contains(t, rec.Body.String(), "too quickly")
 		assert.NotEmpty(t, rec.Header().Get("Retry-After"))
-	})
-
-	t.Run("a new chat, a message and a regenerate share one bucket", func(t *testing.T) {
-		h := limitedHarness(t, 2)
-		h.chat.On("StartConversation", mock.Anything, alice.ID, "hi").Return(turn, nil).Once()
-		h.chat.On("Regenerate", mock.Anything, alice.ID, convID, streamMsgID).Return(turn.Reply, nil).Once()
-
-		assert.Equal(t, http.StatusSeeOther, h.as("tok", http.MethodPost, "/c", url.Values{"content": {"hi"}}, nil).Code)
-		assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, regeneratePath(), nil, htmx).Code)
-
-		assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, sendPath, url.Values{"content": {"hi"}}, htmx).Code)
-		assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, regeneratePath(), nil, htmx).Code)
-		h.convs.On("List", mock.Anything, alice.ID).Return(nil, nil).Maybe()
-		assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, "/c", url.Values{"content": {"hi"}}, nil).Code)
 	})
 
 	t.Run("each user has their own bucket", func(t *testing.T) {
@@ -107,35 +87,15 @@ func TestRateLimit_Sends(t *testing.T) {
 		assert.Equal(t, http.StatusOK, h.as("tok2", http.MethodPost, sendPath, url.Values{"content": {"hi"}}, htmx).Code, "bob is not slowed by alice")
 	})
 
-	t.Run("reading, stopping and managing conversations are not limited", func(t *testing.T) {
+	t.Run("reading, stopping and the history are not limited", func(t *testing.T) {
 		h := limitedHarness(t, 1)
 		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(turn, nil).Once()
 		h.as("tok", http.MethodPost, sendPath, url.Values{"content": {"hi"}}, htmx) // the bucket is now empty
 		require.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, sendPath, url.Values{"content": {"hi"}}, htmx).Code)
-
 		h.chat.On("Stop", mock.Anything, alice.ID, convID, streamMsgID).Return(domain.Message{ID: streamMsgID, ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusStopped}, nil)
-		h.convs.On("Find", mock.Anything, alice.ID, convID).Return(conv(convID, "t"), nil)
-		h.convs.On("Rename", mock.Anything, alice.ID, convID, "new").Return("new", nil)
-		h.convs.On("Delete", mock.Anything, alice.ID, convID).Return(nil)
 
-		for _, tc := range []struct{ name, method, path string }{
-			{"stop", http.MethodPost, stopPath()},
-			{"rename form", http.MethodGet, "/c/" + convID.String() + "/rename"},
-			{"delete dialog", http.MethodGet, "/c/" + convID.String() + "/delete"},
-		} {
-			assert.Equal(t, http.StatusOK, h.as("tok", tc.method, tc.path, nil, htmx).Code, tc.name)
-		}
-		assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPatch, "/c/"+convID.String(), url.Values{"title": {"new"}}, htmx).Code, "rename")
-		assert.Equal(t, http.StatusOK, h.as("tok", http.MethodDelete, "/c/"+convID.String(), nil, htmx).Code, "delete")
-	})
-
-	t.Run("a rate of zero turns limiting off", func(t *testing.T) {
-		h := newChatHarness(t)
-		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(turn, nil)
-
-		for range 50 {
-			require.Equal(t, http.StatusOK, h.do(http.MethodPost, sendPath, url.Values{"content": {"hi"}}, htmx).Code)
-		}
+		assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/c/"+convID+"/m/"+streamMsgID.String()+"/stop", nil, htmx).Code)
+		assert.Equal(t, http.StatusNotFound, h.as("tok", http.MethodGet, "/history", nil, htmx).Code, "no history here, and not a 429 either")
 	})
 }
 
@@ -203,10 +163,10 @@ func TestRateLimit_Login(t *testing.T) {
 // answersHarness is limitedHarness with the service that answers cards.
 func answersHarness(t *testing.T, burst int) *chatHarness {
 	t.Helper()
-	h := &chatHarness{t: t, auth: mocks.NewAuth(t), chat: mocks.NewChat(t), convs: mocks.NewConversation(t), cards: mocks.NewInteractions(t)}
+	h := &chatHarness{t: t, auth: mocks.NewAuth(t), chat: mocks.NewChat(t), cards: mocks.NewInteractions(t)}
 	h.auth.On("Authenticate", mock.Anything, "tok").Return(alice, nil).Maybe()
 	h.auth.On("Authenticate", mock.Anything, "tok2").Return(bob, nil).Maybe()
-	h.route = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Conversations: h.convs, Interactions: h.cards},
+	h.route = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Interactions: h.cards},
 		Options{RateLimitRPS: 0.0001, RateLimitBurst: burst}).Routes()
 	return h
 }
@@ -246,23 +206,65 @@ func TestRateLimit_AnswersToCards(t *testing.T) {
 		h := answersHarness(t, 1)
 		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil).Once()
 		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(service.Turn{
-			Conversation: domain.Conversation{ID: convID, UserID: alice.ID, Title: "t"},
-			User:         domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "hi"},
-			Reply:        domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending},
+			User:  domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "hi"},
+			Reply: domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending},
 		}, nil).Once()
 		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, approve, url.Values{}, htmx).Code)
 
-		rec := h.as("tok", http.MethodPost, "/c/"+convID.String()+"/messages", url.Values{"content": {"hi"}}, htmx)
+		rec := h.as("tok", http.MethodPost, "/c/"+convID+"/messages", url.Values{"content": {"hi"}}, htmx)
 
 		assert.Equal(t, http.StatusOK, rec.Code, "paying does not use up the messages")
 	})
 
 	t.Run("confirming a contact from the picker is limited too", func(t *testing.T) {
 		h := answersHarness(t, 1)
-		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(domain.Candidates("maria")[0], nil).Once()
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", 0).Return(domain.Candidates("maria")[0], nil).Once()
 		form := url.Values{"q": {"maria"}, "choice": {"0"}}
 		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/contacts/confirm", form, htmx).Code)
 
 		assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, "/contacts/confirm", form, htmx).Code)
+	})
+}
+
+// The pages and the Historial read the history, so a user cannot make them without limit: ten times the limit of the sends.
+func TestRateLimit_Reads(t *testing.T) {
+	t.Run("a user that reads too fast is told to wait, and another is not affected", func(t *testing.T) {
+		h := limitedHarness(t, 1) // 0.0001 a second, a burst of 1 for the sends and so 10 for the reads
+		h.chat.On("NewConversation", alice.ID).Return(convID)
+		h.chat.On("NewConversation", bob.ID).Return(convID)
+		for range 10 {
+			require.Equal(t, http.StatusOK, h.as("tok", http.MethodGet, "/", url.Values{}, nil).Code)
+		}
+
+		rec := h.as("tok", http.MethodGet, "/", url.Values{}, nil)
+
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		assert.NotEmpty(t, rec.Header().Get("Retry-After"))
+		assert.Contains(t, rec.Body.String(), "too quickly")
+		assert.Equal(t, http.StatusOK, h.as("tok2", http.MethodGet, "/", url.Values{}, nil).Code)
+	})
+
+	t.Run("every read shares the bucket: the page, the Historial, a conversation and its earlier messages", func(t *testing.T) {
+		h := limitedHarness(t, 1)
+		for range 10 {
+			h.as("tok", http.MethodGet, "/history", url.Values{}, htmx) // no history here: a 404 that still counts
+		}
+
+		for _, path := range []string{"/", "/history", "/c/" + convID, "/c/" + convID + "/earlier?before=1"} {
+			assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodGet, path, url.Values{}, htmx).Code, path)
+		}
+	})
+
+	t.Run("the sends have their own bucket", func(t *testing.T) {
+		h := limitedHarness(t, 1)
+		for range 11 {
+			h.as("tok", http.MethodGet, "/history", url.Values{}, htmx)
+		}
+		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(service.Turn{
+			User:  domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "hi"},
+			Reply: domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending},
+		}, nil).Once()
+
+		assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/c/"+convID+"/messages", url.Values{"content": {"hi"}}, htmx).Code)
 	})
 }

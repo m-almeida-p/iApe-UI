@@ -35,7 +35,7 @@ func serveJSON(t *testing.T, status int, name string) func(http.ResponseWriter, 
 func TestActions_ApprovePaysTheTransferAndSaysWhatTheServiceSaid(t *testing.T) {
 	b := newBFF(t, serveJSON(t, http.StatusCreated, "approve-ok.json"))
 
-	got, err := clientFor(b, &fakeTokens{token: "tok-1"}).Approve(t.Context(), card())
+	got, err := clientFor(b, &fakeTokens{token: "tok-1"}).Approve(t.Context(), accountID, card())
 
 	require.NoError(t, err)
 	assert.Equal(t, domain.ActionResult{Message: "Transfer paid successfully. TxnID: OP-144183D869"}, got)
@@ -53,7 +53,7 @@ func TestActions_ApprovePaysTheTransferAndSaysWhatTheServiceSaid(t *testing.T) {
 func TestActions_ApproveThatNeedsACodeNamesTheChallenge(t *testing.T) {
 	b := newBFF(t, serveJSON(t, http.StatusCreated, "approve-otp.json"))
 
-	got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+	got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 	require.NoError(t, err)
 	assert.Equal(t, domain.ActionResult{
@@ -69,7 +69,7 @@ func TestActions_ACodeIsAskedForWithoutSayingWhichTransferIsAnError(t *testing.T
 		_, _ = io.WriteString(w, `{"success":true,"otp_required":true,"displayMessage":"x"}`)
 	})
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transfer_id")
@@ -78,7 +78,7 @@ func TestActions_ACodeIsAskedForWithoutSayingWhichTransferIsAnError(t *testing.T
 func TestActions_RejectCancelsTheTransfer(t *testing.T) {
 	b := newBFF(t, serveJSON(t, http.StatusCreated, "reject-ok.json"))
 
-	got, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), card())
+	got, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), accountID, card())
 
 	require.NoError(t, err)
 	assert.Equal(t, "Transfer rejected successfully.", got.Message)
@@ -94,7 +94,7 @@ func TestActions_TheCodeGoesWithTheChallengeAndTheRun(t *testing.T) {
 	c := card()
 	c.State, c.ChallengeID = domain.InteractionOTPRequired, "trf_9"
 
-	got, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), c, "123456")
+	got, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), accountID, c, "123456")
 
 	require.NoError(t, err)
 	assert.Equal(t, "Transfer paid successfully. TxnID: OP-1", got.Message)
@@ -113,7 +113,7 @@ func TestActions_ARefusalIsTheServicesOwnWordsForTheUser(t *testing.T) {
 	c := card()
 	c.State, c.ChallengeID = domain.InteractionOTPRequired, "trf_9"
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), c, "000000")
+	_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), accountID, c, "000000")
 
 	var refused *domain.ActionError
 	require.ErrorAs(t, err, &refused)
@@ -123,7 +123,7 @@ func TestActions_ARefusalIsTheServicesOwnWordsForTheUser(t *testing.T) {
 func TestActions_AGatewayFailureIsTheAgentBeingUnavailable(t *testing.T) {
 	b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusBadGateway) })
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 }
@@ -141,7 +141,7 @@ func TestActions_AnExpiredTokenIsRefreshedOnce(t *testing.T) {
 	})
 	tokens := &fakeTokens{token: "old", fresh: "fresh"}
 
-	got, err := clientFor(b, tokens).Reject(t.Context(), card())
+	got, err := clientFor(b, tokens).Reject(t.Context(), accountID, card())
 
 	require.NoError(t, err)
 	assert.Equal(t, "Transfer rejected successfully.", got.Message)
@@ -152,7 +152,7 @@ func TestActions_AnExpiredTokenIsRefreshedOnce(t *testing.T) {
 func TestActions_TheTokenIsNeverInAnError(t *testing.T) {
 	b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusInternalServerError) })
 
-	_, err := clientFor(b, &fakeTokens{token: "secret-token-xyz"}).Approve(t.Context(), card())
+	_, err := clientFor(b, &fakeTokens{token: "secret-token-xyz"}).Approve(t.Context(), accountID, card())
 
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "secret-token-xyz")
@@ -167,7 +167,7 @@ func TestActions_AnApprovalIdWithPathCharactersCannotChangeTheRoute(t *testing.T
 	c := card()
 	c.ApprovalID = "../../admin/x?y=1"
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), c)
+	_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), accountID, c)
 
 	require.NoError(t, err)
 	assert.Equal(t, "/bff/approvals/..%2F..%2Fadmin%2Fx%3Fy=1/reject", b.requests[0].URL.EscapedPath(), "the id stays one path segment")
@@ -176,7 +176,7 @@ func TestActions_AnApprovalIdWithPathCharactersCannotChangeTheRoute(t *testing.T
 func TestActions_ConfirmContactTellsTheBFFWhomTheUserChose(t *testing.T) {
 	b := newBFF(t, serveJSON(t, http.StatusCreated, "contact-ok.json"))
 
-	err := clientFor(b, &fakeTokens{token: "tok-1"}).ConfirmContact(t.Context(), "Maria", domain.Contact{Name: "Maria Torres", Phone: "912345678"})
+	err := clientFor(b, &fakeTokens{token: "tok-1"}).ConfirmContact(t.Context(), accountID, "Maria", domain.Contact{Name: "Maria Torres", Phone: "912345678"})
 
 	require.NoError(t, err)
 	require.Equal(t, 1, b.count())
@@ -196,7 +196,7 @@ func TestActions_AContactTheBFFRefusesIsTheServicesOwnWords(t *testing.T) {
 		_, _ = io.WriteString(w, `{"statusCode":400,"message":["phone must be valid","name must not be empty"]}`)
 	})
 
-	err := clientFor(b, &fakeTokens{token: "t"}).ConfirmContact(t.Context(), "Maria", domain.Contact{})
+	err := clientFor(b, &fakeTokens{token: "t"}).ConfirmContact(t.Context(), accountID, "Maria", domain.Contact{})
 
 	var refused *domain.ActionError
 	require.ErrorAs(t, err, &refused)
