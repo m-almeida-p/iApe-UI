@@ -9,9 +9,10 @@
 //	iape-explore -path pay -amount 35 -contact "Maria Torres"
 //	iape-explore "Hola" "expect:Hola"       steps of your own (see internal/explore)
 //
-// Chrome runs headless, as the evaluator requires: what a run shows is in the screenshots it records.
-// It signs in as the user of the evaluator (EVAL_USER_EMAIL and EVAL_USER_PASSWORD, or ADMIN_EMAIL and ADMIN_PASSWORD) and reads
-// EVAL_BASE_URL and EVAL_MCP_COMMAND from .env, as cmd/eval does. Nothing it records holds the password or a token.
+// Chrome runs headless unless -headed asks for a window; what a run shows is in the screenshots it records.
+// It signs in as EXPLORE_USER_EMAIL and EXPLORE_USER_PASSWORD, or as the first user of the Web UI (ADMIN_EMAIL and ADMIN_PASSWORD),
+// and reads EXPLORE_BASE_URL, EXPLORE_MCP_COMMAND and EXPLORE_MCP_ARGS from .env (see settings.go). Nothing it records holds the
+// password or a token.
 package main
 
 import (
@@ -21,7 +22,6 @@ import (
 	"syscall"
 	"time"
 
-	"iape-ui/internal/eval/infrastructure/config"
 	"iape-ui/internal/platform/envcfg"
 )
 
@@ -30,12 +30,12 @@ func main() {
 	d := deps{
 		stdout: os.Stdout,
 		stderr: os.Stderr,
-		loadConfig: func(envFile string) (config.Config, error) {
+		loadSettings: func(envFile string) (settings, error) {
 			lookup, err := envcfg.EnvLookup(envFile)
 			if err != nil {
-				return config.Config{}, err
+				return settings{}, err
 			}
-			return config.Load(lookup)
+			return loadSettings(lookup)
 		},
 		open: openSession,
 		now:  time.Now,

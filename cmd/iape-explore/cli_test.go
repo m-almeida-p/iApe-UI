@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"iape-ui/internal/eval/infrastructure/config"
 	"iape-ui/internal/explore"
 	"iape-ui/internal/platform/envcfg"
 )
@@ -47,35 +46,37 @@ func (f *fakeSession) Screenshot(_ context.Context, path string) error {
 func (f *fakeSession) Fresh(context.Context) error { f.fresh++; return nil }
 func (f *fakeSession) Close(context.Context) error { f.closed = true; return nil }
 
-func testConfig() config.Config {
-	var c config.Config
-	c.Eval.UserEmail = "admin@example.com"
-	c.Eval.UserPassword = envcfg.Secret("hunter2-secret")
-	c.Eval.BaseURL = "http://localhost:8300"
-	return c
+func testSettings() settings {
+	return settings{
+		BaseURL: "http://localhost:8300", Command: []string{"npx", "-y", "chrome-devtools-mcp@1.10.1"},
+		Args:  []string{"--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"},
+		Email: "admin@example.com", Password: envcfg.Secret("hunter2-secret"),
+	}
 }
 
 type harness struct {
-	out, err bytes.Buffer
-	sess     *fakeSession
-	opened   int
-	openErr  error
-	cfgErr   error
-	cfg      config.Config
-	dir      string
+	out, err   bytes.Buffer
+	sess       *fakeSession
+	opened     int
+	openedWith openOptions
+	openErr    error
+	cfgErr     error
+	cfg        settings
+	dir        string
 }
 
 func newHarness(t *testing.T, sess *fakeSession) *harness {
 	t.Helper()
-	return &harness{sess: sess, cfg: testConfig(), dir: filepath.Join(t.TempDir(), "out")}
+	return &harness{sess: sess, cfg: testSettings(), dir: filepath.Join(t.TempDir(), "out")}
 }
 
 func (h *harness) run(args ...string) int {
 	d := deps{
 		stdout: &h.out, stderr: &h.err,
-		loadConfig: func(string) (config.Config, error) { return h.cfg, h.cfgErr },
-		open: func(context.Context, config.Config, time.Duration) (session, error) {
+		loadSettings: func(string) (settings, error) { return h.cfg, h.cfgErr },
+		open: func(_ context.Context, _ settings, o openOptions) (session, error) {
 			h.opened++
+			h.openedWith = o
 			return h.sess, h.openErr
 		},
 		now: func() time.Time { return time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC) },
@@ -188,7 +189,7 @@ func TestRun_UsageMistakes(t *testing.T) {
 
 func TestRun_NoUserToSignInAsIsAUsageMistake(t *testing.T) {
 	h := newHarness(t, &fakeSession{})
-	h.cfg.Eval.UserEmail = ""
+	h.cfg.Email = ""
 
 	code := h.run("-path", "guard")
 
@@ -249,4 +250,15 @@ func TestRun_TheDefaultOutputDirectoryIsNamedAfterTheTime(t *testing.T) {
 	d := deps{now: func() time.Time { return time.Date(2026, 11, 19, 20, 30, 5, 0, time.UTC) }}
 
 	assert.Equal(t, filepath.Join("temp", "iape-explore", "20261119-203005"), d.defaultOut())
+}
+
+func TestRun_HeadedAndTheTimeToSettleAreHandedToTheBrowser(t *testing.T) {
+	h := newHarness(t, &fakeSession{text: `StaticText "No puedo ayudarte"`})
+
+	require.Equal(t, exitOK, h.run("-path", "guard", "-headed", "-wait", "45s"), h.err.String())
+	assert.True(t, h.openedWith.Headed)
+	assert.Equal(t, 45*time.Second, h.openedWith.Settle)
+
+	require.Equal(t, exitOK, h.run("-path", "guard"))
+	assert.False(t, h.openedWith.Headed, "headless is the default")
 }

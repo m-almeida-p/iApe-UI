@@ -6,7 +6,7 @@
 # at the top of the script you're curious about.
 
 web_binary  = agent-web-ui
-eval_binary = agent-eval
+explore_binary = iape-explore
 bin_dir     = bin
 
 # ==================================================================================== #
@@ -99,11 +99,11 @@ tidy:
 	go mod tidy -v
 	go fmt ./...
 
-## build: build agent-web-ui and agent-eval into bin/
+## build: build agent-web-ui and iape-explore into bin/
 .PHONY: build
 build:
 	go build -o=${bin_dir}/${web_binary} ./cmd/web
-	go build -o=${bin_dir}/${eval_binary} ./cmd/eval
+	go build -o=${bin_dir}/${explore_binary} ./cmd/iape-explore
 
 ## up: start PostgreSQL and the test agent only, to run the web server from source
 .PHONY: up

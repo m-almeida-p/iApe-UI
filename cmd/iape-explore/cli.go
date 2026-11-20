@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode"
 
-	"iape-ui/internal/eval/infrastructure/config"
 	"iape-ui/internal/explore"
 )
 
@@ -30,8 +29,8 @@ const defaultEnvFile = ".env"
 // deps is what the command is given, so that a test can give it a page that is not a browser.
 type deps struct {
 	stdout, stderr io.Writer
-	loadConfig     func(envFile string) (config.Config, error)
-	open           func(ctx context.Context, cfg config.Config, settle time.Duration) (session, error)
+	loadSettings   func(envFile string) (settings, error)
+	open           func(ctx context.Context, s settings, o openOptions) (session, error)
 	now            func() time.Time
 }
 
@@ -44,6 +43,7 @@ type options struct {
 	contact string
 	amount  string
 	settle  time.Duration
+	headed  bool
 	steps   []string
 }
 
@@ -63,6 +63,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.out, "out", "", "directory for the records (default temp/iape-explore/<time>)")
 	fs.StringVar(&o.contact, "contact", "", `contact to pick in a payment, such as "Maria Torres" (default the first)`)
 	fs.StringVar(&o.amount, "amount", "", "amount in soles for a payment (default the path's)")
+	fs.BoolVar(&o.headed, "headed", false, "show Chrome: run it with a window, to watch the run")
 	fs.DurationVar(&o.settle, "wait", 90*time.Second, "how long a step waits for the page to settle")
 	if err := fs.Parse(args); err != nil {
 		return o, usageError{msg: err.Error()}
@@ -140,9 +141,9 @@ func (d deps) run(ctx context.Context, args []string) int {
 		d.list()
 		return exitOK
 	}
-	cfg, err := d.loadConfig(opts.envFile)
+	cfg, err := d.loadSettings(opts.envFile)
 	if err == nil {
-		err = cfg.RequireUser()
+		err = cfg.requireUser()
 	}
 	if err != nil {
 		fmt.Fprintln(d.stderr, "iape-explore:", err)
@@ -153,14 +154,14 @@ func (d deps) run(ctx context.Context, args []string) int {
 		out = d.defaultOut()
 	}
 
-	sess, err := d.open(ctx, cfg, opts.settle)
+	sess, err := d.open(ctx, cfg, openOptions{Headed: opts.headed, Settle: opts.settle})
 	if err != nil {
 		fmt.Fprintln(d.stderr, "iape-explore: opening the browser:", err)
 		return exitInfra
 	}
 	defer func() { _ = sess.Close(context.WithoutCancel(ctx)) }()
 
-	return d.runPlans(ctx, sess, opts.plans(), out, cfg.Eval.UserPassword.Reveal())
+	return d.runPlans(ctx, sess, opts.plans(), out, cfg.Password.Reveal())
 }
 
 func (d deps) list() {

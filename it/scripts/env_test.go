@@ -182,7 +182,7 @@ func scriptTree(t *testing.T) string {
 	t.Helper()
 	tree := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(tree, "scripts", "lib"), 0o700))
-	for _, name := range []string{"lib/process.sh", "run.sh", "stop.sh", "eval.sh", "check.sh", "real-agent.sh", "pr-check.sh"} {
+	for _, name := range []string{"lib/process.sh", "run.sh", "stop.sh", "check.sh", "real-agent.sh", "pr-check.sh"} {
 		src, err := os.ReadFile(filepath.Join("..", "..", "scripts", name))
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(tree, "scripts", name), src, 0o700))
@@ -196,7 +196,7 @@ func TestScripts_HelpNeedsNoSettings(t *testing.T) {
 	tree := scriptTree(t)
 	require.NoError(t, os.WriteFile(filepath.Join(tree, ".env"), []byte("A=(\n"), 0o600)) // and no example at all
 
-	for _, name := range []string{"run.sh", "stop.sh", "eval.sh", "check.sh", "real-agent.sh", "pr-check.sh"} {
+	for _, name := range []string{"run.sh", "stop.sh", "check.sh", "real-agent.sh", "pr-check.sh"} {
 		t.Run(name, func(t *testing.T) {
 			cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(tree, "scripts", name), "--help")
 			cmd.Dir, cmd.Env = tree, withoutSecrets(os.Environ())
@@ -272,7 +272,6 @@ func TestScripts_ANamedSettingsFileHasToExist(t *testing.T) {
 	}{
 		{"run.sh", nil},
 		{"stop.sh", nil},
-		{"eval.sh", []string{"selftest"}},
 		{"real-agent.sh", []string{"status"}},
 		{"pr-check.sh", nil},
 	}
