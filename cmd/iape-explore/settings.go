@@ -18,7 +18,7 @@ import (
 //	EXPLORE_USER_EMAIL, EXPLORE_USER_PASSWORD   the user to sign in as; without them ADMIN_EMAIL and ADMIN_PASSWORD, the first user
 //	                       of the Web UI, which is the usual account in development
 //	EXPLORE_MCP_COMMAND    how Chrome DevTools MCP is started: npx on a pinned package (default npx -y chrome-devtools-mcp@1.10.1)
-//	EXPLORE_MCP_ARGS       its flags (default --headless --isolated --no-usage-statistics --no-performance-crux)
+//	EXPLORE_MCP_ARGS       its flags (default --isolated --no-usage-statistics --no-performance-crux: Chrome with a window; -headless adds --headless)
 type settings struct {
 	BaseURL  string
 	Command  []string
@@ -51,7 +51,7 @@ func loadSettings(lookup func(string) (string, bool)) (settings, error) {
 	if raw, ok := get("EXPLORE_MCP_ARGS"); ok {
 		s.Args = strings.Fields(raw)
 	}
-	// The headless flag is for the run to decide (-headed), so a settings file without it is fine.
+	// The headless flag is for the run to decide (-headless), so a settings file may have it or not.
 	if err := chrome.CheckMCP(s.Command, s.Args, true); err != nil {
 		errs = append(errs, fmt.Errorf("EXPLORE_MCP_COMMAND and EXPLORE_MCP_ARGS: %w", err))
 	}
@@ -96,13 +96,11 @@ func (s settings) requireUser() error {
 	return nil
 }
 
-// headlessArgs reports whether the browser's flags ask for no window.
-func (s settings) headlessArgs() bool { return slices.Contains(s.Args, "--headless") }
-
-// browserArgs are the flags of the browser for a run: headless unless the run is headed, which is the only run that goes without it.
-func (s settings) browserArgs(headed bool) []string {
+// browserArgs are the flags of the browser for a run: with a window, unless the run is headless, which is the only run that has
+// --headless whatever the settings say.
+func (s settings) browserArgs(headless bool) []string {
 	args := slices.DeleteFunc(slices.Clone(s.Args), func(a string) bool { return a == "--headless" })
-	if !headed {
+	if headless {
 		args = append([]string{"--headless"}, args...)
 	}
 	return args

@@ -18,8 +18,8 @@ type session interface {
 
 // openOptions say how a run opens its browser.
 type openOptions struct {
-	// Headed shows Chrome in a window.
-	Headed bool
+	// Headless runs Chrome without a window. The default is a window, to watch the run.
+	Headless bool
 	// Settle is how long a step waits for the page to settle.
 	Settle time.Duration
 }
@@ -35,7 +35,7 @@ func (s *chromeSession) Close(ctx context.Context) error { return s.chrome.Close
 
 // openSession starts Chrome and signs in.
 func openSession(ctx context.Context, s settings, o openOptions) (session, error) {
-	mcp, err := chrome.Open(ctx, chrome.Options{Command: s.Command, Args: s.browserArgs(o.Headed), Headed: o.Headed})
+	mcp, err := chrome.Open(ctx, chrome.Options{Command: s.Command, Args: s.browserArgs(o.Headless), Headed: !o.Headless})
 	if err != nil {
 		return nil, err
 	}

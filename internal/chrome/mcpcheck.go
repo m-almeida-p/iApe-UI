@@ -12,17 +12,16 @@ import (
 var pinned = regexp.MustCompile(`^chrome-devtools-mcp@\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$`)
 
 // privacyRequired are the flags that keep Chrome DevTools MCP from sending usage statistics and from touching a real browser
-// profile. --headless is one of them, unless the run is headed: the person asked to see the browser, and the profile is still a
-// fresh one (--isolated).
+// profile. --headless is not one of them: a run with a window is the usual run, and its profile is still a fresh one (--isolated).
 var privacyRequired = []string{"--isolated", "--no-usage-statistics", "--no-performance-crux"}
 
 // npxFlags are the flags npx may be given before the package, none of which changes which package it runs.
 var npxFlags = []string{"-y", "--yes", "--no-install", "--prefer-offline", "-q", "--quiet"}
 
-// DefaultCommand and DefaultArgs start the pinned Chrome DevTools MCP, headless.
+// DefaultCommand and DefaultArgs start the pinned Chrome DevTools MCP, with a window.
 var (
 	DefaultCommand = []string{"npx", "-y", "chrome-devtools-mcp@1.10.1"}
-	DefaultArgs    = []string{"--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"}
+	DefaultArgs    = []string{"--isolated", "--no-usage-statistics", "--no-performance-crux"}
 )
 
 // pinnedPackage reports whether the command is npx, run on the pinned package: the package is the first thing after npx and its

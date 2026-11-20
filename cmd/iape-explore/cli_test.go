@@ -49,7 +49,7 @@ func (f *fakeSession) Close(context.Context) error { f.closed = true; return nil
 func testSettings() settings {
 	return settings{
 		BaseURL: "http://localhost:8300", Command: []string{"npx", "-y", "chrome-devtools-mcp@1.10.1"},
-		Args:  []string{"--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"},
+		Args:  []string{"--isolated", "--no-usage-statistics", "--no-performance-crux"},
 		Email: "admin@example.com", Password: envcfg.Secret("hunter2-secret"),
 	}
 }
@@ -252,15 +252,15 @@ func TestRun_TheDefaultOutputDirectoryIsNamedAfterTheTime(t *testing.T) {
 	assert.Equal(t, filepath.Join("temp", "iape-explore", "20261119-203005"), d.defaultOut())
 }
 
-func TestRun_HeadedAndTheTimeToSettleAreHandedToTheBrowser(t *testing.T) {
+func TestRun_HeadlessAndTheTimeToSettleAreHandedToTheBrowser(t *testing.T) {
 	h := newHarness(t, &fakeSession{text: `StaticText "No puedo ayudarte"`})
 
-	require.Equal(t, exitOK, h.run("-path", "guard", "-headed", "-wait", "45s"), h.err.String())
-	assert.True(t, h.openedWith.Headed)
+	require.Equal(t, exitOK, h.run("-path", "guard", "-headless", "-wait", "45s"), h.err.String())
+	assert.True(t, h.openedWith.Headless)
 	assert.Equal(t, 45*time.Second, h.openedWith.Settle)
 
 	require.Equal(t, exitOK, h.run("-path", "guard"))
-	assert.False(t, h.openedWith.Headed, "headless is the default")
+	assert.False(t, h.openedWith.Headless, "a window is the default, to watch the run")
 }
 
 func TestRun_AllLeavesOutThePathThatBurnsTheAccountUnlessAskedFor(t *testing.T) {

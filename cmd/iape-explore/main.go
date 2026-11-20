@@ -9,7 +9,7 @@
 //	iape-explore -path pay -amount 35 -contact "Maria Torres"
 //	iape-explore "Hola" "expect:Hola"       steps of your own (see internal/explore)
 //
-// Chrome runs headless unless -headed asks for a window; what a run shows is in the screenshots it records.
+// Chrome has a window, to watch the run; -headless runs it without one. Either way a run records a screenshot after each step.
 // It signs in as EXPLORE_USER_EMAIL and EXPLORE_USER_PASSWORD, or as the first user of the Web UI (ADMIN_EMAIL and ADMIN_PASSWORD),
 // and reads EXPLORE_BASE_URL, EXPLORE_MCP_COMMAND and EXPLORE_MCP_ARGS from .env (see settings.go). Nothing it records holds the
 // password or a token.

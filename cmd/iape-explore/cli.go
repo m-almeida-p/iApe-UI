@@ -35,15 +35,15 @@ type deps struct {
 }
 
 type options struct {
-	envFile string
-	pathID  string
-	all     bool
-	list    bool
-	out     string
-	contact string
-	amount  string
-	settle  time.Duration
-	headed  bool
+	envFile  string
+	pathID   string
+	all      bool
+	list     bool
+	out      string
+	contact  string
+	amount   string
+	settle   time.Duration
+	headless bool
 	// withGuard adds the paths that burn the account to -all.
 	withGuard bool
 	steps     []string
@@ -66,7 +66,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.contact, "contact", "", `contact to pick in a payment, such as "Maria Torres" (default the first)`)
 	fs.StringVar(&o.amount, "amount", "", "amount in soles for a payment (default the path's)")
 	fs.BoolVar(&o.withGuard, "with-guard", false, "with -all: also run the paths that trip the agent's guard (guard), which can get the account banned")
-	fs.BoolVar(&o.headed, "headed", false, "show Chrome: run it with a window, to watch the run")
+	fs.BoolVar(&o.headless, "headless", false, "run Chrome without a window (the default is a window, to watch the run)")
 	fs.DurationVar(&o.settle, "wait", 90*time.Second, "how long a step waits for the page to settle")
 	if err := fs.Parse(args); err != nil {
 		return o, usageError{msg: err.Error()}
@@ -162,7 +162,7 @@ func (d deps) run(ctx context.Context, args []string) int {
 		out = d.defaultOut()
 	}
 
-	sess, err := d.open(ctx, cfg, openOptions{Headed: opts.headed, Settle: opts.settle})
+	sess, err := d.open(ctx, cfg, openOptions{Headless: opts.headless, Settle: opts.settle})
 	if err != nil {
 		_, _ = fmt.Fprintln(d.stderr, "iape-explore: opening the browser:", err)
 		return exitInfra

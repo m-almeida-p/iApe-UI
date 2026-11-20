@@ -107,7 +107,7 @@ bin/iape-explore -list                # the paths
 bin/iape-explore -path pay            # one path
 bin/iape-explore -all                 # every safe path, each in a conversation of its own (guard only with -with-guard)
 bin/iape-explore -path pay -amount 35 -contact "Maria Torres"
-bin/iape-explore -headed -path card   # Chrome with a window, to watch it
+bin/iape-explore -headless -all       # without a window, for a machine that has no screen
 bin/iape-explore "Hola" "expect:Hola" "expect-no-card"     # steps of your own
 ```
 
@@ -118,7 +118,7 @@ The paths are `card`, `pay`, `otp`, `otp-tag`, `reject`, `limit`, `guard` and `c
 After every step it records, under `temp/iape-explore/<time>/<path>/`: the page's accessibility tree, a screenshot, the network
 requests and the lines that are new, then `report.md`, and a `summary.md` for the whole run. Nothing it writes holds the password or a
 token. It signs in as `EXPLORE_USER_EMAIL`/`EXPLORE_USER_PASSWORD`, or as the first user (`ADMIN_EMAIL`/`ADMIN_PASSWORD`), and starts
-Chrome DevTools MCP with `EXPLORE_MCP_COMMAND` and `EXPLORE_MCP_ARGS`: `npx` on a pinned package, headless unless `-headed`, and
+Chrome DevTools MCP with `EXPLORE_MCP_COMMAND` and `EXPLORE_MCP_ARGS`: `npx` on a pinned package, with a window unless `-headless` (a fresh, isolated profile either way), and
 always with the flags that keep usage statistics off and the profile temporary.
 
 What was found building this against the agent service (the protocol, the mock bank, the ban and how to lift it, the environment) is in

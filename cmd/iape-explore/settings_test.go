@@ -18,7 +18,7 @@ func TestLoadSettings_Defaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "http://localhost:8300", s.BaseURL)
 	assert.Equal(t, []string{"npx", "-y", "chrome-devtools-mcp@1.10.1"}, s.Command)
-	assert.Equal(t, []string{"--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"}, s.Args)
+	assert.Equal(t, []string{"--isolated", "--no-usage-statistics", "--no-performance-crux"}, s.Args, "Chrome has a window unless the run says otherwise")
 	assert.Empty(t, s.Email)
 	assert.Error(t, s.requireUser(), "nobody to sign in as")
 }
@@ -82,7 +82,20 @@ func TestLoadSettings_TheBrowserIsPinnedAndKeepsItsPrivacyFlags(t *testing.T) {
 	s, err := loadSettings(lookupOf(map[string]string{
 		"EXPLORE_MCP_COMMAND": "npx chrome-devtools-mcp@1.10.1", "EXPLORE_MCP_ARGS": "--isolated --no-usage-statistics --no-performance-crux",
 	}))
-	require.NoError(t, err, "without --headless the settings are fine: the run says whether it is headed")
+	require.NoError(t, err, "the settings need no --headless: the run says whether Chrome has a window")
 	assert.NotContains(t, s.Args, "--headless")
-	assert.False(t, s.headlessArgs())
+}
+
+func TestSettings_BrowserArgsHaveAWindowUnlessTheRunIsHeadless(t *testing.T) {
+	withHeadless, err := loadSettings(lookupOf(map[string]string{"EXPLORE_MCP_ARGS": "--headless --isolated --no-usage-statistics --no-performance-crux"}))
+	require.NoError(t, err, "a settings file that has --headless still loads")
+	without, err := loadSettings(lookupOf(nil))
+	require.NoError(t, err)
+
+	for _, s := range []settings{without, withHeadless} {
+		assert.NotContains(t, s.browserArgs(false), "--headless", "a window is the default, whatever the settings say")
+		assert.Equal(t, "--headless", s.browserArgs(true)[0], "-headless asks for none")
+		assert.Subset(t, s.browserArgs(true), []string{"--isolated", "--no-usage-statistics", "--no-performance-crux"}, "and keeps the rest")
+	}
+	assert.Equal(t, []string{"--isolated", "--no-usage-statistics", "--no-performance-crux"}, without.Args, "the settings are not changed under whoever gave them")
 }

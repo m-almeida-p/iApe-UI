@@ -67,8 +67,9 @@ and it happened: the next paths all failed with that text, which looks like a bu
   and `--refresh`. The Web UI never writes, logs or returns the token.
 - **A container cannot run `yape-token`**: it belongs to the computer the Web UI runs on. So Compose runs only PostgreSQL and the
   scripted BFF, and the container test copies `test-bff` into the image as its token program (`test-bff --account ID` prints a token).
-- The **explorer's Chrome** starts through Chrome DevTools MCP, headless by default. A headed run (`-headed`) may go without `--headless`
-  and never without `--isolated` and the flags that keep usage statistics off. `npx` needs a recent Node (20.19+, 22.12+ or 23+).
+- The **explorer's Chrome** starts through Chrome DevTools MCP, with a window by default (a fresh, isolated profile: it is not your
+  Chrome). `-headless` runs it without one. Either way `--isolated` and the flags that keep usage statistics off are required. `npx`
+  needs a recent Node (20.19+, 22.12+ or 23+).
 
 ## What the Web UI does not do yet
 
