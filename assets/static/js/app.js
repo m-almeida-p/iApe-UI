@@ -169,7 +169,7 @@
     if (message) announce(message);
   }
 
-  // Stop asks the server to end the reply. The answer is the reply as saved,
+  // Stop asks the server to end the reply. The answer is the reply as it is kept,
   // which replaces the streaming one and so closes its connection.
   function stopStreaming() {
     const article = inFlight();

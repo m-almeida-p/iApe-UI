@@ -172,8 +172,8 @@ func (a *App) pump(ctx context.Context, sse *sseWriter, convID string, msgID uui
 	// send renders the reply so far and sends it, and reports whether the stream
 	// goes on. It ends for a reply that cannot be rendered, which is a fault of
 	// the page and is logged as one, and for a write that fails, which is a
-	// client that went away. Leaving then ends the run, and the reply is saved
-	// with the text so far (see streamHandler).
+	// client that went away. Leaving then ends the run, and the reply is kept
+	// as stopped, with the text so far (see streamHandler).
 	send := func() bool {
 		started := time.Now()
 		html, err := a.replyHTML(convID, msgID, domain.StatusStreaming, pace.text, "", domain.Meta{})

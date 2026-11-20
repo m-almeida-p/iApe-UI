@@ -225,3 +225,46 @@ func TestRateLimit_AnswersToCards(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, "/contacts/confirm", form, htmx).Code)
 	})
 }
+
+// The pages and the Historial read the history, so a user cannot make them without limit: ten times the limit of the sends.
+func TestRateLimit_Reads(t *testing.T) {
+	t.Run("a user that reads too fast is told to wait, and another is not affected", func(t *testing.T) {
+		h := limitedHarness(t, 1) // 0.0001 a second, a burst of 1 for the sends and so 10 for the reads
+		h.chat.On("NewConversation", alice.ID).Return(convID)
+		h.chat.On("NewConversation", bob.ID).Return(convID)
+		for range 10 {
+			require.Equal(t, http.StatusOK, h.as("tok", http.MethodGet, "/", url.Values{}, nil).Code)
+		}
+
+		rec := h.as("tok", http.MethodGet, "/", url.Values{}, nil)
+
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		assert.NotEmpty(t, rec.Header().Get("Retry-After"))
+		assert.Contains(t, rec.Body.String(), "too quickly")
+		assert.Equal(t, http.StatusOK, h.as("tok2", http.MethodGet, "/", url.Values{}, nil).Code)
+	})
+
+	t.Run("every read shares the bucket: the page, the Historial, a conversation and its earlier messages", func(t *testing.T) {
+		h := limitedHarness(t, 1)
+		for range 10 {
+			h.as("tok", http.MethodGet, "/history", url.Values{}, htmx) // no history here: a 404 that still counts
+		}
+
+		for _, path := range []string{"/", "/history", "/c/" + convID, "/c/" + convID + "/earlier?before=1"} {
+			assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodGet, path, url.Values{}, htmx).Code, path)
+		}
+	})
+
+	t.Run("the sends have their own bucket", func(t *testing.T) {
+		h := limitedHarness(t, 1)
+		for range 11 {
+			h.as("tok", http.MethodGet, "/history", url.Values{}, htmx)
+		}
+		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(service.Turn{
+			User:  domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "hi"},
+			Reply: domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending},
+		}, nil).Once()
+
+		assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/c/"+convID+"/messages", url.Values{"content": {"hi"}}, htmx).Code)
+	})
+}

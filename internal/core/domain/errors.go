@@ -54,8 +54,8 @@ var (
 	ErrMessageTooLong = &ValidationError{
 		Code: "message_too_long", Field: "content", Message: "That message is too long.",
 	}
-	// ErrMessageInvalid is for text that cannot be stored: bytes that are not
-	// UTF-8, or a NUL character, which the database refuses.
+	// ErrMessageInvalid is for text that cannot be kept: bytes that are not
+	// UTF-8, or a NUL character.
 	ErrMessageInvalid = &ValidationError{
 		Code: "message_invalid", Field: "content", Message: "That message has characters that can't be saved.",
 	}

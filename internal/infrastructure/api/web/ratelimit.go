@@ -140,6 +140,15 @@ func (a *App) tooManySends(w http.ResponseWriter, r *http.Request, wait time.Dur
 	a.composerProblem(w, r, http.StatusTooManyRequests, message)
 }
 
+// readsFactor is how many times the limit of the sends the reads get: a page, and the Historial it loads, are a few requests, and a
+// reader is no load to the agent. It is there so that nobody can make the history work without end.
+const readsFactor = 10
+
+// tooManyReads answers a page, the Historial or a page of a conversation that is over the limit.
+func (a *App) tooManyReads(w http.ResponseWriter, r *http.Request, wait time.Duration) {
+	http.Error(w, fmt.Sprintf("You're loading pages too quickly. Try again in %s.", seconds(retrySeconds(wait))), http.StatusTooManyRequests)
+}
+
 // tooManyAnswers answers an answer to a card (Pay, Reject, a code, a contact) that is over the limit: each one is a call to the
 // payment service with the shared account's token, so none is made for it.
 func (a *App) tooManyAnswers(w http.ResponseWriter, r *http.Request, wait time.Duration) {

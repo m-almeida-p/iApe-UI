@@ -57,6 +57,7 @@ type App struct {
 	md       *render.Markdown
 
 	sends   *rateLimiter // nil when limiting is off
+	reads   *rateLimiter // the pages and the Historial: each is a read of the history, so a user cannot make them without limit
 	answers *rateLimiter // the answers to cards: each is a call to the payment service
 	logins  *rateLimiter
 	ready   readyCache
@@ -89,11 +90,12 @@ func NewApp(log *slog.Logger, files fs.FS, svc Services, opts Options) (*App, er
 		sends:   newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		answers: newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		logins:  newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
+		reads:   newRateLimiter(opts.RateLimitRPS*readsFactor, opts.RateLimitBurst*readsFactor),
 		streams: streams, endStreams: endStreams,
 	}, nil
 }
 
-// EndStreams ends every running reply: each is saved as stopped with the text
+// EndStreams ends every running reply: each is ended as stopped with the text
 // so far, and its browser is told. Streams that start afterwards are sent away
 // to try again, so a reply is never stopped before it began. Call it when the
 // server starts shutting down.

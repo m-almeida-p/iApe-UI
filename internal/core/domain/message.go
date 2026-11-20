@@ -38,7 +38,7 @@ func (s Status) Terminal() bool {
 	return s == StatusComplete || s == StatusStopped || s == StatusFailed
 }
 
-// What the user is told when a reply fails. These are stored with the reply as
+// What the user is told when a reply fails. These are kept with the reply as
 // its Error and shown in the chat as they are. Technical detail goes to the
 // logs, never here.
 //
@@ -51,8 +51,8 @@ const (
 	FailureTooLong     = "The agent's answer grew too long and was stopped."
 	FailureUnknown     = "Something went wrong while writing the reply."
 	// FailureInterrupted is for a reply that was cut off with nothing left to
-	// finish it: a crash or restart recovered at startup, or a run that was lost
-	// on the way.
+	// finish it: a run that was lost on the way (a failed write, a bug that
+	// panicked).
 	FailureInterrupted = "This reply was interrupted before it finished."
 )
 
@@ -63,7 +63,7 @@ type Usage struct {
 }
 
 // Meta is what we learned while producing a reply. Zero values mean unknown
-// and are left out of the stored JSON and of the page.
+// and are left out of the page.
 type Meta struct {
 	// TTFTMs is the time from sending the upstream request to the first
 	// non-empty piece of text, measured on the server.
@@ -106,6 +106,6 @@ func NormalizeContent(raw string, maxChars int) (string, error) {
 	return content, nil
 }
 
-// storable reports whether s can be saved as text: valid UTF-8, and no NUL
-// character, which the database refuses.
+// storable reports whether s can be kept as text: valid UTF-8, and no NUL
+// character, which the history and the pages made from it cannot hold.
 func storable(s string) bool { return utf8.ValidString(s) && !strings.ContainsRune(s, 0) }

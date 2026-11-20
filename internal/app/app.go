@@ -41,7 +41,7 @@ type App struct {
 	pool *pgxpool.Pool
 }
 
-// Build connects to the database, runs the startup tasks, and wires the
+// Build connects to the database, makes the user of the Yape account when it is asked to, and wires the
 // application together. On error nothing is left open.
 func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error) {
 	sql, err := postgres.LoadStatements()
@@ -142,9 +142,8 @@ func (a *App) Close() { a.pool.Close() }
 // releases the database. It is the program's whole run, so the program and the
 // tests that stand in for it go through the same lines.
 //
-// The caller opens ln first. Building runs the startup recovery, which marks
-// every reply still streaming as interrupted; a second process that cannot get
-// the port must fail before it can do that to the first one's live replies.
+// The caller opens ln first: a second process that cannot get the port must fail before it builds anything, or it would make the
+// first one's user of the Yape account too.
 func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.Listener) error {
 	application, err := Build(ctx, cfg, log)
 	if err != nil {

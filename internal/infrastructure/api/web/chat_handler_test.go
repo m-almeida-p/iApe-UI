@@ -283,6 +283,9 @@ func TestConversationPage_AHistoryThatIsDown(t *testing.T) {
 		rec := h.do(http.MethodGet, "/c/"+convID, nil, nil)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
+		root := parseHTML(t, rec.Body.String())
+		assert.Len(t, byTestID(root, "composer-input"), 1)
+		assert.Contains(t, textContent(byTestID(root, "page-note")[0]), "not available", "an empty page that says why, not one that looks like an empty conversation")
 	})
 	t.Run("any other failure is a 500 that says nothing", func(t *testing.T) {
 		h := newChatHarness(t)
@@ -473,4 +476,23 @@ func TestTheOldRoutesAreGone(t *testing.T) {
 
 		assert.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, rec.Code, "%s %s", tc.method, tc.path)
 	}
+}
+
+func TestConversationPage_WhatTheHistoryHoldsIsScrubbed(t *testing.T) {
+	h := newChatHarness(t)
+	hostile := "Rosa\u202e 999\u0000\u2028x"
+	h.history.On("Transcript", mock.Anything, alice.ID, convID, mock.Anything).Return(history(said("1", domain.RoleUser, hostile), said("2", domain.RoleAssistant, hostile)), nil).Once()
+
+	rec := h.do(http.MethodGet, "/c/"+convID, nil, nil)
+
+	messages := byTestID(parseHTML(t, rec.Body.String()), "message")
+	require.Len(t, messages, 2)
+	for _, m := range messages {
+		text := textContent(byTestID(m, "message-body")[0])
+		assert.NotContains(t, text, "\u202e", "the direction is not turned around")
+		assert.NotContains(t, text, "\u2028")
+		assert.NotContains(t, text, "\x00")
+		assert.Contains(t, text, "Rosa 999x")
+	}
+	assert.Equal(t, "Rosa 999x", attrOf(byTestID(messages[1], "copy-message")[0], "data-raw"), "Copy holds the scrubbed text too")
 }

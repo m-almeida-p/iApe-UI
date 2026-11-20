@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -69,11 +70,23 @@ func TestBegin_OneReplyAtATimeInAConversation(t *testing.T) {
 	assert.NoError(t, s.Begin(ana, reply(conv, domain.StatusPending)), "it finished: the next can start")
 }
 
-func TestBegin_AReplyNobodyOpenedDoesNotBlockForGood(t *testing.T) {
+func TestBegin_AReplyNobodyStartedDoesNotBlockForLong(t *testing.T) {
 	c := newClock()
 	s := memory.NewLiveStore(memory.Options{Now: c.now})
 	require.True(t, s.Adopt(ana, conv))
 	require.NoError(t, s.Begin(ana, reply(conv, domain.StatusPending)))
+
+	c.advance(20 * time.Second) // its stream is still to open
+	assert.ErrorIs(t, s.Begin(ana, reply(conv, domain.StatusPending)), domain.ErrInvalidState)
+	c.advance(20 * time.Second) // a page opens it at once: this one was lost, and the user can write again
+	assert.NoError(t, s.Begin(ana, reply(conv, domain.StatusPending)))
+}
+
+func TestBegin_AReplyBeingWrittenBlocksUntilItsTime(t *testing.T) {
+	c := newClock()
+	s := memory.NewLiveStore(memory.Options{Now: c.now})
+	require.True(t, s.Adopt(ana, conv))
+	require.NoError(t, s.Begin(ana, reply(conv, domain.StatusStreaming)))
 
 	c.advance(14 * time.Minute)
 	assert.ErrorIs(t, s.Begin(ana, reply(conv, domain.StatusPending)), domain.ErrInvalidState)
@@ -252,4 +265,94 @@ func TestAnExpiredEntryIsGoneBeforeTheSweepForgetsIt(t *testing.T) {
 	assert.False(t, known)
 	assert.ErrorIs(t, s.Begin(ana, reply(conv, domain.StatusPending)), domain.ErrNotFound, "the conversation expired too")
 	assert.True(t, s.Adopt(beto, conv), "and can be adopted by anyone")
+}
+
+func conversationID(n int) string { return fmt.Sprintf("conv_v1_00000000-0000-4000-8000-%012d", n) }
+
+// One user cannot use up the store for the others: past their own limit they lose their own oldest.
+func TestAUserPastTheirLimitLosesTheirOwnOldest(t *testing.T) {
+	t.Run("conversations", func(t *testing.T) {
+		c := newClock()
+		s := memory.NewLiveStore(memory.Options{MaxConversationsPerUser: 3, Now: c.now})
+		require.True(t, s.Adopt(beto, "conv_of_beto")) // the oldest of all
+		c.advance(time.Second)
+		for i := range 5 {
+			require.True(t, s.Adopt(ana, conversationID(i)))
+			c.advance(time.Second)
+		}
+
+		_, known := s.Owner("conv_of_beto")
+		assert.True(t, known, "another user's conversation is not touched, old as it is")
+		_, known = s.Owner(conversationID(0))
+		assert.False(t, known, "ana's own oldest went")
+		_, known = s.Owner(conversationID(4))
+		assert.True(t, known)
+	})
+
+	t.Run("replies", func(t *testing.T) {
+		c := newClock()
+		s := memory.NewLiveStore(memory.Options{MaxRepliesPerUser: 2, Now: c.now})
+		other := reply(conv, domain.StatusComplete)
+		require.True(t, s.Adopt(beto, conv))
+		require.NoError(t, s.Begin(beto, other))
+		var first domain.Message
+		for i := range 4 {
+			id := conversationID(i)
+			require.True(t, s.Adopt(ana, id))
+			r := reply(id, domain.StatusComplete)
+			require.NoError(t, s.Begin(ana, r))
+			if i == 0 {
+				first = r
+			}
+			c.advance(time.Second)
+		}
+
+		_, err := s.Get(ana, first.ConversationID, first.ID)
+		assert.ErrorIs(t, err, domain.ErrNotFound, "ana's oldest finished reply went")
+		_, err = s.Get(beto, conv, other.ID)
+		assert.NoError(t, err, "beto's did not")
+	})
+
+	t.Run("replies that block are not dropped: the user is told they are busy", func(t *testing.T) {
+		s := memory.NewLiveStore(memory.Options{MaxRepliesPerUser: 2})
+		for i := range 2 {
+			require.True(t, s.Adopt(ana, conversationID(i)))
+			require.NoError(t, s.Begin(ana, reply(conversationID(i), domain.StatusStreaming)))
+		}
+		require.True(t, s.Adopt(ana, conversationID(9)))
+
+		assert.ErrorIs(t, s.Begin(ana, reply(conversationID(9), domain.StatusPending)), domain.ErrBusy)
+		require.True(t, s.Adopt(beto, conv))
+		assert.NoError(t, s.Begin(beto, reply(conv, domain.StatusPending)), "and beto is not affected")
+	})
+
+	t.Run("a reply nobody started is dropped to make room", func(t *testing.T) {
+		c := newClock()
+		s := memory.NewLiveStore(memory.Options{MaxRepliesPerUser: 1, Now: c.now})
+		require.True(t, s.Adopt(ana, conversationID(1)))
+		lost := reply(conversationID(1), domain.StatusPending)
+		require.NoError(t, s.Begin(ana, lost))
+		require.True(t, s.Adopt(ana, conversationID(2)))
+		assert.ErrorIs(t, s.Begin(ana, reply(conversationID(2), domain.StatusPending)), domain.ErrBusy, "it was just made: it may still be opened")
+
+		c.advance(time.Minute)
+
+		assert.NoError(t, s.Begin(ana, reply(conversationID(2), domain.StatusPending)))
+		_, err := s.Get(ana, conversationID(1), lost.ID)
+		assert.ErrorIs(t, err, domain.ErrNotFound)
+	})
+}
+
+func TestForgettingAConversationForgetsItsReplies(t *testing.T) {
+	c := newClock()
+	s := memory.NewLiveStore(memory.Options{MaxConversationsPerUser: 1, Now: c.now})
+	require.True(t, s.Adopt(ana, conv))
+	r := reply(conv, domain.StatusComplete)
+	require.NoError(t, s.Begin(ana, r))
+	c.advance(time.Second)
+
+	require.True(t, s.Adopt(ana, conversationID(1))) // over the limit: the first conversation goes, and its reply with it
+
+	_, err := s.Get(ana, conv, r.ID)
+	assert.ErrorIs(t, err, domain.ErrNotFound)
 }

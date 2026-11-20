@@ -149,7 +149,7 @@ func TestConversations_KeepsWhatTheFirstMessageIs(t *testing.T) {
 	assert.Equal(t, time.UnixMilli(2250), list.Conversations[0].LastAt)
 }
 
-func TestConversations_ARowWithoutAnIDIsNotShown(t *testing.T) {
+func TestConversations_ARowWithoutAnIDIsNotShown(t *testing.T) { // see also the ids that are not ids, below
 	c, _ := history(t, serveJSON(200, "", `{"conversations":[{"cursor":"1~x","messageCount":1}]}`))
 
 	_, err := c.Conversations(t.Context(), account, domain.PageRequest{})
@@ -259,6 +259,9 @@ func TestMessages_AnIDThatTheHistoryCannotHaveIsNotLookedFor(t *testing.T) {
 		"not ASCII":     "convñ",
 		"a percent":     "conv%2e",
 		"an upper path": "../../health",
+		"a dot":         ".",
+		"two dots":      "..",
+		"only dots":     "...",
 	}
 	for name, id := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -553,4 +556,16 @@ func TestLink_TakesTheCursorsOfBothDirections(t *testing.T) {
 func TestHTTPError_SaysWhatItKnows(t *testing.T) {
 	assert.Equal(t, "history returned HTTP 503", (&historyapi.HTTPError{Status: 503}).Error())
 	assert.Equal(t, "history returned HTTP 400 (invalid-request)", (&historyapi.HTTPError{Status: 400, Problem: "invalid-request"}).Error())
+}
+
+func TestConversations_AnIDThatIsNotOneIsAnAnswerThatBreaksTheContract(t *testing.T) {
+	for name, id := range map[string]string{"a path": "../x", "a dot": ".", "a space": "a b", "a query": "a?b", "too long": strings.Repeat("a", 129)} {
+		t.Run(name, func(t *testing.T) {
+			c, _ := history(t, serveJSON(200, "", `{"conversations":[{"_id":"`+id+`","cursor":"1~x","messageCount":1}]}`))
+
+			_, err := c.Conversations(t.Context(), account, domain.PageRequest{})
+
+			assert.ErrorIs(t, err, domain.ErrHistoryUnavailable)
+		})
+	}
 }

@@ -70,12 +70,13 @@ func (a *App) messageView(m domain.Message) messageView {
 // transcriptView draws a message of the history. It is finished, and it has no card: a card is live in this server only.
 func (a *App) transcriptView(convID string, m domain.TranscriptMessage) messageView {
 	v := messageView{ID: "h" + m.ID, ConversationID: convID, Role: string(m.Role), Status: string(domain.StatusComplete)}
+	text := plain(m.Text) // what the history holds is data: no control or direction-changing characters reach the page
 	if m.Role == domain.RoleUser {
-		v.Text = m.Text
+		v.Text = text
 		return v
 	}
-	v.Body = a.md.RenderFinal(m.Text)
-	v.Raw = m.Text
+	v.Body = a.md.RenderFinal(text)
+	v.Raw = text
 	return v
 }
 
@@ -140,6 +141,7 @@ func (a *App) conversationPage(w http.ResponseWriter, r *http.Request) {
 				a.renderChat(w, r, http.StatusServiceUnavailable, page)
 				return
 			}
+			page.Note = historyDown // a chat started here goes on, with what the history would show missing
 		default:
 			a.serverError(w, r, err)
 			return

@@ -106,15 +106,16 @@ its https address, which turns on Secure cookies and HSTS (`APP_ENV=production` 
 
 ## The cards
 
-When the agent's reply carries a card, the page draws it from what is saved with the reply, so it is the same after a reload:
+When the agent's reply carries a card, the page draws it from the reply, which lives in this server's memory (up to 2 hours); a reload makes the
+card disappear, because the history keeps none:
 
 | Card | What it asks | Answered with |
 |------|--------------|---------------|
 | Contact (`CONTACT_REQUEST`) | Who to pay: the candidates are test contacts, always the same for the same name | A button: the contact is confirmed with the BFF and the agent goes on (the page sends `usuario confirmado`) |
 | Transfer (`ACTION_REQUEST`) | Pay or reject S/ N to a destination | **Pay** or **Reject**; when the bank asks for a code, a field for it |
 
-The composer's `@` picker offers the same test contacts and puts `@(Name)` in the message. A card keeps its state in
-`messages.meta` (the key `interaction`), and it only goes forward: of several answers to one card exactly one wins.
+The composer's `@` picker offers the same test contacts and puts `@(Name)` in the message. A card only goes forward (paid and rejected are closed), and
+what keeps one transfer from being paid twice is the agent's service, which ignores a repeated answer: see `docs/agent-integration-notes.md`.
 
 ## Makefile
 

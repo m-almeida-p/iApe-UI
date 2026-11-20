@@ -90,8 +90,8 @@ func (c *Client) Conversations(ctx context.Context, account uuid.UUID, page doma
 	}
 	list := domain.ConversationList{Conversations: make([]domain.ConversationSummary, 0, len(body.Conversations))}
 	for _, cj := range body.Conversations {
-		if cj.ID == "" {
-			return domain.ConversationList{}, fmt.Errorf("%w: a conversation without an id", domain.ErrHistoryUnavailable)
+		if !validID(cj.ID) { // it becomes a link and a path: an id the history cannot have is not shown, and says the answer is wrong
+			return domain.ConversationList{}, fmt.Errorf("%w: a conversation with an id that is not one", domain.ErrHistoryUnavailable)
 		}
 		list.Conversations = append(list.Conversations, domain.ConversationSummary{
 			ID:                    cj.ID,
@@ -188,7 +188,7 @@ func unixTime(seconds float64) time.Time {
 
 // validID reports whether s can be the id of a conversation: what the history accepts, letters, digits and . _ : -, up to 128.
 func validID(s string) bool {
-	if s == "" || len(s) > maxIDChars {
+	if s == "" || len(s) > maxIDChars || strings.Trim(s, ".") == "" { // "." and ".." are path segments that escaping leaves as they are
 		return false
 	}
 	for i := range len(s) {
