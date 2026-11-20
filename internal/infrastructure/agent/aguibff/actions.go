@@ -42,7 +42,8 @@ func (a actionAnswer) confirmed() bool {
 }
 
 // unconfirmed is the error of a 2xx that does not say the transfer was done. The service answered, so the transfer may have gone
-// through or not: it is neither a refusal nor a request that never left, and the card stays claimed until the claim is stale.
+// through or not: it is neither a refusal nor a request that never left. The card is as it was, and answering it again is safe: the service ignores a
+// repeat.
 func unconfirmed(a actionAnswer) error {
 	status := ""
 	if a.Execution != nil {

@@ -34,15 +34,10 @@ func TestLogs_NeverHoldWhatPeopleWrite(t *testing.T) {
 	// A conversation with everything done to it that writes something down.
 	conv, reply := c.Start("tell me about " + said)
 	c.OpenStream(ctx, conv, reply).Drain()
-	require.Equal(t, 200, c.Raw(conv, reply).Status)
-	regenerated := c.Regenerate(conv, reply)
-	require.Equal(t, 200, regenerated.Status, regenerated.Body)
-	c.OpenStream(ctx, conv, stack.MessagesIn(t, regenerated.Body)[0].ID).Drain()
 	second := c.Send(conv, "and "+said+" again")
 	c.OpenStream(ctx, conv, second).Drain()
 	third := c.Send(conv, "once more "+said+" #slow")
 	require.Equal(t, 200, c.Stop(conv, third).Status)
-	require.Equal(t, 200, c.Do(http.MethodPatch, "/c/"+conv, url.Values{"title": {titled}}, "HX-Request", "true").Status)
 
 	// And what goes wrong: an answer cut off with some of it written, the agent
 	// gone, a password that is wrong, a message that is too long.

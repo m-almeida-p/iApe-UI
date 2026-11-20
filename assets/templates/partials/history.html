@@ -1,0 +1,27 @@
+{{/*
+  The Historial in the side menu: one row for each conversation of the user, the first thing they wrote in it, when it last had a
+  message and how many it has. Everything here is text of the history, escaped. A row is a link to the conversation, which opens as
+  a chat the user can go on with.
+*/}}
+{{define "partial:history"}}{{if .Error}}<p class="text-body-secondary small px-2" role="status" data-testid="history-error">{{.Error}}</p>
+<button type="button" class="btn btn-sm btn-outline-secondary mx-2" data-testid="history-retry"
+        hx-get="{{.RetryURL}}" hx-target="#history" hx-swap="innerHTML">Try again</button>{{else}}
+<ul id="history-list" class="list-unstyled conversation-list mb-0" data-testid="conversation-list" aria-label="Your conversations">
+  {{range .Items}}{{template "partial:history_item" .}}{{else}}
+  <li class="text-body-secondary small px-2" data-testid="history-empty">No conversations yet.</li>
+  {{end}}
+</ul>
+<div id="history-more" class="px-2 mt-2">{{template "partial:history_more" .}}</div>{{end}}{{end}}
+
+{{/* The next page of the Historial: its rows to add to the list, and the button for the page after it in the place of the old one. */}}
+{{define "partial:history_page"}}{{range .Items}}{{template "partial:history_item" .}}{{end}}<div id="history-more" class="px-2 mt-2" hx-swap-oob="true">{{template "partial:history_more" .}}</div>{{end}}
+
+{{define "partial:history_more"}}{{if .MoreURL}}<button type="button" class="btn btn-sm btn-outline-secondary w-100" data-testid="history-more"
+        hx-get="{{.MoreURL}}" hx-target="#history-list" hx-swap="beforeend" hx-disabled-elt="this">Older conversations</button>{{end}}{{end}}
+
+{{define "partial:history_item"}}<li class="conversation-item{{if .Active}} active{{end}}" data-testid="conversation" data-id="{{.ID}}">
+  <a href="/c/{{.ID}}" class="conversation-link" data-testid="conversation-link" title="{{.Title}}"{{if .Active}} aria-current="page"{{end}}>
+    <span class="conversation-title">{{.Title}}</span>
+    <span class="conversation-meta" data-testid="conversation-meta">{{.When}} · {{.Count}}</span>
+  </a>
+</li>{{end}}

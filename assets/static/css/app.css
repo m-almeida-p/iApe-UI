@@ -56,7 +56,7 @@ body.app-fixed {
   }
 }
 
-/* A conversation in the sidebar: the link, and rename/delete when the row is hovered or focused. */
+/* A conversation of the Historial in the sidebar: what the user first wrote in it, and when it last had a message. */
 .conversation-item {
   display: flex;
   align-items: center;
@@ -70,65 +70,35 @@ body.app-fixed {
 }
 
 .conversation-link {
-  display: block;
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-width: 0;
   padding: 0.5rem 0.75rem;
   overflow: hidden;
   color: var(--bs-body-color);
   text-decoration: none;
+}
+
+.conversation-title {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.conversation-actions {
-  display: flex;
-  flex: 0 0 auto;
-  padding-right: 0.25rem;
-  opacity: 0;
-}
-
-.conversation-item:hover .conversation-actions,
-.conversation-item:focus-within .conversation-actions,
-.conversation-item.active .conversation-actions {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .conversation-actions {
-    opacity: 1;
-  }
+.conversation-meta {
+  color: var(--bs-secondary-color);
+  font-size: 0.75rem;
 }
 
 /*
  * Bootstrap keeps the light theme's #6c757d for the text of an outline button in
- * the dark theme too, and on the sidebar's editing row. That is under 4.5 to 1
+ * the dark theme too. That is under 4.5 to 1
  * there. The theme's own secondary text color is set for the background of its
  * theme, so the buttons read in both. Hover and active keep Bootstrap's fill.
  */
 .btn-outline-secondary {
   --bs-btn-color: var(--bs-secondary-color);
-}
-
-.conversation-action {
-  padding: 0.25rem 0.4rem;
-  color: var(--bs-secondary-color);
-}
-
-.conversation-action:hover {
-  color: var(--bs-body-color);
-}
-
-.conversation-item.editing {
-  display: block;
-  padding: 0.25rem;
-  background: var(--bs-secondary-bg);
-}
-
-.rename-buttons {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
 }
 
 .chat-column {
@@ -147,6 +117,11 @@ body.app-fixed {
 
 .empty-state {
   margin-top: 20vh;
+}
+
+/* A chat that has its first message has no empty state. */
+.messages:has(.message) .empty-state {
+  display: none;
 }
 
 .message {
@@ -217,10 +192,6 @@ body.app-fixed {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
-}
-
-.reply:not(:last-child) .latest-only {
-  display: none;
 }
 
 .typing {
@@ -302,8 +273,7 @@ html[data-theme-mode="dark"] .theme-icon-dark {
 }
 
 /* Keyboard focus is always visible, also where Bootstrap draws none (a plain .btn has no ring). */
-.conversation-link:focus-visible,
-.conversation-action:focus-visible {
+.conversation-link:focus-visible {
   outline: 2px solid var(--bs-primary);
   outline-offset: -2px;
 }
@@ -372,4 +342,12 @@ main:focus {
 .contact-option:hover,
 .contact-option.active {
   background: var(--bs-tertiary-bg);
+}
+
+.sidebar-heading {
+  letter-spacing: 0.02em;
+}
+
+.earlier .btn {
+  min-width: 12rem;
 }

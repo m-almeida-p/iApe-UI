@@ -1,4 +1,0 @@
-SELECT id, seq, role, status, COALESCE(meta -> 'interaction' ->> 'state', '') FROM messages
-WHERE conversation_id = $1
-ORDER BY seq DESC
-LIMIT 1

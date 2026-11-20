@@ -2,7 +2,6 @@ package domain
 
 import (
 	"strings"
-	"time"
 	"unicode/utf8"
 	"uuid"
 )
@@ -20,8 +19,7 @@ const (
 //
 //	pending   -> streaming -> complete | stopped | failed
 //
-// Terminal messages never change again. Regenerating or retrying replaces the
-// message with a new pending one.
+// Terminal messages never change again.
 //
 // Pattern: Store-Enforced State Machine
 type Status string
@@ -77,19 +75,20 @@ type Meta struct {
 	Interaction *Interaction `json:"interaction,omitzero"`
 }
 
-// Message is one turn of a conversation. Content is Markdown exactly as typed
-// or as the agent produced it.
+// Message is one turn of a conversation that is live in this server: what the user just wrote, and the reply being written (the
+// conversation's history, the only record of the chats, is read through the HistoryGateway). Content is Markdown exactly as typed or as
+// the agent produced it.
 type Message struct {
-	ID             uuid.UUID
-	ConversationID uuid.UUID
-	Seq            int
+	ID uuid.UUID
+	// ConversationID is the id the UI made when the chat started (see NewConversationID).
+	ConversationID string
 	Role           Role
 	Content        string
-	Status         Status
-	Error          string
-	Meta           Meta
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// Prompt is what the user wrote, for the reply that answers it while it is not started: the agent is asked with it.
+	Prompt string
+	Status Status
+	Error  string
+	Meta   Meta
 }
 
 // NormalizeContent trims raw and checks it against the limit, counted in

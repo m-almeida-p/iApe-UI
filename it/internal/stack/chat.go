@@ -3,22 +3,30 @@ package stack
 import (
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/html"
 )
 
-// Start opens a conversation with its first message, as the empty-state form
-// does, and returns the ids of the conversation and of the reply being written.
+// NewChat opens the empty-state page and returns the id the chat will have: the one the composer posts to.
+func (c *Client) NewChat() (conv string) {
+	c.t.Helper()
+	res := c.Get("/")
+	require.Equal(c.t, http.StatusOK, res.Status, res.Body)
+	form := Find(Doc(c.t, res.Body), func(n *html.Node) bool { return n.Type == html.ElementNode && Attr(n, "id") == "composer" })
+	require.NotNil(c.t, form, "the page has a composer")
+	action := Attr(form, "hx-post")
+	require.True(c.t, strings.HasPrefix(action, "/c/") && strings.HasSuffix(action, "/messages"), "the composer posts to %q", action)
+	return strings.TrimSuffix(strings.TrimPrefix(action, "/c/"), "/messages")
+}
+
+// Start opens a chat with its first message, as the empty-state page does, and returns the ids of the conversation and of the
+// reply being written.
 func (c *Client) Start(content string) (conv, reply string) {
 	c.t.Helper()
-	res := c.Post("/c", url.Values{"content": {content}})
-	require.Equal(c.t, http.StatusSeeOther, res.Status, res.Body)
-	location := res.Header.Get("Location")
-	require.True(c.t, strings.HasPrefix(location, "/c/"), "redirected to %q", location)
-	conv = path.Base(location)
-	return conv, c.LatestReply(conv)
+	conv = c.NewChat()
+	return conv, c.Send(conv, content)
 }
 
 // Send adds a message to a conversation the way the composer does (htmx), and
@@ -33,39 +41,17 @@ func (c *Client) Send(conv, content string) (reply string) {
 	return messages[1].ID
 }
 
-// Messages lists the messages of a conversation as its page shows them.
-func (c *Client) Messages(conv string) []Message {
-	c.t.Helper()
-	res := c.Get("/c/" + conv)
-	require.Equal(c.t, http.StatusOK, res.Status, res.Body)
-	return MessagesIn(c.t, res.Body)
-}
-
-// LatestReply is the id of the last message of a conversation.
-func (c *Client) LatestReply(conv string) string {
-	c.t.Helper()
-	messages := c.Messages(conv)
-	require.NotEmpty(c.t, messages)
-	last := messages[len(messages)-1]
-	require.Equal(c.t, "assistant", last.Role)
-	return last.ID
-}
-
 // Stop presses Stop on a reply.
 func (c *Client) Stop(conv, reply string) *Response {
 	c.t.Helper()
 	return c.Post("/c/"+conv+"/m/"+reply+"/stop", nil, "HX-Request", "true")
 }
 
-// Regenerate presses Regenerate (or Retry) on a reply. A new reply takes its
-// place; the answer is its wrapper.
-func (c *Client) Regenerate(conv, reply string) *Response {
-	c.t.Helper()
-	return c.Post("/c/"+conv+"/m/"+reply+"/regenerate", nil, "HX-Request", "true")
-}
-
-// Raw fetches the text of a finished reply exactly as stored.
-func (c *Client) Raw(conv, reply string) *Response {
-	c.t.Helper()
-	return c.Get("/c/" + conv + "/m/" + reply + "/raw")
+// RawOf is the text of a finished reply exactly as the page's Copy button holds it (Markdown), or "" when it has none.
+func RawOf(m Message) string {
+	button := Find(m.Node, TestID("copy-message"))
+	if button == nil {
+		return ""
+	}
+	return Attr(button, "data-raw")
 }

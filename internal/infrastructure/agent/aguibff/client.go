@@ -125,11 +125,14 @@ func withLimit(ctx context.Context, limit time.Duration) (context.Context, conte
 	return context.WithTimeout(ctx, limit)
 }
 
-// actionLimit is the time an answer to a card is given: the configured limit, but never more than half of what a claim on the card
-// lasts (domain.ClaimTTL). The call has to be over, and its card saved, before the claim goes stale, or another click takes the card
-// over while the first call is still out. No limit in the settings is the ceiling too.
+// maxActionTime is the longest an answer to a card is given: an answer is a call to the payment service, and a person is waiting for
+// it. The limit in the settings, which is for a whole turn of the agent, may be much longer.
+const maxActionTime = time.Minute
+
+// actionLimit is the time an answer to a card is given: the configured limit, but never more than maxActionTime. No limit in the
+// settings is the ceiling too.
 func (c *Client) actionLimit() time.Duration {
-	ceiling := domain.ClaimTTL / 2
+	ceiling := maxActionTime
 	if c.timeout <= 0 {
 		return ceiling
 	}
@@ -137,12 +140,8 @@ func (c *Client) actionLimit() time.Duration {
 }
 
 // classify tells what ended a request: the caller leaving, the time limit, or the failure itself.
-// unreached wraps the failure of a request. One that failed while the connection was being made certainly did not reach the service
-// (ErrNotSent); any other (a timeout, a connection that was dropped) may have.
+// unreached wraps the failure of a request: the agent's service could not be reached, or did not answer.
 func unreached(err error) error {
-	if op, ok := errors.AsType[*net.OpError](err); ok && op.Op == "dial" {
-		return fmt.Errorf("%w: %w: %w", domain.ErrAgentUnavailable, domain.ErrNotSent, err)
-	}
 	return fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 }
 
@@ -163,14 +162,14 @@ var errNoAccount = errors.New("the request is for no account")
 // the request is made again.
 func (c *Client) send(ctx context.Context, account uuid.UUID, request func(token string) (*http.Response, error)) (*http.Response, error) {
 	if account == uuid.Nil() {
-		return nil, fmt.Errorf("%w: %w: %w", domain.ErrAgentUnavailable, domain.ErrNotSent, errNoAccount)
+		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, errNoAccount)
 	}
 	token, err := c.tokens.Token(ctx, account)
 	if err == nil && strings.TrimSpace(token) == "" {
 		err = fmt.Errorf("%w: the token source gave an empty token", ErrToken)
 	}
 	if err != nil { // no token: nothing was sent
-		return nil, fmt.Errorf("%w: %w: %w", domain.ErrAgentUnavailable, domain.ErrNotSent, err)
+		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 	}
 	resp, err := request(token)
 	if err != nil {
@@ -179,7 +178,7 @@ func (c *Client) send(ctx context.Context, account uuid.UUID, request func(token
 	if refresher, ok := c.tokens.(Refresher); ok && resp.StatusCode == http.StatusUnauthorized {
 		_ = readHTTPError(resp)
 		if token, err = refresher.Refresh(ctx, account); err != nil { // a 401 is a request the service did not act on
-			return nil, fmt.Errorf("%w: %w: %w", domain.ErrAgentUnavailable, domain.ErrNotSent, err)
+			return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 		}
 		if resp, err = request(token); err != nil {
 			return nil, unreached(err)
@@ -209,7 +208,7 @@ func (c *Client) open(ctx context.Context, req domain.AgentRequest) (io.ReadClos
 func (c *Client) post(ctx context.Context, req domain.AgentRequest, token string) (*http.Response, error) {
 	runID := uuid.New().String()
 	payload, err := json.Marshal(runInput{
-		ThreadID: req.ConversationID.String(),
+		ThreadID: req.ConversationID,
 		RunID:    runID,
 		Messages: []message{{ID: runID, Role: "user", Content: req.Text}},
 	})

@@ -1,5 +1,5 @@
 // The Web UI end to end over real HTTP: the application as the program runs it,
-// a real PostgreSQL, the scripted ADK agent, and a client that reads the event
+// a real PostgreSQL (for the users), the scripted BFF, and a client that reads the event
 // streams the way a browser does. Every case starts its own stack and ends with
 // a check that nothing of the application is left running.
 //
@@ -65,7 +65,7 @@ func lastOf(t *testing.T, messages []stack.Message) stack.Message {
 }
 
 func TestChatSuite(t *testing.T) {
-	t.Run("a reply arrives in pieces and is saved as it was shown (SC-1)", func(t *testing.T) {
+	t.Run("a reply arrives in pieces and ends as it was shown (SC-1)", func(t *testing.T) {
 		leak.Check(t)
 		s := stack.Start(t, stack.WithBFF(testbff.WithSlow(15*time.Millisecond, 30)))
 		c := s.SignedIn()
@@ -90,17 +90,8 @@ func TestChatSuite(t *testing.T) {
 		final := lastOf(t, shown)
 		assert.Equal(t, "complete", final.Status)
 
-		saved := c.Raw(conv, reply)
-		assert.Equal(t, 200, saved.Status)
-		assert.Equal(t, ticks(30), saved.Body, "what is stored is what the agent said")
-		assert.Equal(t, strings.TrimSpace(saved.Body), final.Text, "and the last update shows it")
-
-		reloaded := c.Messages(conv)
-		require.Len(t, reloaded, 2)
-		assert.Equal(t, "user", reloaded[0].Role)
-		assert.Equal(t, "Tell me something #slow", reloaded[0].Text)
-		assert.Equal(t, final.Text, reloaded[1].Text, "a reload shows the same conversation")
-		assert.Equal(t, "complete", reloaded[1].Status)
+		assert.Equal(t, ticks(30), stack.RawOf(final), "what the Copy button holds is what the agent said")
+		assert.Equal(t, strings.TrimSpace(stack.RawOf(final)), final.Text, "and the last update shows it")
 		// The BFF's stream carries no token counts, so the page shows the times and no tokens.
 		for _, attr := range []string{"data-ttft-ms", "data-duration-ms"} {
 			assert.NotEmpty(t, stack.Attr(final.Node, attr), "%s is set once the reply is finished (SC-22)", attr)
@@ -142,14 +133,10 @@ func TestChatSuite(t *testing.T) {
 		assert.Equal(t, domain.FailureIncomplete, strings.TrimSpace(stack.Text(problem)))
 		assert.True(t, strings.HasPrefix(final.Text, "tick 1 "), "what arrived is still there: %q", final.Text)
 		assert.Less(t, len(final.Text), len(strings.TrimSpace(ticks(50))), "and it is not the whole reply")
-		assert.NotNil(t, stack.Find(final.Node, stack.TestID("retry")), "with a Retry button")
-
-		saved := c.Raw(conv, reply)
-		require.Equal(t, 200, saved.Status)
-		assert.Equal(t, strings.TrimSpace(saved.Body), final.Text, "a reload shows what the stream showed")
-		var status string
-		require.NoError(t, s.Pool.QueryRow(t.Context(), `SELECT status FROM messages WHERE id = $1`, reply).Scan(&status))
-		assert.Equal(t, "failed", status)
+		assert.Nil(t, stack.Find(final.Node, stack.TestID("retry")), "there is no Retry: the user writes again")
+		replay := lastOf(t, deltas(t, c.OpenStream(within(t, 20*time.Second), conv, reply).Drain()))
+		assert.Equal(t, "failed", replay.Status, "the server keeps the reply as it ended")
+		assert.Equal(t, final.Text, replay.Text)
 	})
 
 	t.Run("Stop ends the agent's run within a second and keeps the text so far (SC-2)", func(t *testing.T) {
@@ -176,16 +163,13 @@ func TestChatSuite(t *testing.T) {
 		assert.Equal(t, "stopped", lastOf(t, deltas(t, rest)).Status, "the open stream is told, and then ends")
 		assert.Equal(t, "done", rest[len(rest)-1].Name)
 
-		kept := c.Raw(conv, reply)
-		require.Equal(t, 200, kept.Status)
-		assert.True(t, strings.HasPrefix(kept.Body, "tick 1 "), "the text so far is kept: %q", kept.Body)
-		assert.Less(t, len(kept.Body), len(ticks(400)), "and it is not the whole reply")
-		var status string
-		require.NoError(t, s.Pool.QueryRow(t.Context(), `SELECT status FROM messages WHERE id = $1`, reply).Scan(&status))
-		assert.Equal(t, "stopped", status)
+		replay := lastOf(t, deltas(t, c.OpenStream(within(t, 20*time.Second), conv, reply).Drain()))
+		assert.Equal(t, "stopped", replay.Status)
+		assert.True(t, strings.HasPrefix(stack.RawOf(replay), "tick 1 "), "the text so far is kept: %q", stack.RawOf(replay))
+		assert.Less(t, len(stack.RawOf(replay)), len(ticks(400)), "and it is not the whole reply")
 	})
 
-	t.Run("closing the page mid-reply cancels the agent's run and saves the text so far (SC-2)", func(t *testing.T) {
+	t.Run("closing the page mid-reply cancels the agent's run and keeps the text so far (SC-2)", func(t *testing.T) {
 		leak.Check(t)
 		s := stack.Start(t, stack.WithBFF(testbff.WithSlow(20*time.Millisecond, 400)))
 		c := s.SignedIn()
@@ -201,50 +185,20 @@ func TestChatSuite(t *testing.T) {
 
 		require.Eventually(t, func() bool { return s.BFF.Probe().Cancelled() == 1 }, 2*time.Second, 10*time.Millisecond,
 			"the agent saw its run cancelled")
-		var status, content string
+		var replay stack.Message
 		require.Eventually(t, func() bool {
-			err := s.Pool.QueryRow(t.Context(), `SELECT status, content FROM messages WHERE id = $1`, reply).Scan(&status, &content)
-			return err == nil && status == "stopped"
-		}, 2*time.Second, 10*time.Millisecond, "the reply was saved as stopped")
-		assert.True(t, strings.HasPrefix(content, "tick 1 "), "with the text so far: %q", content)
-		assert.Less(t, len(content), len(ticks(400)))
-		assert.Equal(t, content, c.Raw(conv, reply).Body, "and it can be read back")
+			events := c.OpenStream(within(t, 5*time.Second), conv, reply).Drain()
+			if len(events) == 0 {
+				return false
+			}
+			replay = lastOf(t, deltas(t, events))
+			return replay.Status == "stopped"
+		}, 2*time.Second, 20*time.Millisecond, "the reply was kept as stopped")
+		assert.True(t, strings.HasPrefix(stack.RawOf(replay), "tick 1 "), "with the text so far: %q", stack.RawOf(replay))
+		assert.Less(t, len(stack.RawOf(replay)), len(ticks(400)))
 	})
 
-	t.Run("Regenerate replaces only the latest reply (SC-3)", func(t *testing.T) {
-		leak.Check(t)
-		s := stack.Start(t)
-		c := s.SignedIn()
-		conv, first := c.Start("first question")
-		c.OpenStream(within(t, 20*time.Second), conv, first).Drain()
-		second := c.Send(conv, "second question")
-		c.OpenStream(within(t, 20*time.Second), conv, second).Drain()
-		before := c.Messages(conv)
-		require.Len(t, before, 4)
-		require.Equal(t, int64(2), s.BFF.Probe().Runs())
-
-		res := c.Regenerate(conv, second)
-
-		require.Equal(t, 200, res.Status, res.Body)
-		fresh := stack.MessagesIn(t, res.Body)
-		require.Len(t, fresh, 1, "the answer is the new reply")
-		c.OpenStream(within(t, 20*time.Second), conv, fresh[0].ID).Drain()
-		after := c.Messages(conv)
-		require.Len(t, after, 4, "still two turns")
-		for i := range 3 {
-			assert.Equal(t, before[i].ID, after[i].ID, "message %d is untouched", i)
-			assert.Equal(t, before[i].Text, after[i].Text, "message %d is untouched", i)
-		}
-		assert.Equal(t, "complete", after[3].Status)
-		assert.Equal(t, "You said: second question", after[3].Text, "the new reply answers the same question")
-		assert.Equal(t, int64(3), s.BFF.Probe().Runs(), "the agent was asked once more")
-
-		earlier := c.Regenerate(conv, first)
-		assert.Equal(t, 409, earlier.Status, "an earlier reply can't be regenerated")
-		assert.Equal(t, int64(3), s.BFF.Probe().Runs())
-	})
-
-	t.Run("with the agent down the reply says so, and Retry works once it is back (SC-4)", func(t *testing.T) {
+	t.Run("with the agent down the reply says so, and the chat goes on once it is back (SC-4)", func(t *testing.T) {
 		leak.Check(t)
 		s := stack.Start(t)
 		c := s.SignedIn()
@@ -263,19 +217,13 @@ func TestChatSuite(t *testing.T) {
 		for _, ev := range events {
 			assert.NotContains(t, ev.Data, s.Agent.URL, "the agent's address stays private")
 		}
-		require.NotNil(t, stack.Find(final.Node, stack.TestID("retry")), "with a Retry button")
+		assert.Nil(t, stack.Find(final.Node, stack.TestID("retry")), "there is no Retry: the user writes again")
 
 		s.Agent.Up()
-		res := c.Regenerate(conv, reply)
-
-		require.Equal(t, 200, res.Status, res.Body)
-		retried := stack.MessagesIn(t, res.Body)[0]
-		again := deltas(t, c.OpenStream(within(t, 20*time.Second), conv, retried.ID).Drain())
-		assert.Equal(t, "complete", lastOf(t, again).Status)
-		assert.Equal(t, "You said: Are you there?", lastOf(t, again).Text, "the prompt was kept")
-		page := c.Messages(conv)
-		require.Len(t, page, 2, "one question and one reply")
-		assert.Equal(t, "Are you there?", page[0].Text)
+		again := c.Send(conv, "Are you there now?")
+		answer := deltas(t, c.OpenStream(within(t, 20*time.Second), conv, again).Drain())
+		assert.Equal(t, "complete", lastOf(t, answer).Status, "the same chat goes on once the agent is back")
+		assert.Equal(t, "You said: Are you there now?", lastOf(t, answer).Text)
 	})
 
 	t.Run("a finished reply is replayed without asking the agent again (SC-5)", func(t *testing.T) {
@@ -294,8 +242,6 @@ func TestChatSuite(t *testing.T) {
 		assert.Equal(t, lastOf(t, deltas(t, first)).Text, replyOf(t, again[0]).Text)
 		assert.Equal(t, "complete", replyOf(t, again[0]).Status)
 		assert.Equal(t, int64(1), s.BFF.Probe().Runs(), "no second run")
-		page := c.Get("/c/" + conv)
-		assert.NotContains(t, page.Body, "sse-connect", "a finished reply opens no stream when the page is loaded")
 	})
 
 	t.Run("the agent's reasoning never reaches the page, and no text is shown twice (SC-7)", func(t *testing.T) {
@@ -309,15 +255,14 @@ func TestChatSuite(t *testing.T) {
 		for _, ev := range events {
 			assert.NotContains(t, ev.Data, "think about that", "the reasoning is not sent")
 		}
-		saved := c.Raw(conv, reply)
-		assert.Equal(t, "You said: What is two plus two? #think", saved.Body, "exactly what the agent answered, once")
-		assert.Equal(t, 1, strings.Count(saved.Body, "You said:"))
-		assert.Equal(t, "You said: What is two plus two? #think", lastOf(t, deltas(t, events)).Text)
-		assert.NotContains(t, c.Get("/c/"+conv).Body, "think about that")
+		final := lastOf(t, deltas(t, events))
+		assert.Equal(t, "You said: What is two plus two? #think", stack.RawOf(final), "exactly what the agent answered, once")
+		assert.Equal(t, 1, strings.Count(stack.RawOf(final), "You said:"))
+		assert.Equal(t, "You said: What is two plus two? #think", final.Text)
 		assert.Equal(t, int64(1), s.BFF.Probe().Runs())
 	})
 
-	t.Run("shutting down ends the replies being written and saves their text (SC-19)", func(t *testing.T) {
+	t.Run("shutting down ends the replies being written and tells their readers (SC-19)", func(t *testing.T) {
 		leak.Check(t)
 		s := stack.Start(t,
 			stack.WithBFF(testbff.WithSlow(20*time.Millisecond, 500)),
@@ -338,10 +283,6 @@ func TestChatSuite(t *testing.T) {
 		require.NotEmpty(t, rest)
 		assert.Equal(t, "stopped", lastOf(t, deltas(t, rest)).Status, "the reader is told the reply was stopped")
 		assert.Equal(t, "done", rest[len(rest)-1].Name)
-		var status, content string
-		require.NoError(t, s.Pool.QueryRow(t.Context(), `SELECT status, content FROM messages WHERE id = $1`, reply).Scan(&status, &content))
-		assert.Equal(t, "stopped", status)
-		assert.True(t, strings.HasPrefix(content, "tick 1 "), "the text so far is saved: %q", content)
 		assert.Equal(t, int64(1), s.BFF.Probe().Cancelled(), "and the agent's run was cancelled")
 	})
 }

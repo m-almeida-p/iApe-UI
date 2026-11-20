@@ -59,7 +59,7 @@ func (a *App) streamHandler(w http.ResponseWriter, r *http.Request) {
 	// The client leaving ends the stream and the run. The server shutting down
 	// ends only the run: the stream stays up long enough to tell the browser.
 	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel() // leaving for any reason stops the agent run and saves the partial reply
+	defer cancel() // leaving for any reason stops the agent run and keeps the partial reply
 	runCtx, endRun := context.WithCancel(ctx)
 	defer endRun()
 	defer context.AfterFunc(a.streams, endRun)()
@@ -162,7 +162,7 @@ func (p *pacer) sent(cost time.Duration) {
 // pump sends the events of a reply to the browser until the reply is done, the
 // client leaves, or the use case fails. It is the one place that decides when an
 // update is sent (see pacer); the use case only says what the reply is so far.
-func (a *App) pump(ctx context.Context, sse *sseWriter, convID, msgID uuid.UUID, events iter.Seq2[service.StreamEvent, error]) {
+func (a *App) pump(ctx context.Context, sse *sseWriter, convID string, msgID uuid.UUID, events iter.Seq2[service.StreamEvent, error]) {
 	items := a.feed(ctx, msgID, events)
 	pace := newPacer(a.opts.FlushInterval)
 	defer pace.timer.Stop()
@@ -233,7 +233,7 @@ func nextInterval(base, cost time.Duration) time.Duration {
 }
 
 // finishStream sends the final state of the reply and closes the stream.
-func (a *App) finishStream(ctx context.Context, sse *sseWriter, convID, msgID uuid.UUID, done service.StreamEvent) {
+func (a *App) finishStream(ctx context.Context, sse *sseWriter, convID string, msgID uuid.UUID, done service.StreamEvent) {
 	html, err := a.replyHTML(convID, msgID, done.Status, done.Text, done.Error, done.Meta)
 	if err != nil {
 		a.log.ErrorContext(ctx, "rendering a reply failed", "message_id", msgID, "error", err)
@@ -250,7 +250,7 @@ func (a *App) finishStream(ctx context.Context, sse *sseWriter, convID, msgID uu
 // shown in the reply's place.
 //
 // Pattern: In-Stream Failure
-func (a *App) streamFailed(ctx context.Context, sse *sseWriter, convID, msgID uuid.UUID, text string, err error) {
+func (a *App) streamFailed(ctx context.Context, sse *sseWriter, convID string, msgID uuid.UUID, text string, err error) {
 	if errors.Is(err, domain.ErrAlreadyStreaming) {
 		_ = sse.retry(reconnectAfter) // then the stream simply ends and the browser reconnects
 		return
@@ -272,7 +272,7 @@ func (a *App) streamFailed(ctx context.Context, sse *sseWriter, convID, msgID uu
 }
 
 // replyHTML renders the assistant article for a reply in the given state.
-func (a *App) replyHTML(convID, msgID uuid.UUID, status domain.Status, text, errText string, meta domain.Meta) (string, error) {
+func (a *App) replyHTML(convID string, msgID uuid.UUID, status domain.Status, text, errText string, meta domain.Meta) (string, error) {
 	return a.renderer.Block("partial:assistant", a.messageView(domain.Message{
 		ID: msgID, ConversationID: convID, Role: domain.RoleAssistant,
 		Status: status, Content: text, Error: errText, Meta: meta,

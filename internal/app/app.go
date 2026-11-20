@@ -17,12 +17,16 @@ import (
 	"iape-ui/assets"
 	authcore "iape-ui/internal/core/auth"
 	"iape-ui/internal/core/chat"
-	"iape-ui/internal/core/conversation"
+	"iape-ui/internal/core/history"
 	"iape-ui/internal/core/interaction"
+	"iape-ui/internal/core/port/resource"
+	"iape-ui/internal/core/port/service"
 	"iape-ui/internal/infrastructure/agent/aguibff"
 	"iape-ui/internal/infrastructure/api/web"
 	authinfra "iape-ui/internal/infrastructure/auth"
 	"iape-ui/internal/infrastructure/config"
+	"iape-ui/internal/infrastructure/historyapi"
+	"iape-ui/internal/infrastructure/memory"
 	"iape-ui/internal/infrastructure/postgres"
 )
 
@@ -57,21 +61,8 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, erro
 }
 
 func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, sql postgres.Statements) (*App, error) {
-	conversations := postgres.NewConversationStore(pool, sql)
-	messages := postgres.NewMessageStore(pool, sql)
 	users := postgres.NewUserStore(pool, sql)
 	sessions := postgres.NewSessionStore(pool, sql)
-
-	// A previous run that crashed leaves replies marked "streaming" that
-	// nothing is producing. This process is the only one running (a single
-	// instance, see the spec), so everything still streaming is stale.
-	recovered, err := messages.RecoverInterrupted(ctx, 0)
-	if err != nil {
-		return nil, err
-	}
-	if recovered > 0 {
-		log.WarnContext(ctx, "marked interrupted replies as failed", "count", recovered)
-	}
 
 	authSvc, err := authcore.NewService(authcore.Dependencies{
 		Users:      users,
@@ -98,26 +89,32 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 	}
 
 	// The BFF of the Yape agent service is the agent and answers the cards of its replies. Its token comes from a program, once
-	// for each turn: that program caches it until it expires.
+	// for each request: that program caches it until it expires.
 	agent := aguibff.NewClient(cfg.Agent, aguibff.CommandToken{Bin: cfg.Agent.BearerBin}, nil)
+
+	// The conversation history is the only place the chats are kept. What is live here (the replies being written, with their cards,
+	// and who started each conversation) is in memory: a restart empties it.
+	live := memory.NewLiveStore(memory.Options{})
+	var historySvc service.History // nil without a history: the page has no Historial
+	var historyGateway resource.HistoryGateway
+	if cfg.History.BaseURL != "" {
+		historyGateway = historyapi.NewClient(cfg.History, nil)
+		historySvc = history.NewService(history.Dependencies{History: historyGateway, Logger: log})
+	}
 	chatSvc := chat.NewService(chat.Dependencies{
-		Conversations:   conversations,
-		Messages:        messages,
+		Live:            live,
 		Agent:           agent,
+		History:         historyGateway,
 		Logger:          log,
 		MaxMessageChars: cfg.Chat.MaxMessageChars,
 	})
-	interactionSvc := interaction.NewService(interaction.Dependencies{Messages: messages, Actions: agent, Logger: log})
-	conversationSvc := conversation.NewService(conversation.Dependencies{
-		Conversations: conversations,
-		Messages:      messages,
-		ListLimit:     cfg.Chat.ListLimit,
-	})
+	interactionSvc := interaction.NewService(interaction.Dependencies{Live: live, Actions: agent, Logger: log})
 
 	webApp, err := web.NewApp(log, assets.EmbeddedFiles,
-		web.Services{Auth: authSvc, Chat: chatSvc, Conversations: conversationSvc, Interactions: interactionSvc},
+		web.Services{Auth: authSvc, Chat: chatSvc, History: historySvc, Interactions: interactionSvc},
 		web.Options{
 			SecureCookies:  cfg.SecureCookies(),
+			Location:       cfg.History.Location(),
 			FlushInterval:  cfg.Chat.StreamFlushInterval,
 			RateLimitRPS:   cfg.RateLimit.RPS,
 			RateLimitBurst: cfg.RateLimit.Burst,

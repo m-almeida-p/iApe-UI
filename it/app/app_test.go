@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"iape-ui/internal/app"
-	"iape-ui/internal/core/domain"
 	"iape-ui/internal/infrastructure/config"
 	"iape-ui/internal/infrastructure/postgres"
 	"iape-ui/internal/testbff"
@@ -176,7 +175,7 @@ func TestApp_Restart(t *testing.T) {
 	require.NoError(t, err)
 	first.Close()
 
-	// A crash leaves a reply marked as streaming.
+	// The chats this program kept before the history took over are still in its tables. Nothing here reads them, and nothing touches them.
 	pool, err := postgres.NewPool(t.Context(), cfg.DB)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
@@ -199,12 +198,13 @@ func TestApp_Restart(t *testing.T) {
 		require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM users`).Scan(&n))
 		assert.Equal(t, 1, n)
 	})
-	t.Run("a reply the crash left streaming is marked as failed", func(t *testing.T) {
-		var status, errText, content string
-		require.NoError(t, pool.QueryRow(t.Context(), `SELECT status, error, content FROM messages WHERE id = $1`, msgID).Scan(&status, &errText, &content))
-		assert.Equal(t, "failed", status)
-		assert.Equal(t, domain.FailureInterrupted, errText)
-		assert.Equal(t, "half", content, "the text that was saved is kept")
+	t.Run("the old chats are as they were: a start touches and deletes nothing of them", func(t *testing.T) {
+		var title, status, content string
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT title FROM conversations WHERE id = $1`, convID).Scan(&title))
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT status, content FROM messages WHERE id = $1`, msgID).Scan(&status, &content))
+		assert.Equal(t, "c", title)
+		assert.Equal(t, "streaming", status, "no recovery marks it: nothing writes replies there any more")
+		assert.Equal(t, "half", content)
 	})
 }
 

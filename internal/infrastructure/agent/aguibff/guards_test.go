@@ -40,18 +40,18 @@ func (d *deadlines) last() time.Duration {
 	return d.left[len(d.left)-1]
 }
 
-// An answer to a card must come back before its claim goes stale (domain.ClaimTTL): else another click takes the card over while the
-// first call is still out. So a card's action is given at most half of it, whatever the time limit of the settings.
-func TestActions_AreGivenLessTimeThanTheClaimLasts(t *testing.T) {
-	ceiling := domain.ClaimTTL / 2
+// An answer to a card is a call to the payment service that a person waits for: it is given a minute at most, whatever the time limit
+// of the settings, which is for a whole turn of the agent.
+func TestActions_AreGivenAMinuteAtMost(t *testing.T) {
+	ceiling := time.Minute
 	for name, tc := range map[string]struct {
 		setting time.Duration
 		want    time.Duration
 	}{
-		"a limit longer than the claim is cut":   {time.Hour, ceiling},
-		"the limit that equals the claim is cut": {domain.ClaimTTL, ceiling},
-		"no limit at all is cut too":             {0, ceiling},
-		"a shorter limit is kept":                {10 * time.Second, 10 * time.Second},
+		"a limit longer than the ceiling is cut":    {time.Hour, ceiling},
+		"the limit that equals the ceiling is kept": {time.Minute, ceiling},
+		"no limit at all is cut too":                {0, ceiling},
+		"a shorter limit is kept":                   {10 * time.Second, 10 * time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := newBFF(t, serveJSON(t, http.StatusCreated, "approve-ok.json"))
@@ -79,7 +79,7 @@ func TestActions_AreGivenLessTimeThanTheClaimLasts(t *testing.T) {
 		_, err := collect(c.Run(t.Context(), turn("hola")))
 
 		require.NoError(t, err)
-		assert.Greater(t, rec.last(), domain.ClaimTTL, "a turn is not an answer to a card")
+		assert.Greater(t, rec.last(), 2*time.Minute, "a turn is not an answer to a card")
 	})
 }
 
@@ -102,7 +102,6 @@ func TestApprove_ANotConfirmedTransferIsNotPaid(t *testing.T) {
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, domain.ErrAgentUnavailable, "the service did not confirm: the page says the answer is not known")
-			assert.NotErrorIs(t, err, domain.ErrNotSent, "the transfer may have gone through: the card stays claimed")
 			assert.Equal(t, domain.ActionResult{}, got)
 		})
 	}
@@ -136,7 +135,6 @@ func TestConfirmOTP_ANotConfirmedTransferIsNotPaid(t *testing.T) {
 	_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), accountID, card(), "123456")
 
 	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
-	assert.NotErrorIs(t, err, domain.ErrNotSent)
 }
 
 // A redirect is not followed on the calls that carry the account's token and the user's code: the BFF is at the address of the

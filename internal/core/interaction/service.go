@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 	"uuid"
@@ -17,9 +16,6 @@ import (
 	"iape-ui/internal/core/port/resource"
 	"iape-ui/internal/core/port/service"
 )
-
-// saveTimeout bounds the saving of an answer after the request is gone: the service has acted, so the card must say so.
-const saveTimeout = 5 * time.Second
 
 // maxCodeLen is the longest code the Web UI sends on, in characters. The banks' codes are 4 to 8 digits.
 const maxCodeLen = 12
@@ -31,14 +27,11 @@ func plausibleCode(code string) bool {
 		!strings.ContainsFunc(code, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
 }
 
-// Dependencies are what the service needs. Logger, Now and NewClaimID default to the default logger, the clock and a new id each; the
-// last two are there for tests.
+// Dependencies are what the service needs. A nil Logger is the default logger.
 type Dependencies struct {
-	Messages   resource.MessageStore
-	Actions    resource.ActionGateway
-	Logger     *slog.Logger
-	Now        func() time.Time
-	NewClaimID func() string
+	Live    resource.LiveStore
+	Actions resource.ActionGateway
+	Logger  *slog.Logger
 }
 
 // Service implements service.Interactions.
@@ -51,17 +44,11 @@ func NewService(d Dependencies) *Service {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
-	if d.Now == nil {
-		d.Now = time.Now
-	}
-	if d.NewClaimID == nil {
-		d.NewClaimID = func() string { return uuid.NewV7().String() }
-	}
 	return &Service{deps: d}
 }
 
 // Approve implements service.Interactions.
-func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
+func (s *Service) Approve(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) (domain.Message, error) {
 	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool {
 		return card.Kind == domain.InteractionApproval && card.State == domain.InteractionPending
 	}, nil,
@@ -75,7 +62,7 @@ func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) 
 }
 
 // Reject implements service.Interactions.
-func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
+func (s *Service) Reject(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) (domain.Message, error) {
 	return s.answer(ctx, userID, convID, msgID,
 		func(card domain.Interaction) bool { return card.Kind == domain.InteractionApproval && card.Open() }, nil,
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
@@ -88,7 +75,7 @@ func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (
 }
 
 // ConfirmOTP implements service.Interactions.
-func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUID, code string) (domain.Message, error) {
+func (s *Service) ConfirmOTP(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID, code string) (domain.Message, error) {
 	code = strings.TrimSpace(code)
 	return s.answer(ctx, userID, convID, msgID, func(card domain.Interaction) bool {
 		return card.Kind == domain.InteractionApproval && card.State == domain.InteractionOTPRequired
@@ -109,7 +96,7 @@ func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUI
 }
 
 // ChooseContact implements service.Interactions.
-func (s *Service) ChooseContact(ctx context.Context, userID, convID, msgID uuid.UUID, choice int) (domain.Message, error) {
+func (s *Service) ChooseContact(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID, choice int) (domain.Message, error) {
 	return s.answer(ctx, userID, convID, msgID,
 		func(card domain.Interaction) bool {
 			return card.Kind == domain.InteractionContact && card.State == domain.InteractionPending
@@ -152,89 +139,56 @@ func candidateAt(query string, choice int) (domain.Contact, error) {
 	return candidates[choice], nil
 }
 
-// answer is what the answers share. The card is claimed (saved as processing, with the compare-and-set) BEFORE the service is
-// asked, so that of several answers to the same card (a double tap, a second tab, the retries of a phone's network) only the one that
-// holds the claim reaches the service. Then:
-//   - the service acted: the card is saved in its new state, from the claim;
-//   - the service said no, or the request certainly never left (domain.ErrNotSent): nothing was done, so the claim is given back and
-//     the card is as it was, with the reason;
-//   - anything else (a timeout, a dropped connection, a gateway error): the service may have acted, so the card stays claimed, and
-//     shows as being answered, until its claim goes stale (domain.ClaimTTL) and someone answers again.
+// answer is what the answers share. The service of the agent is asked with the card as it is, and:
+//   - it acted: the card is kept in its new state;
+//   - it said no, or could not be reached, or did not confirm: the card is as it was, with the reason, and can be answered again.
+//     That is safe whatever happened over there: the service ignores a repeat of an answer, so an answer that did go through finds out
+//     what became of it (see resolvedAlready) instead of being done twice. It is also what keeps two answers to the same card (a
+//     double tap, a second tab) from paying twice: this server does not hold the card while it asks, the service decides.
 //
-// accepts says which cards take the answer; check (it may be nil) refuses an answer that cannot be right before anything is claimed.
+// accepts says which cards take the answer; check (it may be nil) refuses an answer that cannot be right before the service is asked.
 func (s *Service) answer(
-	ctx context.Context, userID, convID, msgID uuid.UUID,
+	ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID,
 	accepts func(domain.Interaction) bool,
 	check func(domain.Interaction) error,
 	act func(context.Context, domain.Interaction) (domain.Interaction, error),
 ) (domain.Message, error) {
-	msg, err := s.deps.Messages.Get(ctx, userID, convID, msgID)
+	msg, err := s.deps.Live.Get(userID, convID, msgID)
 	if err != nil {
 		return domain.Message{}, err
 	}
 	card := msg.Meta.Interaction
-	now := s.deps.Now()
 	// Only a finished reply has a card that can be answered. A reply that failed or was stopped keeps its text, and its card is not
-	// for paying. A card that is being answered is not answered again, unless its claim went stale.
-	if msg.Role != domain.RoleAssistant || msg.Status != domain.StatusComplete || card == nil ||
-		(card.State == domain.InteractionProcessing && !card.Stale(now)) || !accepts(card.Base()) {
+	// for paying.
+	if msg.Role != domain.RoleAssistant || msg.Status != domain.StatusComplete || card == nil || !accepts(*card) {
 		return domain.Message{}, fmt.Errorf("the message has no card that takes this answer: %w", domain.ErrInvalidState)
 	}
-	base := card.Base()
 	if check != nil {
-		if err := check(base); err != nil {
-			return msg, err // a mistake of the user is not worth a claim
+		if err := check(*card); err != nil {
+			return msg, err // a mistake of the user is not worth asking the service
 		}
 	}
 
-	claim := card.Claim
-	if card.State == domain.InteractionProcessing {
-		claim = card.Reclaim
-	}
-	claimed, err := claim(s.deps.NewClaimID(), now)
+	next, err := act(ctx, *card)
 	if err != nil {
-		return domain.Message{}, err
-	}
-	if err := s.deps.Messages.SaveInteraction(ctx, userID, convID, msgID, *card, claimed); err != nil {
-		return domain.Message{}, err // someone else claimed it first, or the store failed: the service is not asked
+		return msg, err // the card is as it was
 	}
 
-	next, err := act(ctx, base)
+	// The service has acted: the card says so. If another answer moved the card in the meantime, that one was first and stays.
+	kept, err := s.deps.Live.Update(userID, convID, msgID, func(m domain.Message) (domain.Message, error) {
+		if m.Meta.Interaction == nil || m.Meta.Interaction.State != card.State {
+			return m, nil
+		}
+		m.Meta.Interaction = &next
+		return m, nil
+	})
 	if err != nil {
-		msg.Meta.Interaction = &claimed
-		if !untouched(err) {
-			return msg, err // it may have gone through: the card stays claimed
-		}
-		if releaseErr := s.save(ctx, userID, convID, msgID, claimed, base); releaseErr != nil {
-			s.deps.Logger.ErrorContext(ctx, "a card was claimed, the service refused it, and the claim was not given back",
-				"approval_id", base.ApprovalID, "error", releaseErr)
-			return msg, err
-		}
-		msg.Meta.Interaction = &base
-		return msg, err // the page shows the card again with the reason
+		s.deps.Logger.WarnContext(ctx, "the service answered a card but the reply was gone",
+			"approval_id", card.ApprovalID, "from", card.State, "to", next.State, "error", err)
+		msg.Meta.Interaction = &next
+		return msg, nil // the answer was made: the page shows it, once
 	}
-
-	// The service has acted: save the answer even if the request is gone.
-	if err := s.save(ctx, userID, convID, msgID, claimed, next); err != nil {
-		s.deps.Logger.ErrorContext(ctx, "the service answered a card but its answer was not saved",
-			"approval_id", base.ApprovalID, "from", base.State, "to", next.State, "error", err)
-		return domain.Message{}, err
-	}
-	msg.Meta.Interaction = &next
-	return msg, nil
-}
-
-// save writes the card even if the request is gone: what the service did must be on the card.
-func (s *Service) save(ctx context.Context, userID, convID, msgID uuid.UUID, from, card domain.Interaction) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveTimeout)
-	defer cancel()
-	return s.deps.Messages.SaveInteraction(ctx, userID, convID, msgID, from, card)
-}
-
-// untouched reports whether a failed answer certainly did nothing at the service: it said no, or the request never reached it.
-func untouched(err error) bool {
-	_, refused := errors.AsType[*domain.ActionError](err)
-	return refused || errors.Is(err, domain.ErrNotSent)
+	return kept, nil
 }
 
 // resolvedAlready is what an answer to a transfer becomes when the service says the approval was answered already: an answer that was

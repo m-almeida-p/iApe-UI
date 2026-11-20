@@ -7,26 +7,27 @@ import (
 	"iape-ui/internal/core/domain"
 )
 
-// Interactions answers the cards in the agent's replies. Each call returns the reply as saved, with its card in the new state.
-// All of them: a message that is not the user's is domain.ErrNotFound; a reply with no card, or one in a state that does not
+// Interactions answers the cards in the agent's replies, which are live in this server: a card is not kept anywhere else, so one
+// that is answered after the server forgot it (a restart, or two hours) is domain.ErrNotFound. Each call returns the reply with its
+// card in the new state. All of them: a reply that is not the user's is domain.ErrNotFound; a reply with no card, or one in a state that does not
 // take the answer, is domain.ErrInvalidState. When the answer did not go through (the service
-// refused it, a wrong code for one, or it could not be reached: ErrAgentUnavailable) the reply is returned with its card as it
-// was, along with the error, so the page can show it again with the reason.
+// refused it, a wrong code for one, or it could not be reached or did not confirm: ErrAgentUnavailable) the reply is returned with its
+// card as it was, along with the error, so the page can show it again with the reason.
 //
 //go:generate mockery --name Interactions --filename interaction.go
 type Interactions interface {
 	// Approve pays the transfer. The card then asks for a code or is paid.
-	Approve(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error)
+	Approve(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) (domain.Message, error)
 
 	// Reject cancels the transfer.
-	Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error)
+	Reject(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) (domain.Message, error)
 
 	// ConfirmOTP gives the code the card asked for.
-	ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUID, code string) (domain.Message, error)
+	ConfirmOTP(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID, code string) (domain.Message, error)
 
 	// ChooseContact confirms the choice-th of the card's candidates (see domain.Candidates) as the person to pay. A choice
 	// that is not one of them is a *domain.ActionError.
-	ChooseContact(ctx context.Context, userID, convID, msgID uuid.UUID, choice int) (domain.Message, error)
+	ChooseContact(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID, choice int) (domain.Message, error)
 
 	// ConfirmCandidate confirms the choice-th candidate for query before any card asks, as the composer's @ picker does, and
 	// returns the contact so its name can go in the message. A choice that is not one of them is a *domain.ActionError.

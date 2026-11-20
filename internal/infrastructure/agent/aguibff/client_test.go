@@ -89,8 +89,11 @@ func clientFor(b *bff, tokens aguibff.TokenSource) *aguibff.Client {
 	return aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: 5 * time.Second}, tokens, nil)
 }
 
+// threadID is the id of a conversation, as the UI makes it.
+func threadID() string { return "conv_v1_" + uuid.NewV4().String() }
+
 func turn(text string) domain.AgentRequest {
-	return domain.AgentRequest{UserID: accountID, ConversationID: uuid.New(), Text: text}
+	return domain.AgentRequest{UserID: accountID, ConversationID: threadID(), Text: text}
 }
 
 func TestClient_RunAsksTheBFFAsTheAccount(t *testing.T) {
@@ -124,7 +127,7 @@ func TestClient_RunAsksTheBFFAsTheAccount(t *testing.T) {
 		ForwardedProps map[string]any `json:"forwardedProps"`
 	}
 	require.NoError(t, json.Unmarshal(b.bodies[0], &got))
-	assert.Equal(t, req.ConversationID.String(), got.ThreadID, "the conversation is the thread: the agent remembers it")
+	assert.Equal(t, req.ConversationID, got.ThreadID, "the conversation is the thread: the agent remembers it")
 	_, err = uuid.Parse(got.RunID)
 	assert.NoError(t, err, "every turn is a new run")
 	require.Len(t, got.Messages, 1)

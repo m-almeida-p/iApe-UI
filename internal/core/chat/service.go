@@ -1,22 +1,18 @@
-// Package chat implements the chat use case: sending messages, regenerating
-// replies and streaming the agent's answer.
+// Package chat implements the chat use case: sending messages and streaming the agent's answer, for the conversations that are live
+// in this server. The conversation history is where the chats are kept (see package history); here a turn lives in memory.
 package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 	"uuid"
 
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/core/port/resource"
 	"iape-ui/internal/core/port/service"
 )
-
-// cleanupTimeout bounds work done after a request has gone away: saving a
-// partial reply, removing a half-created conversation.
-const cleanupTimeout = 5 * time.Second
 
 // DefaultMaxReplyBytes is how big a reply may grow before it is cut off. It is
 // the size beyond which the page stops interpreting Markdown, and a reply that
@@ -25,9 +21,11 @@ const DefaultMaxReplyBytes = 1 << 20
 
 // Dependencies are what the chat service needs.
 type Dependencies struct {
-	Conversations   resource.ConversationStore
-	Messages        resource.MessageStore
-	Agent           resource.AgentGateway
+	Live  resource.LiveStore
+	Agent resource.AgentGateway
+	// History is asked whether a conversation that was not started here is the user's, which is how a conversation of the history is
+	// continued. It is nil when there is no history: then only the conversations started here can be written to.
+	History         resource.HistoryGateway
 	Logger          *slog.Logger
 	MaxMessageChars int
 	// MaxReplyBytes is how big a reply may grow; zero means DefaultMaxReplyBytes.
@@ -47,60 +45,74 @@ func NewService(d Dependencies) *Service {
 	if d.MaxReplyBytes <= 0 {
 		d.MaxReplyBytes = DefaultMaxReplyBytes
 	}
+	if d.Logger == nil {
+		d.Logger = slog.Default()
+	}
 	return &Service{deps: d}
 }
 
-// StartConversation implements service.Chat.
-func (s *Service) StartConversation(ctx context.Context, userID uuid.UUID, content string) (service.Turn, error) {
-	content, err := domain.NormalizeContent(content, s.deps.MaxMessageChars)
-	if err != nil {
-		return service.Turn{}, err
-	}
-	conv, err := s.deps.Conversations.Create(ctx, domain.Conversation{
-		ID:     uuid.NewV7(),
-		UserID: userID,
-		Title:  domain.TitleFrom(content),
-	})
-	if err != nil {
-		return service.Turn{}, fmt.Errorf("starting conversation: %w", err)
-	}
+// NewConversation implements service.Chat.
+func (s *Service) NewConversation(userID uuid.UUID) string {
+	id := domain.NewConversationID()
+	s.deps.Live.Adopt(userID, id) // a new id has no owner yet
+	return id
+}
 
-	user, reply, err := s.deps.Messages.AppendPair(ctx, userID, conv.ID, content)
-	if err != nil {
-		// Do not leave an empty conversation behind, even if the request is gone.
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-		defer cancel()
-		if delErr := s.deps.Conversations.Delete(cleanupCtx, userID, conv.ID); delErr != nil {
-			s.deps.Logger.ErrorContext(ctx, "removing a conversation whose first message failed",
-				"conversation_id", conv.ID, "error", delErr)
-		}
-		return service.Turn{}, fmt.Errorf("sending first message: %w", err)
-	}
-	return service.Turn{Conversation: conv, User: user, Reply: reply}, nil
+// Owns implements service.Chat.
+func (s *Service) Owns(userID uuid.UUID, convID string) bool {
+	owner, known := s.deps.Live.Owner(convID)
+	return known && owner == userID
 }
 
 // Send implements service.Chat.
-func (s *Service) Send(ctx context.Context, userID, convID uuid.UUID, content string) (service.Turn, error) {
+func (s *Service) Send(ctx context.Context, userID uuid.UUID, convID, content string) (service.Turn, error) {
+	if _, err := domain.ParseConversationID(convID); err != nil {
+		return service.Turn{}, domain.ErrInvalidConversationID
+	}
 	content, err := domain.NormalizeContent(content, s.deps.MaxMessageChars)
 	if err != nil {
 		return service.Turn{}, err
 	}
-	conv, err := s.deps.Conversations.Get(ctx, userID, convID)
-	if err != nil {
+	if err := s.own(ctx, userID, convID); err != nil {
 		return service.Turn{}, err
 	}
-	user, reply, err := s.deps.Messages.AppendPair(ctx, userID, convID, content)
-	if err != nil {
+	user := domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Content: content, Status: domain.StatusComplete}
+	reply := domain.Message{
+		ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Prompt: content, Status: domain.StatusPending,
+	}
+	if err := s.deps.Live.Begin(userID, reply); err != nil {
 		return service.Turn{}, fmt.Errorf("sending message: %w", err)
 	}
-	return service.Turn{Conversation: conv, User: user, Reply: reply}, nil
+	return service.Turn{User: user, Reply: reply}, nil
 }
 
-// Regenerate implements service.Chat.
-func (s *Service) Regenerate(ctx context.Context, userID, convID, msgID uuid.UUID) (domain.Message, error) {
-	reply, err := s.deps.Messages.ReplaceLastAssistant(ctx, userID, convID, msgID)
-	if err != nil {
-		return domain.Message{}, fmt.Errorf("regenerating reply: %w", err)
+// own makes sure the conversation is the user's before anything is written to it. One that was started here is known; any other is
+// asked of the history, which answers for the account of the user only, and is the user's if it has it. The agent does not check whose
+// a conversation is, so this is the one place that does: an id that nobody here knows and the history does not have for the user is
+// not written to, which also keeps one user from writing into the conversation of another.
+func (s *Service) own(ctx context.Context, userID uuid.UUID, convID string) error {
+	if owner, known := s.deps.Live.Owner(convID); known {
+		if owner != userID {
+			return domain.ErrNotFound
+		}
+		return nil
 	}
-	return reply, nil
+	if s.deps.History == nil {
+		return domain.ErrNotFound
+	}
+	if _, err := s.deps.History.Messages(ctx, userID, convID, domain.PageRequest{Size: 1}); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrNotFound
+		}
+		return fmt.Errorf("checking the conversation: %w", err)
+	}
+	if !s.deps.Live.Adopt(userID, convID) {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// Reply implements service.Chat.
+func (s *Service) Reply(_ context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) (domain.Message, error) {
+	return s.deps.Live.Get(userID, convID, msgID)
 }

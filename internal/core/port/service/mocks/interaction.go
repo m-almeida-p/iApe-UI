@@ -17,7 +17,7 @@ type Interactions struct {
 }
 
 // Approve provides a mock function with given fields: ctx, userID, convID, msgID
-func (_m *Interactions) Approve(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID) (domain.Message, error) {
+func (_m *Interactions) Approve(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) (domain.Message, error) {
 	ret := _m.Called(ctx, userID, convID, msgID)
 
 	if len(ret) == 0 {
@@ -26,16 +26,16 @@ func (_m *Interactions) Approve(ctx context.Context, userID uuid.UUID, convID uu
 
 	var r0 domain.Message
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (domain.Message, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID) (domain.Message, error)); ok {
 		return rf(ctx, userID, convID, msgID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) domain.Message); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID) domain.Message); ok {
 		r0 = rf(ctx, userID, convID, msgID)
 	} else {
 		r0 = ret.Get(0).(domain.Message)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, uuid.UUID) error); ok {
 		r1 = rf(ctx, userID, convID, msgID)
 	} else {
 		r1 = ret.Error(1)
@@ -45,7 +45,7 @@ func (_m *Interactions) Approve(ctx context.Context, userID uuid.UUID, convID uu
 }
 
 // ChooseContact provides a mock function with given fields: ctx, userID, convID, msgID, choice
-func (_m *Interactions) ChooseContact(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID, choice int) (domain.Message, error) {
+func (_m *Interactions) ChooseContact(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID, choice int) (domain.Message, error) {
 	ret := _m.Called(ctx, userID, convID, msgID, choice)
 
 	if len(ret) == 0 {
@@ -54,16 +54,16 @@ func (_m *Interactions) ChooseContact(ctx context.Context, userID uuid.UUID, con
 
 	var r0 domain.Message
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int) (domain.Message, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID, int) (domain.Message, error)); ok {
 		return rf(ctx, userID, convID, msgID, choice)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int) domain.Message); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID, int) domain.Message); ok {
 		r0 = rf(ctx, userID, convID, msgID, choice)
 	} else {
 		r0 = ret.Get(0).(domain.Message)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, uuid.UUID, int) error); ok {
 		r1 = rf(ctx, userID, convID, msgID, choice)
 	} else {
 		r1 = ret.Error(1)
@@ -101,7 +101,7 @@ func (_m *Interactions) ConfirmCandidate(ctx context.Context, userID uuid.UUID, 
 }
 
 // ConfirmOTP provides a mock function with given fields: ctx, userID, convID, msgID, code
-func (_m *Interactions) ConfirmOTP(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID, code string) (domain.Message, error) {
+func (_m *Interactions) ConfirmOTP(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID, code string) (domain.Message, error) {
 	ret := _m.Called(ctx, userID, convID, msgID, code)
 
 	if len(ret) == 0 {
@@ -110,16 +110,16 @@ func (_m *Interactions) ConfirmOTP(ctx context.Context, userID uuid.UUID, convID
 
 	var r0 domain.Message
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) (domain.Message, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID, string) (domain.Message, error)); ok {
 		return rf(ctx, userID, convID, msgID, code)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) domain.Message); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID, string) domain.Message); ok {
 		r0 = rf(ctx, userID, convID, msgID, code)
 	} else {
 		r0 = ret.Get(0).(domain.Message)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, uuid.UUID, string) error); ok {
 		r1 = rf(ctx, userID, convID, msgID, code)
 	} else {
 		r1 = ret.Error(1)
@@ -129,7 +129,7 @@ func (_m *Interactions) ConfirmOTP(ctx context.Context, userID uuid.UUID, convID
 }
 
 // Reject provides a mock function with given fields: ctx, userID, convID, msgID
-func (_m *Interactions) Reject(ctx context.Context, userID uuid.UUID, convID uuid.UUID, msgID uuid.UUID) (domain.Message, error) {
+func (_m *Interactions) Reject(ctx context.Context, userID uuid.UUID, convID string, msgID uuid.UUID) (domain.Message, error) {
 	ret := _m.Called(ctx, userID, convID, msgID)
 
 	if len(ret) == 0 {
@@ -138,16 +138,16 @@ func (_m *Interactions) Reject(ctx context.Context, userID uuid.UUID, convID uui
 
 	var r0 domain.Message
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (domain.Message, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID) (domain.Message, error)); ok {
 		return rf(ctx, userID, convID, msgID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) domain.Message); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, uuid.UUID) domain.Message); ok {
 		r0 = rf(ctx, userID, convID, msgID)
 	} else {
 		r0 = ret.Get(0).(domain.Message)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, string, uuid.UUID) error); ok {
 		r1 = rf(ctx, userID, convID, msgID)
 	} else {
 		r1 = ret.Error(1)

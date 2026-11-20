@@ -8,8 +8,10 @@ import (
 // AgentRequest is one user turn sent to the agent. The agent keeps its own
 // session per conversation, keyed by the conversation ID.
 type AgentRequest struct {
-	UserID         uuid.UUID
-	ConversationID uuid.UUID
+	// UserID is the user, and the Yape account the turn is made as: the id of a user is the id of their account.
+	UserID uuid.UUID
+	// ConversationID is the thread of the turn: the id the UI made, which the agent keeps its session by.
+	ConversationID string
 	Text           string
 }
 
@@ -41,11 +43,6 @@ type AgentEvent struct {
 	// Interaction is the card of an AgentInteraction.
 	Interaction Interaction
 }
-
-// ErrNotSent says that a request to the agent's service certainly did not reach it (the token could not be had, the connection was
-// refused, the token was refused before anything was done): nothing was done there, so a card can be given back to be answered
-// again. An error without it may have reached the service, and what it was asked may have been done.
-var ErrNotSent = errors.New("the request did not reach the agent's service")
 
 // ErrIncompleteStream means the agent's stream ended without a complete reply.
 var ErrIncompleteStream = errors.New("agent stream ended before the reply was complete")

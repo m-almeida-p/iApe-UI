@@ -32,61 +32,6 @@ func TestStatus_Terminal(t *testing.T) {
 	}
 }
 
-func TestTitleFrom(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{"short message is used as is", "What is a goroutine?", "What is a goroutine?"},
-		{"surrounding space is trimmed", "  hello  ", "hello"},
-		{"newlines and runs of space collapse", "line one\n\n  line   two\tend", "line one line two end"},
-		{"exactly 60 characters is kept whole", strings.Repeat("a", 60), strings.Repeat("a", 60)},
-		{"61 characters is cut with an ellipsis", strings.Repeat("a", 61), strings.Repeat("a", 60) + "…"},
-		{"cuts on characters, not bytes", strings.Repeat("ñ", 70), strings.Repeat("ñ", 60) + "…"},
-		{"trailing space before the cut is dropped", strings.Repeat("a", 59) + " bbbbbb", strings.Repeat("a", 59) + "…"},
-		{"empty content gets the default", "", "New chat"},
-		{"whitespace only gets the default", " \n\t ", "New chat"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, domain.TitleFrom(tc.content))
-		})
-	}
-}
-
-func TestNormalizeTitle(t *testing.T) {
-	tests := []struct {
-		name    string
-		raw     string
-		want    string
-		wantErr bool
-	}{
-		{"trimmed", "  My chat  ", "My chat", false},
-		{"inner newlines collapse", "My\nchat", "My chat", false},
-		{"exactly 120 characters", strings.Repeat("x", 120), strings.Repeat("x", 120), false},
-		{"121 characters is too long", strings.Repeat("x", 121), "", true},
-		{"120 multibyte characters fit", strings.Repeat("é", 120), strings.Repeat("é", 120), false},
-		{"empty", "", "", true},
-		{"whitespace only", "   ", "", true},
-		{"a NUL byte, which the database refuses", "My\x00chat", "", true},
-		{"bytes that are not UTF-8", "My \xff\xfe chat", "", true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := domain.NormalizeTitle(tc.raw)
-			if tc.wantErr {
-				var ve *domain.ValidationError
-				require.ErrorAs(t, err, &ve)
-				assert.Equal(t, "title", ve.Field)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestNormalizeContent(t *testing.T) {
 	const limit = 10
 	tests := []struct {

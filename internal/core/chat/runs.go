@@ -9,12 +9,11 @@ import (
 // activeRun is a reply being written right now.
 type activeRun struct {
 	cancel context.CancelFunc
-	done   chan struct{} // closed once the outcome is saved
+	done   chan struct{} // closed once the outcome is kept
 }
 
 // runs keeps the replies this process is writing, so a stop request can end
-// one. Memory is the right place for it: a reply is written by the process that
-// claimed it, and the claim in the database already keeps the others away.
+// one.
 //
 // Pattern: Run Registry
 type runs struct {

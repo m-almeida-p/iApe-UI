@@ -49,7 +49,7 @@ func TestAccounts_ATurnIsMadeAsTheAccountOfItsUser(t *testing.T) {
 	c := clientFor(b, twoAccounts())
 
 	for _, user := range []uuid.UUID{ana, beto} {
-		_, err := collect(c.Run(t.Context(), domain.AgentRequest{UserID: user, ConversationID: uuid.New(), Text: "Hola"}))
+		_, err := collect(c.Run(t.Context(), domain.AgentRequest{UserID: user, ConversationID: threadID(), Text: "Hola"}))
 		require.NoError(t, err)
 	}
 
@@ -93,7 +93,7 @@ func TestAccounts_UsersAtTheSameTimeKeepTheirOwn(t *testing.T) {
 	for i := range 40 {
 		user := []uuid.UUID{ana, beto}[i%2]
 		wg.Go(func() {
-			_, err := collect(c.Run(t.Context(), domain.AgentRequest{UserID: user, ConversationID: uuid.New(), Text: "Hola"}))
+			_, err := collect(c.Run(t.Context(), domain.AgentRequest{UserID: user, ConversationID: threadID(), Text: "Hola"}))
 			assert.NoError(t, err)
 		})
 	}
@@ -111,10 +111,9 @@ func TestAccounts_AnAccountWithoutATokenIsNotSentAsAnotherOne(t *testing.T) {
 	b := newBFF(t, serveFixture(t, "guard.sse"))
 	stranger := uuid.New()
 
-	_, err := collect(clientFor(b, twoAccounts()).Run(t.Context(), domain.AgentRequest{UserID: stranger, ConversationID: uuid.New(), Text: "Hola"}))
+	_, err := collect(clientFor(b, twoAccounts()).Run(t.Context(), domain.AgentRequest{UserID: stranger, ConversationID: threadID(), Text: "Hola"}))
 
 	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
-	require.ErrorIs(t, err, domain.ErrNotSent)
 	assert.Zero(t, b.count())
 }
 
@@ -124,7 +123,7 @@ func TestAccounts_NoAccountIsNotSentAndNotAskedFor(t *testing.T) {
 	tokens := twoAccounts()
 	c := clientFor(b, tokens)
 
-	_, errRun := collect(c.Run(t.Context(), domain.AgentRequest{ConversationID: uuid.New(), Text: "Hola"}))
+	_, errRun := collect(c.Run(t.Context(), domain.AgentRequest{ConversationID: threadID(), Text: "Hola"}))
 	_, errApprove := c.Approve(t.Context(), uuid.Nil(), card())
 	_, errReject := c.Reject(t.Context(), uuid.Nil(), card())
 	_, errOTP := c.ConfirmOTP(t.Context(), uuid.Nil(), card(), "123456")
@@ -132,7 +131,6 @@ func TestAccounts_NoAccountIsNotSentAndNotAskedFor(t *testing.T) {
 
 	for _, err := range []error{errRun, errApprove, errReject, errOTP, errContact} {
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
-		require.ErrorIs(t, err, domain.ErrNotSent, "nothing left: the card may be answered again")
 	}
 	assert.Zero(t, b.count())
 	assert.Empty(t, tokens.asked)
@@ -143,7 +141,7 @@ func TestAccounts_ErrorsHoldNeitherTheAccountNorTheToken(t *testing.T) {
 	b := newBFF(t, serveFixture(t, "guard.sse"))
 	stranger := uuid.New()
 
-	_, err := collect(clientFor(b, twoAccounts()).Run(t.Context(), domain.AgentRequest{UserID: stranger, ConversationID: uuid.New(), Text: "Hola"}))
+	_, err := collect(clientFor(b, twoAccounts()).Run(t.Context(), domain.AgentRequest{UserID: stranger, ConversationID: threadID(), Text: "Hola"}))
 
 	require.Error(t, err)
 	assert.False(t, strings.Contains(err.Error(), stranger.String()), err.Error())
@@ -161,7 +159,7 @@ func TestAccounts_ARefusedTokenIsRefreshedForItsOwnAccount(t *testing.T) {
 		serveFixture(t, "guard.sse")(w, r, n)
 	})
 
-	_, err := collect(clientFor(b, tokens).Run(t.Context(), domain.AgentRequest{UserID: beto, ConversationID: uuid.New(), Text: "Hola"}))
+	_, err := collect(clientFor(b, tokens).Run(t.Context(), domain.AgentRequest{UserID: beto, ConversationID: threadID(), Text: "Hola"}))
 
 	require.NoError(t, err)
 	assert.Equal(t, []uuid.UUID{beto, beto}, tokens.asked, "the token and its refresh were both asked for the account of the turn")

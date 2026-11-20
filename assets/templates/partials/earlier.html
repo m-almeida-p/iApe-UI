@@ -1,0 +1,8 @@
+{{/* The button that loads the messages of a conversation before the ones on screen. */}}
+{{define "partial:earlier_button"}}<div id="earlier" class="earlier text-center mb-3">
+  <button type="button" class="btn btn-sm btn-outline-secondary" data-testid="earlier"
+          hx-get="{{.}}" hx-target="#earlier" hx-swap="outerHTML" hx-disabled-elt="this">Earlier messages</button>
+</div>{{end}}
+
+{{/* What the button gets: the button for the page before, if there is one, and the messages, which take its place at the top. */}}
+{{define "partial:earlier"}}{{if .EarlierURL}}{{template "partial:earlier_button" .EarlierURL}}{{end}}{{range .Messages}}{{template "partial:message" .}}{{end}}{{end}}

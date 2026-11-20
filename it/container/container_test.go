@@ -198,9 +198,8 @@ func TestContainersSmoke(t *testing.T) {
 
 		require.NotEmpty(t, events)
 		assert.Equal(t, "done", events[len(events)-1].Name)
-		saved := c.Raw(conv, reply)
-		assert.Equal(t, 200, saved.Status)
-		assert.Equal(t, "You said: hello from the containers", saved.Body)
+		final := stack.MessagesIn(t, stack.Named(events, "delta")[len(stack.Named(events, "delta"))-1].Data)[0]
+		assert.Equal(t, "You said: hello from the containers", stack.RawOf(final))
 	})
 
 	t.Run("the web server signs in and serves the start page and its assets", func(t *testing.T) {

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
+	"sync"
 	"testing"
-	"time"
 	"uuid"
 
 	"github.com/stretchr/testify/assert"
@@ -15,17 +17,53 @@ import (
 
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/core/interaction"
+	"iape-ui/internal/core/port/resource"
 	"iape-ui/internal/core/port/resource/mocks"
 )
 
+const convID = "conv_v1_11111111-1111-4111-8111-111111111111"
+
 var (
-	userID  = uuid.NewV7()
-	convID  = uuid.NewV7()
-	replyID = uuid.NewV7()
+	userID  = uuid.New()
+	otherID = uuid.New()
+	replyID = uuid.New()
 )
 
+// fakeLive holds replies for users; Update is atomic, as the real one is. The other calls of the port are not used here.
+type fakeLive struct {
+	resource.LiveStore
+	mu      sync.Mutex
+	replies map[uuid.UUID]domain.Message
+	owner   uuid.UUID
+}
+
+func (f *fakeLive) Get(u uuid.UUID, conv string, id uuid.UUID) (domain.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m, ok := f.replies[id]
+	if !ok || u != f.owner || conv != m.ConversationID {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	return m, nil
+}
+
+func (f *fakeLive) Update(u uuid.UUID, conv string, id uuid.UUID, change func(domain.Message) (domain.Message, error)) (domain.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m, ok := f.replies[id]
+	if !ok || u != f.owner || conv != m.ConversationID {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	next, err := change(m)
+	if err != nil {
+		return m, err
+	}
+	f.replies[id] = next
+	return next, nil
+}
+
 type harness struct {
-	msgs    *mocks.MessageStore
+	live    *fakeLive
 	actions *mocks.ActionGateway
 	logs    *bytes.Buffer
 	svc     *interaction.Service
@@ -33,98 +71,66 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	h := &harness{msgs: mocks.NewMessageStore(t), actions: mocks.NewActionGateway(t), logs: &bytes.Buffer{}}
-	h.svc = interaction.NewService(interaction.Dependencies{Messages: h.msgs, Actions: h.actions, Logger: slog.New(slog.NewTextHandler(h.logs, nil)),
-		Now: func() time.Time { return started }, NewClaimID: func() string { return "claim-1" }})
+	h := &harness{live: &fakeLive{replies: map[uuid.UUID]domain.Message{}, owner: userID}, actions: mocks.NewActionGateway(t), logs: &bytes.Buffer{}}
+	h.svc = interaction.NewService(interaction.Dependencies{Live: h.live, Actions: h.actions, Logger: slog.New(slog.NewTextHandler(h.logs, nil))})
 	return h
 }
 
-func cardIn(state domain.InteractionState) *domain.Interaction {
-	return &domain.Interaction{
-		Kind: domain.InteractionApproval, State: state, ApprovalID: "appr_1", RunID: "run-1", ChallengeID: challengeFor(state),
-		Transfer: domain.Transfer{Amount: 20, Currency: "PEN", DestinationName: "Rosa Diaz"},
-	}
-}
-
-func challengeFor(state domain.InteractionState) string {
-	if state == domain.InteractionOTPRequired {
-		return "trf_9"
-	}
-	return ""
-}
-
-func replyWith(card *domain.Interaction) domain.Message {
-	return domain.Message{ID: replyID, ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusComplete,
+// with puts a complete reply that holds card in the store.
+func (h *harness) with(card *domain.Interaction) {
+	h.live.replies[replyID] = domain.Message{ID: replyID, ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusComplete,
 		Content: "Review your transfer.", Meta: domain.Meta{Interaction: card}}
 }
 
-func (h *harness) expectGet(m domain.Message) {
-	h.msgs.On("Get", mock.Anything, userID, convID, replyID).Return(m, nil).Once()
+func (h *harness) card() *domain.Interaction { return h.live.replies[replyID].Meta.Interaction }
+
+func transfer(state domain.InteractionState) *domain.Interaction {
+	c := &domain.Interaction{Kind: domain.InteractionApproval, State: state, ApprovalID: "appr_1", RunID: "run-1",
+		Transfer: domain.Transfer{Amount: 20, Currency: "PEN", DestinationName: "Rosa Diaz"}}
+	if state == domain.InteractionOTPRequired {
+		c.ChallengeID = "trf_9"
+	}
+	return c
 }
 
-// expectClaim expects the card, as the reply has it in state from, to be claimed before the service is asked.
-func (h *harness) expectClaim(from domain.InteractionState) domain.Interaction {
-	return h.expectClaimOf(*cardIn(from))
+func contact(state domain.InteractionState) *domain.Interaction {
+	return &domain.Interaction{Kind: domain.InteractionContact, State: state, RequestID: "req_1", Query: "maria"}
 }
 
-// expectClaimOf expects card, as the reply has it, to be claimed before the service is asked.
-func (h *harness) expectClaimOf(card domain.Interaction) domain.Interaction {
-	claimed, _ := card.Claim("claim-1", started)
-	h.expectSaveOf(card, claimed, nil)
-	return claimed
-}
-
-// expectSave expects the card to be claimed and then, once the service answered, saved as want.
-func (h *harness) expectSave(from domain.InteractionState, want domain.Interaction, err error) {
-	h.expectSaveFrom(*cardIn(from), want, err)
-}
-
-// expectSaveFrom is expectSave for a card that is not the approval of cardIn.
-func (h *harness) expectSaveFrom(card, want domain.Interaction, err error) {
-	h.expectSaveOf(h.expectClaimOf(card), want, err)
-}
-
-// expectRelease expects the claim to be given back: the card goes back to what it was in state from.
-func (h *harness) expectRelease(from domain.InteractionState) { h.expectReleaseOf(*cardIn(from)) }
-
-// expectReleaseOf expects card to be claimed and the claim to be given back, so the card is as it was.
-func (h *harness) expectReleaseOf(card domain.Interaction) {
-	h.expectSaveOf(h.expectClaimOf(card), card, nil)
-}
-
-// expectSaveOf expects one save, with a context that is still usable.
-func (h *harness) expectSaveOf(from, to domain.Interaction, err error) {
-	h.msgs.On("SaveInteraction",
-		mock.MatchedBy(func(ctx context.Context) bool { return ctx.Err() == nil }),
-		userID, convID, replyID, from, to).Return(err).Once()
+// answers are the four ways of answering a card, each with the card it is made for.
+var answers = map[string]func(h *harness) (domain.Message, error){
+	"approve": func(h *harness) (domain.Message, error) {
+		return h.svc.Approve(context.Background(), userID, convID, replyID)
+	},
+	"reject": func(h *harness) (domain.Message, error) {
+		return h.svc.Reject(context.Background(), userID, convID, replyID)
+	},
+	"code": func(h *harness) (domain.Message, error) {
+		return h.svc.ConfirmOTP(context.Background(), userID, convID, replyID, "123456")
+	},
+	"contact": func(h *harness) (domain.Message, error) {
+		return h.svc.ChooseContact(context.Background(), userID, convID, replyID, 0)
+	},
 }
 
 func TestApprove(t *testing.T) {
 	t.Run("a payment that needs no code leaves the card paid with the service's words", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
-		h.actions.On("Approve", mock.Anything, userID, *cardIn(domain.InteractionPending)).
-			Return(domain.ActionResult{Message: "Transfer paid successfully. TxnID: OP-1"}, nil).Once()
-		paid := *cardIn(domain.InteractionPaid)
-		paid.Result = "Transfer paid successfully. TxnID: OP-1"
-		h.expectSave(domain.InteractionPending, paid, nil)
+		h.with(transfer(domain.InteractionPending))
+		h.actions.On("Approve", mock.Anything, userID, *transfer(domain.InteractionPending)).Return(domain.ActionResult{Message: "Paid. TxnID: 1"}, nil).Once()
 
 		got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
 
 		require.NoError(t, err)
 		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
-		assert.Equal(t, "Transfer paid successfully. TxnID: OP-1", got.Meta.Interaction.Result)
-		assert.Equal(t, "Review your transfer.", got.Content, "the reply's text is untouched")
+		assert.Equal(t, "Paid. TxnID: 1", got.Meta.Interaction.Result)
+		assert.Equal(t, domain.InteractionPaid, h.card().State, "and the reply in the store says so")
 	})
 
 	t.Run("a payment the bank wants a code for leaves the card asking for it", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
-		h.actions.On("Approve", mock.Anything, userID, *cardIn(domain.InteractionPending)).
-			Return(domain.ActionResult{Message: "Enter the OTP", ChallengeID: "trf_9"}, nil).Once()
-		asking := *cardIn(domain.InteractionOTPRequired)
-		asking.Result = "Enter the OTP"
-		h.expectSave(domain.InteractionPending, asking, nil)
+		h.with(transfer(domain.InteractionPending))
+		h.actions.On("Approve", mock.Anything, userID, mock.Anything).Return(domain.ActionResult{Message: "Enter the code.", ChallengeID: "trf_9"}, nil).Once()
 
 		got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
 
@@ -133,266 +139,348 @@ func TestApprove(t *testing.T) {
 		assert.Equal(t, "trf_9", got.Meta.Interaction.ChallengeID)
 	})
 
-	t.Run("a card that is not pending is refused before the service is asked", func(t *testing.T) {
-		for _, state := range []domain.InteractionState{domain.InteractionPaid, domain.InteractionRejected, domain.InteractionOTPRequired} {
-			h := newHarness(t)
-			h.expectGet(replyWith(cardIn(state)))
-
-			_, err := h.svc.Approve(t.Context(), userID, convID, replyID)
-
-			require.ErrorIs(t, err, domain.ErrInvalidState, string(state))
-		}
-	})
-
-	t.Run("a reply with no card is refused", func(t *testing.T) {
-		h := newHarness(t)
-		h.expectGet(replyWith(nil))
-
-		_, err := h.svc.Approve(t.Context(), userID, convID, replyID)
-
-		require.ErrorIs(t, err, domain.ErrInvalidState)
-	})
-
-	t.Run("the user's message is not a card", func(t *testing.T) {
-		h := newHarness(t)
-		m := replyWith(cardIn(domain.InteractionPending))
-		m.Role = domain.RoleUser
-		h.expectGet(m)
-
-		_, err := h.svc.Approve(t.Context(), userID, convID, replyID)
-
-		require.ErrorIs(t, err, domain.ErrInvalidState)
-	})
-
-	t.Run("a message that is not found is not found", func(t *testing.T) {
-		h := newHarness(t)
-		h.msgs.On("Get", mock.Anything, userID, convID, replyID).Return(domain.Message{}, domain.ErrNotFound).Once()
-
-		_, err := h.svc.Approve(t.Context(), userID, convID, replyID)
-
-		require.ErrorIs(t, err, domain.ErrNotFound)
-	})
-
 	t.Run("a refusal of the service comes back with the card as it was", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
-		refusal := &domain.ActionError{Message: "Transfer is no longer open"}
-		h.actions.On("Approve", mock.Anything, userID, *cardIn(domain.InteractionPending)).Return(domain.ActionResult{}, refusal).Once()
-		h.expectRelease(domain.InteractionPending)
+		h.with(transfer(domain.InteractionPending))
+		refusal := &domain.ActionError{Message: "Insufficient funds"}
+		h.actions.On("Approve", mock.Anything, userID, mock.Anything).Return(domain.ActionResult{}, refusal).Once()
 
 		got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
 
 		var refused *domain.ActionError
 		require.ErrorAs(t, err, &refused)
-		assert.Equal(t, "Transfer is no longer open", refused.Message)
-		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State, "the page shows the card again, with the reason")
-	})
-
-	t.Run("the agent being down leaves the card as it was and says so", func(t *testing.T) {
-		h := newHarness(t)
-		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
-		h.actions.On("Approve", mock.Anything, userID, *cardIn(domain.InteractionPending)).Return(domain.ActionResult{}, errNotSent).Once()
-		h.expectRelease(domain.InteractionPending)
-
-		got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
-
-		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
+		assert.Equal(t, domain.InteractionPending, h.card().State)
 	})
 
-	t.Run("losing the race to save is an invalid state, and it is logged because the service did act", func(t *testing.T) {
+	for name, failure := range map[string]error{
+		"the agent being down":             fmt.Errorf("%w: refused", domain.ErrAgentUnavailable),
+		"a service that did not confirm":   fmt.Errorf("%w: the BFF did not confirm the transfer", domain.ErrAgentUnavailable),
+		"a request that ran out of time":   context.DeadlineExceeded,
+		"anything else the service throws": errors.New("boom"),
+	} {
+		t.Run(name+" leaves the card as it was, to be answered again", func(t *testing.T) {
+			h := newHarness(t)
+			h.with(transfer(domain.InteractionPending))
+			h.actions.On("Approve", mock.Anything, userID, mock.Anything).Return(domain.ActionResult{}, failure).Once()
+
+			got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
+
+			require.ErrorIs(t, err, failure)
+			assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
+			assert.Equal(t, domain.InteractionPending, h.card().State)
+		})
+	}
+}
+
+func TestApprove_AnAnswerThatWasMadeAlreadyIsWhatTheCardBecomes(t *testing.T) {
+	approved := "This transfer was already approved. Its result is in your history."
+	rejected := "This transfer was already rejected."
+	tests := []struct {
+		name     string
+		answer   string
+		resolved string
+		state    domain.InteractionState
+		result   string
+	}{
+		{"approve, it was approved", "approve", "APPROVED", domain.InteractionPaid, approved},
+		{"approve, it was rejected", "approve", "REJECTED", domain.InteractionRejected, rejected},
+		{"reject, it was rejected", "reject", "REJECTED", domain.InteractionRejected, rejected},
+		{"reject, it was approved", "reject", "APPROVED", domain.InteractionPaid, approved},
+		{"the case of the word does not matter", "approve", "approved", domain.InteractionPaid, approved},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.with(transfer(domain.InteractionPending))
+			method := map[string]string{"approve": "Approve", "reject": "Reject"}[tc.answer]
+			h.actions.On(method, mock.Anything, userID, mock.Anything).Return(domain.ActionResult{}, &domain.ActionError{Message: "x", Resolved: tc.resolved}).Once()
+
+			got, err := answers[tc.answer](h)
+
+			require.NoError(t, err, "it is not a failure: the card says what became of it")
+			assert.Equal(t, tc.state, got.Meta.Interaction.State)
+			assert.Equal(t, tc.result, got.Meta.Interaction.Result)
+		})
+	}
+
+	t.Run("a refusal that says nothing of the kind stays a refusal", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
-		h.actions.On("Approve", mock.Anything, userID, *cardIn(domain.InteractionPending)).Return(domain.ActionResult{Message: "ok"}, nil).Once()
-		paid := *cardIn(domain.InteractionPaid)
-		paid.Result = "ok"
-		h.expectSave(domain.InteractionPending, paid, domain.ErrInvalidState)
+		h.with(transfer(domain.InteractionPending))
+		h.actions.On("Approve", mock.Anything, userID, mock.Anything).Return(domain.ActionResult{}, &domain.ActionError{Message: "expired", Resolved: "EXPIRED"}).Once()
 
 		_, err := h.svc.Approve(t.Context(), userID, convID, replyID)
 
-		require.ErrorIs(t, err, domain.ErrInvalidState)
-		assert.Contains(t, h.logs.String(), "appr_1")
+		var refused *domain.ActionError
+		assert.ErrorAs(t, err, &refused)
+		assert.Equal(t, domain.InteractionPending, h.card().State)
 	})
+}
 
-	t.Run("the answer is saved even when the request is gone", func(t *testing.T) {
-		h := newHarness(t)
-		ctx, cancel := context.WithCancel(t.Context())
-		h.msgs.On("Get", mock.Anything, userID, convID, replyID).Return(replyWith(cardIn(domain.InteractionPending)), nil).Once()
-		h.actions.On("Approve", mock.Anything, userID, *cardIn(domain.InteractionPending)).
-			Run(func(mock.Arguments) { cancel() }).Return(domain.ActionResult{Message: "ok"}, nil).Once()
-		paid := *cardIn(domain.InteractionPaid)
-		paid.Result = "ok"
-		h.expectSave(domain.InteractionPending, paid, nil)
-
-		got, err := h.svc.Approve(ctx, userID, convID, replyID)
-
-		require.NoError(t, err)
-		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
-		assert.Empty(t, got.Meta.Interaction.ClaimID, "a finished card carries no claim")
+// Several answers to one card at once: those that find the card open reach the service, which does one and says so to the others; those
+// that come after the card was paid are told it is closed. The card ends as what was done, and nothing is done twice by this server.
+func TestApprove_EightAtOnceEndWithOnePaymentAndTheCardPaid(t *testing.T) {
+	h := newHarness(t)
+	h.with(transfer(domain.InteractionPending))
+	var paid, repeats sync.Mutex
+	var payments, repeated int
+	h.actions.On("Approve", mock.Anything, userID, mock.Anything).Return(func(context.Context, uuid.UUID, domain.Interaction) (domain.ActionResult, error) {
+		paid.Lock()
+		defer paid.Unlock()
+		if payments == 0 {
+			payments++
+			return domain.ActionResult{Message: "Paid."}, nil
+		}
+		repeats.Lock()
+		repeated++
+		repeats.Unlock()
+		return domain.ActionResult{}, &domain.ActionError{Message: "approval already resolved: APPROVED", Resolved: "APPROVED"}
 	})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
+			if errors.Is(err, domain.ErrInvalidState) {
+				return // it came after the card was paid: the page is shown the reply as it is (see the card handler)
+			}
+			if assert.NoError(t, err) && assert.NotNil(t, got.Meta.Interaction) {
+				assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
+			}
+		})
+	}
+	wg.Wait()
+
+	assert.Equal(t, 1, payments, "one payment, whatever came at once")
+	assert.LessOrEqual(t, repeated, 7)
+	assert.Equal(t, domain.InteractionPaid, h.card().State)
+	assert.Equal(t, "Paid.", h.card().Result, "the first answer is the one that stays")
 }
 
 func TestReject(t *testing.T) {
-	t.Run("a pending card and one that asks for a code can be rejected", func(t *testing.T) {
-		for _, state := range []domain.InteractionState{domain.InteractionPending, domain.InteractionOTPRequired} {
+	for _, state := range []domain.InteractionState{domain.InteractionPending, domain.InteractionOTPRequired} {
+		t.Run("a card that is "+string(state)+" can be rejected", func(t *testing.T) {
 			h := newHarness(t)
-			h.expectGet(replyWith(cardIn(state)))
-			h.actions.On("Reject", mock.Anything, userID, *cardIn(state)).Return(domain.ActionResult{Message: "Transfer rejected successfully."}, nil).Once()
-			closed := *cardIn(domain.InteractionRejected)
-			closed.ChallengeID = challengeFor(state)
-			closed.Result = "Transfer rejected successfully."
-			h.expectSave(state, closed, nil)
+			h.with(transfer(state))
+			h.actions.On("Reject", mock.Anything, userID, *transfer(state)).Return(domain.ActionResult{Message: "Transfer rejected successfully."}, nil).Once()
 
 			got, err := h.svc.Reject(t.Context(), userID, convID, replyID)
 
-			require.NoError(t, err, string(state))
+			require.NoError(t, err)
 			assert.Equal(t, domain.InteractionRejected, got.Meta.Interaction.State)
-		}
-	})
-
-	t.Run("a paid card cannot be rejected", func(t *testing.T) {
-		h := newHarness(t)
-		h.expectGet(replyWith(cardIn(domain.InteractionPaid)))
-
-		_, err := h.svc.Reject(t.Context(), userID, convID, replyID)
-
-		require.ErrorIs(t, err, domain.ErrInvalidState)
-	})
+			if state == domain.InteractionOTPRequired {
+				assert.Equal(t, "trf_9", got.Meta.Interaction.ChallengeID, "the challenge stays on the rejected card")
+			}
+		})
+	}
 }
 
 func TestConfirmOTP(t *testing.T) {
-	asking := func() domain.Message { return replyWith(cardIn(domain.InteractionOTPRequired)) }
-
 	t.Run("the right code pays the transfer", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(asking())
-		h.actions.On("ConfirmOTP", mock.Anything, userID, *cardIn(domain.InteractionOTPRequired), "123456").
-			Return(domain.ActionResult{Message: "Transfer paid successfully. TxnID: OP-2"}, nil).Once()
-		paid := *cardIn(domain.InteractionPaid)
-		paid.ChallengeID = "trf_9"
-		paid.Result = "Transfer paid successfully. TxnID: OP-2"
-		h.expectSave(domain.InteractionOTPRequired, paid, nil)
+		h.with(transfer(domain.InteractionOTPRequired))
+		h.actions.On("ConfirmOTP", mock.Anything, userID, *transfer(domain.InteractionOTPRequired), "123456").Return(domain.ActionResult{Message: "Paid."}, nil).Once()
 
-		got, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, " 123456 ")
+		got, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, "123456")
 
 		require.NoError(t, err)
-		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State, "the code is trimmed")
+		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
 	})
 
-	t.Run("a wrong code keeps the card asking, with the reason", func(t *testing.T) {
+	t.Run("a wrong code keeps the card asking, with the service's reason", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(asking())
-		h.actions.On("ConfirmOTP", mock.Anything, userID, *cardIn(domain.InteractionOTPRequired), "000000").
-			Return(domain.ActionResult{}, &domain.ActionError{Message: "OTP verification failed"}).Once()
-		h.expectRelease(domain.InteractionOTPRequired)
+		h.with(transfer(domain.InteractionOTPRequired))
+		h.actions.On("ConfirmOTP", mock.Anything, userID, mock.Anything, "000000").Return(domain.ActionResult{}, &domain.ActionError{Message: "Invalid code"}).Once()
 
 		got, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, "000000")
 
 		var refused *domain.ActionError
 		require.ErrorAs(t, err, &refused)
-		assert.Equal(t, "OTP verification failed", refused.Message)
+		assert.Equal(t, "Invalid code", refused.Message)
 		assert.Equal(t, domain.InteractionOTPRequired, got.Meta.Interaction.State)
 	})
 
-	t.Run("a code that cannot be one is refused without asking the service", func(t *testing.T) {
-		for _, code := range []string{"", "   ", "12 34", "1234567890123"} {
+	t.Run("the ends of a code are trimmed before it goes", func(t *testing.T) {
+		h := newHarness(t)
+		h.with(transfer(domain.InteractionOTPRequired))
+		h.actions.On("ConfirmOTP", mock.Anything, userID, mock.Anything, "123456").Return(domain.ActionResult{}, nil).Once()
+
+		_, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, "  123456\n")
+
+		assert.NoError(t, err)
+	})
+
+	for name, code := range map[string]string{
+		"empty": "", "spaces only": "   ", "a space inside": "12 34", "a tab inside": "12\t34", "a newline inside": "12\n34", "a NUL": "12\x0034",
+		"too long": strings.Repeat("1", 13), "not UTF-8": "12\xff34", "a zero-width character": "12​34", "a bidi override": "12‮34",
+	} {
+		t.Run("a code that cannot be one never leaves the Web UI: "+name, func(t *testing.T) {
 			h := newHarness(t)
-			h.expectGet(asking())
+			h.with(transfer(domain.InteractionOTPRequired))
 
 			got, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, code)
 
 			var refused *domain.ActionError
-			require.ErrorAs(t, err, &refused, "%q", code)
+			require.ErrorAs(t, err, &refused)
+			assert.Equal(t, "Enter the code the bank sent you.", refused.Message)
 			assert.Equal(t, domain.InteractionOTPRequired, got.Meta.Interaction.State)
-		}
-	})
+		})
+	}
 
-	t.Run("a card that did not ask for a code is refused", func(t *testing.T) {
+	t.Run("a code of the longest length is sent", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(replyWith(cardIn(domain.InteractionPending)))
+		h.with(transfer(domain.InteractionOTPRequired))
+		h.actions.On("ConfirmOTP", mock.Anything, userID, mock.Anything, strings.Repeat("ñ", 12)).Return(domain.ActionResult{}, nil).Once()
 
-		_, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, "123456")
+		_, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, strings.Repeat("ñ", 12))
 
-		require.ErrorIs(t, err, domain.ErrInvalidState)
+		assert.NoError(t, err)
 	})
-
-	t.Run("any other failure of the service is passed on", func(t *testing.T) {
-		h := newHarness(t)
-		h.expectGet(asking())
-		boom := errors.New("boom")
-		h.actions.On("ConfirmOTP", mock.Anything, userID, *cardIn(domain.InteractionOTPRequired), "123456").Return(domain.ActionResult{}, boom).Once()
-		h.expectClaim(domain.InteractionOTPRequired) // it may have gone through: the card stays claimed
-
-		_, err := h.svc.ConfirmOTP(t.Context(), userID, convID, replyID, "123456")
-
-		require.ErrorIs(t, err, boom)
-	})
-}
-
-func contactReply(state domain.InteractionState) domain.Message {
-	return replyWith(&domain.Interaction{Kind: domain.InteractionContact, State: state, RequestID: "req-1", RunID: "run-1", Query: "Maria"})
 }
 
 func TestChooseContact(t *testing.T) {
-	maria := domain.Candidates("Maria")[0]
-
-	t.Run("the chosen candidate is confirmed with the agent's service and the card closes", func(t *testing.T) {
+	t.Run("the chosen candidate is confirmed with the service and the card closes", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(contactReply(domain.InteractionPending))
-		h.actions.On("ConfirmContact", mock.Anything, userID, "Maria", maria).Return(nil).Once()
-		want := domain.Interaction{Kind: domain.InteractionContact, State: domain.InteractionConfirmed, RequestID: "req-1", RunID: "run-1", Query: "Maria", Contact: maria}
-		h.expectSaveFrom(*contactReply(domain.InteractionPending).Meta.Interaction, want, nil)
+		h.with(contact(domain.InteractionPending))
+		want := domain.Candidates("maria")[0]
+		h.actions.On("ConfirmContact", mock.Anything, userID, "maria", want).Return(nil).Once()
 
 		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 
 		require.NoError(t, err)
 		assert.Equal(t, domain.InteractionConfirmed, got.Meta.Interaction.State)
-		assert.Equal(t, maria, got.Meta.Interaction.Contact)
+		assert.Equal(t, want, got.Meta.Interaction.Contact)
 	})
 
-	t.Run("a choice that is not a candidate is refused without asking the service", func(t *testing.T) {
-		for _, choice := range []int{-1, len(domain.Candidates("Maria")), 99} {
+	t.Run("every candidate can be chosen, the last one too", func(t *testing.T) {
+		candidates := domain.Candidates("maria")
+		for i, c := range candidates {
 			h := newHarness(t)
-			h.expectGet(contactReply(domain.InteractionPending))
+			h.with(contact(domain.InteractionPending))
+			h.actions.On("ConfirmContact", mock.Anything, userID, "maria", c).Return(nil).Once()
+
+			got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, i)
+
+			require.NoError(t, err)
+			assert.Equal(t, c, got.Meta.Interaction.Contact)
+		}
+	})
+
+	for _, choice := range []int{-1, 99, len(domain.Candidates("maria"))} {
+		t.Run(fmt.Sprintf("a choice of %d is refused without asking the service", choice), func(t *testing.T) {
+			h := newHarness(t)
+			h.with(contact(domain.InteractionPending))
 
 			got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, choice)
 
 			var refused *domain.ActionError
-			require.ErrorAs(t, err, &refused, "%d", choice)
+			require.ErrorAs(t, err, &refused)
+			assert.Equal(t, "Choose one of the contacts.", refused.Message)
 			assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
-		}
-	})
-
-	t.Run("a card that is closed, or is a transfer, takes no contact", func(t *testing.T) {
-		for _, m := range []domain.Message{contactReply(domain.InteractionConfirmed), replyWith(cardIn(domain.InteractionPending))} {
-			h := newHarness(t)
-			h.expectGet(m)
-
-			_, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
-
-			require.ErrorIs(t, err, domain.ErrInvalidState)
-		}
-	})
+		})
+	}
 
 	t.Run("a service that refuses leaves the card pending, with the reason", func(t *testing.T) {
 		h := newHarness(t)
-		h.expectGet(contactReply(domain.InteractionPending))
-		h.actions.On("ConfirmContact", mock.Anything, userID, "Maria", maria).Return(&domain.ActionError{Message: "no such contact"}).Once()
-		h.expectReleaseOf(*contactReply(domain.InteractionPending).Meta.Interaction)
+		h.with(contact(domain.InteractionPending))
+		h.actions.On("ConfirmContact", mock.Anything, userID, "maria", mock.Anything).Return(&domain.ActionError{Message: "no such contact"}).Once()
 
 		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 
-		var refused *domain.ActionError
-		require.ErrorAs(t, err, &refused)
+		require.Error(t, err)
 		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
 	})
+}
+
+func TestAnswer_OnlyTheRightCardOnAFinishedReplyIsAnswered(t *testing.T) {
+	cases := map[string]struct {
+		card     *domain.Interaction
+		status   domain.Status
+		role     domain.Role
+		answers  []string
+		wantInOK bool
+	}{
+		"a paid card takes nothing":            {transfer(domain.InteractionPaid), domain.StatusComplete, domain.RoleAssistant, []string{"approve", "reject", "code", "contact"}, false},
+		"a rejected card takes nothing":        {transfer(domain.InteractionRejected), domain.StatusComplete, domain.RoleAssistant, []string{"approve", "reject", "code", "contact"}, false},
+		"a pending transfer takes no code":     {transfer(domain.InteractionPending), domain.StatusComplete, domain.RoleAssistant, []string{"code", "contact"}, false},
+		"a transfer that asks a code only too": {transfer(domain.InteractionOTPRequired), domain.StatusComplete, domain.RoleAssistant, []string{"approve", "contact"}, false},
+		"a contact card is not paid":           {contact(domain.InteractionPending), domain.StatusComplete, domain.RoleAssistant, []string{"approve", "reject", "code"}, false},
+		"a confirmed contact takes nothing":    {contact(domain.InteractionConfirmed), domain.StatusComplete, domain.RoleAssistant, []string{"contact"}, false},
+		"a card of an unknown kind":            {&domain.Interaction{Kind: "mystery", State: domain.InteractionPending}, domain.StatusComplete, domain.RoleAssistant, []string{"approve", "reject", "code", "contact"}, false},
+		"a card of no kind":                    {&domain.Interaction{State: domain.InteractionPending}, domain.StatusComplete, domain.RoleAssistant, []string{"approve", "reject", "code", "contact"}, false},
+		"a reply that failed":                  {transfer(domain.InteractionPending), domain.StatusFailed, domain.RoleAssistant, []string{"approve", "reject"}, false},
+		"a reply that was stopped":             {transfer(domain.InteractionPending), domain.StatusStopped, domain.RoleAssistant, []string{"approve", "reject"}, false},
+		"a reply still streaming":              {transfer(domain.InteractionPending), domain.StatusStreaming, domain.RoleAssistant, []string{"approve", "reject"}, false},
+		"the user's own message":               {transfer(domain.InteractionPending), domain.StatusComplete, domain.RoleUser, []string{"approve", "reject"}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			for _, answer := range tc.answers {
+				h := newHarness(t)
+				h.with(tc.card)
+				m := h.live.replies[replyID]
+				m.Status, m.Role = tc.status, tc.role
+				h.live.replies[replyID] = m
+
+				_, err := answers[answer](h) // the service has no call expected: asking it would fail the test
+
+				assert.ErrorIs(t, err, domain.ErrInvalidState, answer)
+			}
+		})
+	}
+
+	t.Run("a reply with no card", func(t *testing.T) {
+		h := newHarness(t)
+		h.with(nil)
+
+		_, err := h.svc.Approve(t.Context(), userID, convID, replyID)
+
+		assert.ErrorIs(t, err, domain.ErrInvalidState)
+	})
+}
+
+func TestAnswer_AReplyThatIsNotTheUsersIsNotFound(t *testing.T) {
+	for name, answer := range answers {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			h.with(transfer(domain.InteractionPending))
+			h.live.owner = otherID
+
+			_, err := answer(h)
+
+			assert.ErrorIs(t, err, domain.ErrNotFound)
+		})
+	}
+	t.Run("a reply that is gone, or that is in another conversation", func(t *testing.T) {
+		h := newHarness(t)
+		h.with(transfer(domain.InteractionPending))
+
+		_, err := h.svc.Approve(t.Context(), userID, "conv_v1_22222222-2222-4222-8222-222222222222", replyID)
+		assert.ErrorIs(t, err, domain.ErrNotFound)
+		_, err = h.svc.Approve(t.Context(), userID, convID, uuid.New())
+		assert.ErrorIs(t, err, domain.ErrNotFound)
+	})
+}
+
+func TestApprove_AReplyForgottenWhileTheServiceAnsweredStillShowsTheAnswerOnce(t *testing.T) {
+	h := newHarness(t)
+	h.with(transfer(domain.InteractionPending))
+	h.actions.On("Approve", mock.Anything, userID, mock.Anything).Run(func(mock.Arguments) {
+		delete(h.live.replies, replyID) // the store forgot it while the service was answering
+	}).Return(domain.ActionResult{Message: "Paid."}, nil).Once()
+
+	got, err := h.svc.Approve(t.Context(), userID, convID, replyID)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
+	assert.Contains(t, h.logs.String(), "the service answered a card but the reply was gone")
+	assert.Contains(t, h.logs.String(), "appr_1", "which transfer")
 }
 
 func TestConfirmCandidate(t *testing.T) {
 	t.Run("the contact is confirmed and given back for the message", func(t *testing.T) {
 		h := newHarness(t)
 		juan := domain.Candidates("")[0]
-		h.actions.On("ConfirmContact", mock.Anything, userID, "Juan Perez", juan).Return(nil).Once()
+		h.actions.On("ConfirmContact", mock.Anything, userID, juan.Name, juan).Return(nil).Once()
 
 		got, err := h.svc.ConfirmCandidate(t.Context(), userID, "", 0)
 
@@ -400,15 +488,15 @@ func TestConfirmCandidate(t *testing.T) {
 		assert.Equal(t, juan, got)
 	})
 
-	t.Run("the service is told the chosen name, as nothing typed after the @ may be empty or partial", func(t *testing.T) {
+	t.Run("a hostile query reaches the service only as the name of the candidate", func(t *testing.T) {
 		h := newHarness(t)
-		maria := domain.Candidates("mar")[0]
-		h.actions.On("ConfirmContact", mock.Anything, userID, maria.Name, maria).Return(nil).Once()
+		query := "'; DROP TABLE users;-- \n\x00"
+		want := domain.Candidates(query)[0]
+		h.actions.On("ConfirmContact", mock.Anything, userID, want.Name, want).Return(nil).Once()
 
-		got, err := h.svc.ConfirmCandidate(t.Context(), userID, "mar", 0)
+		_, err := h.svc.ConfirmCandidate(t.Context(), userID, query, 0)
 
-		require.NoError(t, err)
-		assert.Equal(t, maria, got)
+		assert.NoError(t, err)
 	})
 
 	t.Run("a choice that is not a candidate is refused without asking the service", func(t *testing.T) {
@@ -417,15 +505,20 @@ func TestConfirmCandidate(t *testing.T) {
 		_, err := h.svc.ConfirmCandidate(t.Context(), userID, "maria", 7)
 
 		var refused *domain.ActionError
-		require.ErrorAs(t, err, &refused)
+		assert.ErrorAs(t, err, &refused)
 	})
 
-	t.Run("a failure of the service is passed on", func(t *testing.T) {
+	t.Run("a failure of the service is passed on, with no contact", func(t *testing.T) {
 		h := newHarness(t)
-		h.actions.On("ConfirmContact", mock.Anything, userID, domain.Candidates("maria")[0].Name, domain.Candidates("maria")[0]).Return(domain.ErrAgentUnavailable).Once()
+		h.actions.On("ConfirmContact", mock.Anything, userID, mock.Anything, mock.Anything).Return(domain.ErrAgentUnavailable).Once()
 
-		_, err := h.svc.ConfirmCandidate(t.Context(), userID, "maria", 0)
+		got, err := h.svc.ConfirmCandidate(t.Context(), userID, "maria", 0)
 
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
+		assert.Equal(t, domain.Contact{}, got)
 	})
+}
+
+func TestNewService_HasALogger(t *testing.T) {
+	assert.NotNil(t, interaction.NewService(interaction.Dependencies{}))
 }

@@ -5,7 +5,6 @@ import (
 	"go/parser"
 	"go/token"
 	"maps"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -57,40 +56,23 @@ var routes = []route{
 	}},
 	{"POST /logout", false, true, func(c *stack.Client, _ ids, h ...string) *stack.Response { return c.Post("/logout", nil, h...) }},
 	{"GET /{$}", false, false, func(c *stack.Client, _ ids, h ...string) *stack.Response { return c.Get("/", h...) }},
-	{"POST /c", false, true, func(c *stack.Client, _ ids, h ...string) *stack.Response {
-		return c.Post("/c", url.Values{"content": {"a new conversation"}}, h...)
-	}},
+	{"GET /history", false, false, func(c *stack.Client, _ ids, h ...string) *stack.Response { return c.Get("/history", h...) }},
 	{"GET /c/{id}", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response { return c.Get("/c/"+x.conv, h...) }},
-	{"PATCH /c/{id}", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
-		return c.Do(http.MethodPatch, "/c/"+x.conv, url.Values{"title": {"renamed"}}, h...)
+	{"GET /c/{id}/earlier", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response {
+		return c.Get("/c/"+x.conv+"/earlier?before=1", h...)
 	}},
-	{"DELETE /c/{id}", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
-		return c.Do(http.MethodDelete, "/c/"+x.conv, nil, h...)
-	}},
-	{"GET /c/{id}/item", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response { return c.Get("/c/"+x.conv+"/item", h...) }},
-	{"GET /c/{id}/rename", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response { return c.Get("/c/"+x.conv+"/rename", h...) }},
-	{"GET /c/{id}/delete", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response { return c.Get("/c/"+x.conv+"/delete", h...) }},
 	{"POST /c/{id}/messages", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
 		return c.Post("/c/"+x.conv+"/messages", url.Values{"content": {"one more"}}, h...)
 	}},
 	{"GET /c/{id}/m/{mid}/stream", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response {
 		return c.Get("/c/"+x.conv+"/m/"+x.reply+"/stream", append([]string{"Accept", "text/event-stream"}, h...)...)
 	}},
-	{"GET /c/{id}/m/{mid}/raw", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response {
-		return c.Get("/c/"+x.conv+"/m/"+x.reply+"/raw", h...)
-	}},
 	{"POST /c/{id}/m/{mid}/stop", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
 		return c.Post("/c/"+x.conv+"/m/"+x.reply+"/stop", nil, h...)
-	}},
-	{"POST /c/{id}/m/{mid}/regenerate", false, true, func(c *stack.Client, x ids, h ...string) *stack.Response {
-		return c.Post("/c/"+x.conv+"/m/"+x.reply+"/regenerate", nil, h...)
 	}},
 	{"GET /contacts", false, false, func(c *stack.Client, _ ids, h ...string) *stack.Response { return c.Get("/contacts?q=maria", h...) }},
 	{"POST /contacts/confirm", false, true, func(c *stack.Client, _ ids, h ...string) *stack.Response {
 		return c.Post("/contacts/confirm", url.Values{"q": {"maria"}, "choice": {"0"}}, h...)
-	}},
-	{"GET /c/{id}/m/{mid}/card", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response {
-		return c.Get("/c/"+x.conv+"/m/"+x.reply+"/card", h...)
 	}},
 	{"POST /c/{id}/m/{mid}/card/approve", false, true,
 		func(c *stack.Client, x ids, h ...string) *stack.Response {
