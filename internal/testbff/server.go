@@ -96,7 +96,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.mux.Serv
 // signedIn asks for what the real BFF asks for: a bearer token and the account.
 func (h *Handler) signedIn(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || r.Header.Get("X-Yape-Account-Id") == "" {
+		token, bearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !bearer || strings.TrimSpace(token) == "" || strings.TrimSpace(r.Header.Get("X-Yape-Account-Id")) == "" {
 			http.Error(w, `{"statusCode":401,"message":"Unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -271,7 +272,7 @@ func words(text string) []string {
 }
 
 func ticks(n int) []string {
-	chunks := make([]string, n)
+	chunks := make([]string, max(n, 0)) // a negative length is a length of zero
 	for i := range chunks {
 		chunks[i] = "tick " + strconv.Itoa(i+1) + " "
 	}

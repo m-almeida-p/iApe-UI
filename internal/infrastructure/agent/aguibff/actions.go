@@ -2,6 +2,7 @@ package aguibff
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -33,7 +34,7 @@ func (c *Client) Approve(ctx context.Context, card domain.Interaction) (domain.A
 	if !got.OTPRequired {
 		return domain.ActionResult{Message: got.Message}, nil
 	}
-	if got.TransferID == "" {
+	if strings.TrimSpace(got.TransferID) == "" {
 		return domain.ActionResult{}, errors.New("the BFF asked for a code without transfer_id")
 	}
 	return domain.ActionResult{Message: got.Message, ChallengeID: got.TransferID}, nil
@@ -62,6 +63,10 @@ func (c *Client) ConfirmContact(ctx context.Context, query string, contact domai
 // act posts an action of an approval to the BFF. The route is built from the approval's id, never taken from the stream, and
 // the id is one path segment whatever it holds.
 func (c *Client) act(ctx context.Context, approvalID, action string, body map[string]string) (actionAnswer, error) {
+	// An empty id leaves a hole in the route, and "." and ".." are path segments that PathEscape leaves as they are: another route.
+	if strings.TrimSpace(approvalID) == "" || approvalID == "." || approvalID == ".." {
+		return actionAnswer{}, fmt.Errorf("the approval has no usable id (%q)", approvalID)
+	}
 	return c.postJSON(ctx, "/bff/approvals/"+url.PathEscape(approvalID)+"/"+action, body)
 }
 
@@ -73,11 +78,9 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 		return actionAnswer{}, err
 	}
 	target := c.base + route
-	if c.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.timeout)
-		defer cancel()
-	}
+	caller := ctx
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	resp, err := c.send(ctx, func(token string) (*http.Response, error) {
 		hr, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
 		if err != nil {
@@ -90,7 +93,7 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 		return c.http.Do(hr)
 	})
 	if err != nil {
-		return actionAnswer{}, err
+		return actionAnswer{}, c.classify(caller, ctx, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return actionAnswer{}, refusal(classifyStatus(readHTTPError(resp)))
@@ -98,7 +101,7 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 	defer func() { _ = resp.Body.Close() }()
 	var got actionAnswer
 	if err := json.UnmarshalRead(io.LimitReader(resp.Body, maxErrorBody*16), &got); err != nil {
-		return actionAnswer{}, fmt.Errorf("reading the BFF's answer: %w", err)
+		return actionAnswer{}, c.classify(caller, ctx, fmt.Errorf("reading the BFF's answer: %w", err))
 	}
 	return got, nil
 }
@@ -113,7 +116,7 @@ func refusal(err error) error {
 	var body struct {
 		Message any `json:"message"`
 	}
-	if json.Unmarshal([]byte(httpErr.Body), &body) != nil {
+	if json.Unmarshal([]byte(cmp.Or(httpErr.full, httpErr.Body)), &body) != nil {
 		return err
 	}
 	switch m := body.Message.(type) {

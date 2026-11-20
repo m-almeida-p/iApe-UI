@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 	"uuid"
 
 	"iape-ui/internal/core/domain"
@@ -23,13 +24,16 @@ var _ resource.AgentGateway = (*Client)(nil)
 
 const (
 	maxErrorBody = 512
-	dialTimeout  = 5 * time.Second
+	// maxRefusalBody is how much of a refusal is read to find the service's words in it. The error carries only maxErrorBody.
+	maxRefusalBody = 16 << 10
+	dialTimeout    = 5 * time.Second
 )
 
 // HTTPError is a refusal by the BFF.
 type HTTPError struct {
 	Status int
-	Body   string
+	Body   string // the start of what the BFF said
+	full   string // more of it, for the one that looks for the service's words
 }
 
 func (e *HTTPError) Error() string {
@@ -84,7 +88,7 @@ type message struct {
 // Run implements resource.AgentGateway: one turn, as a new run of the conversation's thread.
 func (c *Client) Run(ctx context.Context, req domain.AgentRequest) iter.Seq2[domain.AgentEvent, error] {
 	return func(yield func(domain.AgentEvent, error) bool) {
-		runCtx, cancel := context.WithTimeout(ctx, c.timeout)
+		runCtx, cancel := c.withTimeout(ctx)
 		defer cancel() // also cancels the upstream request when the caller stops iterating
 
 		body, err := c.open(runCtx, req)
@@ -106,13 +110,21 @@ func (c *Client) Run(ctx context.Context, req domain.AgentRequest) iter.Seq2[dom
 	}
 }
 
-// classify tells what ended a run: the caller leaving, the time limit, or the failure itself.
+// withTimeout limits a request to the configured time. Zero is no limit.
+func (c *Client) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, c.timeout)
+}
+
+// classify tells what ended a request: the caller leaving, the time limit, or the failure itself.
 func (c *Client) classify(caller, run context.Context, err error) error {
 	switch {
 	case caller.Err() != nil:
 		return caller.Err()
 	case run.Err() != nil:
-		return fmt.Errorf("agent run timed out after %s: %w", c.timeout, context.DeadlineExceeded)
+		return fmt.Errorf("agent request timed out after %s: %w", c.timeout, context.DeadlineExceeded)
 	}
 	return err
 }
@@ -121,6 +133,9 @@ func (c *Client) classify(caller, run context.Context, err error) error {
 // the request is made again.
 func (c *Client) send(ctx context.Context, request func(token string) (*http.Response, error)) (*http.Response, error) {
 	token, err := c.tokens.Token(ctx)
+	if err == nil && strings.TrimSpace(token) == "" {
+		err = fmt.Errorf("%w: the token source gave an empty token", ErrToken)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", domain.ErrAgentUnavailable, err)
 	}
@@ -199,8 +214,20 @@ func (c *Client) Ping(ctx context.Context) error {
 // readHTTPError reads (a bounded part of) an error response and closes it.
 func readHTTPError(resp *http.Response) *HTTPError {
 	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-	return &HTTPError{Status: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxRefusalBody))
+	full := strings.TrimSpace(string(body))
+	return &HTTPError{Status: resp.StatusCode, Body: excerpt(full, maxErrorBody), full: full}
+}
+
+// excerpt is the start of s, at most n bytes and never the half of a character.
+func excerpt(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // classifyStatus marks gateway-class failures as "agent unavailable".

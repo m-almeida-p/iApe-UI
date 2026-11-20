@@ -4,7 +4,6 @@ package aguibff
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // ErrToken marks a failure to get the account's token. Its text says what failed, never what the token is.
@@ -30,7 +30,14 @@ type Refresher interface {
 	Refresh(ctx context.Context) (string, error)
 }
 
-const defaultTokenTimeout = 20 * time.Second
+const (
+	defaultTokenTimeout = 20 * time.Second
+	// maxProgramOutput is the most of a program's standard output or error that is kept. A token is a few kilobytes; a program
+	// that prints more is not giving one, and its output must not fill the memory.
+	maxProgramOutput = 64 << 10
+	// stopGrace is how long a program that was stopped may keep the caller waiting for its output (a child can hold the pipe open).
+	stopGrace = time.Second
+)
 
 // CommandToken gets the token from a program that prints it (yape-token): it is run for the account, its standard output
 // is the token, and it caches the token until it is about to expire, so asking on every turn costs nothing.
@@ -50,50 +57,88 @@ func (c CommandToken) Token(ctx context.Context) (string, error) { return c.run(
 func (c CommandToken) Refresh(ctx context.Context) (string, error) { return c.run(ctx, "--refresh") }
 
 func (c CommandToken) run(ctx context.Context, extra ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, cmp.Or(c.Timeout, defaultTokenTimeout))
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = defaultTokenTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"--account", c.AccountID}, extra...)...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout, stderr := &capture{limit: maxProgramOutput}, &capture{limit: maxProgramOutput}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.WaitDelay = stopGrace
 	if err := cmd.Run(); err != nil {
 		if cause := context.Cause(ctx); cause != nil {
 			return "", fmt.Errorf("%w: %s did not finish: %w", ErrToken, c.Bin, cause)
 		}
-		if why := diagnostic(stderr.Bytes()); why != "" {
+		if why := diagnostic(stderr.buf.Bytes(), strings.TrimSpace(stdout.buf.String())); why != "" {
 			return "", fmt.Errorf("%w: %s failed: %w (%s)", ErrToken, c.Bin, err, why)
 		}
 		return "", fmt.Errorf("%w: %s failed: %w", ErrToken, c.Bin, err)
 	}
 
-	token := strings.TrimSpace(stdout.String())
+	token := strings.TrimSpace(stdout.buf.String())
 	switch {
-	case token == "":
+	case token == "" && !stdout.over:
 		return "", fmt.Errorf("%w: %s printed no token", ErrToken, c.Bin)
-	case strings.ContainsFunc(token, unicode.IsSpace):
+	case stdout.over || strings.ContainsFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }):
 		return "", fmt.Errorf("%w: %s printed something that is not a token", ErrToken, c.Bin)
 	}
 	return token, nil
 }
 
-// diagnostic is the "error" of the last JSON line a program wrote to its standard error: its own explanation, short. Anything
-// else it wrote is left out, because a program's output is not for an error message.
-func diagnostic(stderr []byte) string {
+// capture keeps the start of what is written to it, up to limit bytes, and says whether there was more. It never fails a write:
+// a program that prints a lot is not stopped, only not remembered.
+type capture struct {
+	limit int
+	buf   bytes.Buffer
+	over  bool
+}
+
+func (c *capture) Write(p []byte) (int, error) {
+	room := max(c.limit-c.buf.Len(), 0)
+	if len(p) > room {
+		c.over = true
+		p = p[:room]
+	}
+	c.buf.Write(p)
+	return len(p), nil
+}
+
+// diagnostic is the "error" of the last JSON line a program wrote to its standard error: its own explanation, short, on one line
+// and without the token it printed, if it repeats it. Anything else it wrote is left out, because a program's output is not for an
+// error message.
+func diagnostic(stderr []byte, token string) string {
 	lines := strings.Split(strings.TrimSpace(string(stderr)), "\n")
 	for _, line := range slices.Backward(lines) {
 		var record struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal([]byte(line), &record) == nil && record.Error != "" {
-			return truncate(record.Error, 200)
+			why := record.Error
+			if token != "" {
+				why = strings.ReplaceAll(why, token, "[token]")
+			}
+			why = strings.Map(func(r rune) rune {
+				if unicode.IsControl(r) {
+					return ' '
+				}
+				return r
+			}, why)
+			return truncate(why, 200)
 		}
 	}
 	return ""
 }
 
+// truncate is the start of s, at most n bytes, never the half of a character, with an ellipsis when it cut.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }
