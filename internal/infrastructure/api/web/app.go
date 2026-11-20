@@ -53,9 +53,10 @@ type App struct {
 	opts     Options
 	md       *render.Markdown
 
-	sends  *rateLimiter // nil when limiting is off
-	logins *rateLimiter
-	ready  readyCache
+	sends   *rateLimiter // nil when limiting is off
+	answers *rateLimiter // the answers to cards: each is a call to the payment service
+	logins  *rateLimiter
+	ready   readyCache
 
 	// streams is done once the server starts shutting down; see EndStreams.
 	streams    context.Context
@@ -80,6 +81,7 @@ func NewApp(log *slog.Logger, files fs.FS, svc Services, opts Options) (*App, er
 	return &App{
 		log: log, renderer: renderer, static: static, svc: svc, opts: opts, md: render.NewMarkdown(),
 		sends:   newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
+		answers: newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		logins:  newRateLimiter(opts.RateLimitRPS, opts.RateLimitBurst),
 		streams: streams, endStreams: endStreams,
 	}, nil

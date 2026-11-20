@@ -1101,15 +1101,9 @@ func TestChooseContact_IsLimitedLikeASend(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	})
 
-	t.Run("paying, rejecting, the code and the picker are not counted", func(t *testing.T) {
+	t.Run("the picker's list asks nothing of the payment service, so it is not counted", func(t *testing.T) {
 		h := limited(t, 1)
-		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil).Times(3)
-		h.cards.On("Reject", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionRejected), nil).Times(3)
-		h.cards.On("ConfirmOTP", mock.Anything, alice.ID, convID, streamMsgID, "123456").Return(cardReply(domain.InteractionPaid), nil).Times(3)
 		for range 3 {
-			assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, cardPath("approve"), nil, htmx).Code)
-			assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, cardPath("reject"), nil, htmx).Code)
-			assert.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, cardPath("otp"), url.Values{"code": {"123456"}}, htmx).Code)
 			assert.Equal(t, http.StatusOK, h.as("tok", http.MethodGet, "/contacts?q=ma", nil, htmx).Code)
 		}
 	})

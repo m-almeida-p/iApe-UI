@@ -15,6 +15,7 @@ func (a *App) Routes() http.Handler {
 
 	signIn := limited(a.logins, byClient, a.tooManyLogins)
 	send := limited(a.sends, byUser, a.tooManySends)
+	answer := limited(a.answers, byUser, a.tooManyAnswers)
 
 	mux.HandleFunc("GET /login", a.loginForm)
 	mux.HandleFunc("POST /login", signIn(a.login))
@@ -34,11 +35,11 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /c/{id}/m/{mid}/stop", a.stopMessage)
 	mux.HandleFunc("POST /c/{id}/m/{mid}/regenerate", send(a.regenerateMessage))
 	mux.HandleFunc("GET /contacts", a.contactPicker)
-	mux.HandleFunc("POST /contacts/confirm", a.confirmCandidate)
+	mux.HandleFunc("POST /contacts/confirm", answer(a.confirmCandidate))
 	mux.HandleFunc("GET /c/{id}/m/{mid}/card", a.showCard)
-	mux.HandleFunc("POST /c/{id}/m/{mid}/card/approve", a.approveCard)
-	mux.HandleFunc("POST /c/{id}/m/{mid}/card/reject", a.rejectCard)
-	mux.HandleFunc("POST /c/{id}/m/{mid}/card/otp", a.confirmCode)
+	mux.HandleFunc("POST /c/{id}/m/{mid}/card/approve", answer(a.approveCard))
+	mux.HandleFunc("POST /c/{id}/m/{mid}/card/reject", answer(a.rejectCard))
+	mux.HandleFunc("POST /c/{id}/m/{mid}/card/otp", answer(a.confirmCode))
 	mux.HandleFunc("POST /c/{id}/m/{mid}/card/contact", send(a.chooseContact))
 	return a.authenticate(mux)
 }

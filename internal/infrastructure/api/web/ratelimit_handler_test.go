@@ -199,3 +199,70 @@ func TestRateLimit_Login(t *testing.T) {
 		}
 	})
 }
+
+// answersHarness is limitedHarness with the service that answers cards.
+func answersHarness(t *testing.T, burst int) *chatHarness {
+	t.Helper()
+	h := &chatHarness{t: t, auth: mocks.NewAuth(t), chat: mocks.NewChat(t), convs: mocks.NewConversation(t), cards: mocks.NewInteractions(t)}
+	h.auth.On("Authenticate", mock.Anything, "tok").Return(alice, nil).Maybe()
+	h.auth.On("Authenticate", mock.Anything, "tok2").Return(bob, nil).Maybe()
+	h.route = testAppWith(t, Services{Auth: h.auth, Chat: h.chat, Conversations: h.convs, Interactions: h.cards},
+		Options{RateLimitRPS: 0.0001, RateLimitBurst: burst}).Routes()
+	return h
+}
+
+// Every answer to a card is a call to the payment service with the shared account's token: a user cannot make them without limit, nor
+// try codes without limit.
+func TestRateLimit_AnswersToCards(t *testing.T) {
+	approve, reject, code := cardPath("approve"), cardPath("reject"), cardPath("otp")
+
+	t.Run("the answers of a user share a bucket, and the one over the limit is refused before the service", func(t *testing.T) {
+		h := answersHarness(t, 3)
+		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil).Once()
+		h.cards.On("Reject", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionRejected), nil).Once()
+		h.cards.On("ConfirmOTP", mock.Anything, alice.ID, convID, streamMsgID, "123456").Return(cardReply(domain.InteractionPaid), nil).Once()
+		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, approve, url.Values{}, htmx).Code)
+		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, reject, url.Values{}, htmx).Code)
+		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, code, url.Values{"code": {"123456"}}, htmx).Code)
+
+		rec := h.as("tok", http.MethodPost, code, url.Values{"code": {"000000"}}, htmx)
+
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		assert.NotEmpty(t, rec.Header().Get("Retry-After"))
+		h.cards.AssertNumberOfCalls(t, "ConfirmOTP", 1) // the code over the limit never reached the service
+	})
+
+	t.Run("the limit of one user does not touch another", func(t *testing.T) {
+		h := answersHarness(t, 1)
+		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil).Once()
+		h.cards.On("Approve", mock.Anything, bob.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil).Once()
+		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, approve, url.Values{}, htmx).Code)
+		require.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, approve, url.Values{}, htmx).Code)
+
+		assert.Equal(t, http.StatusOK, h.as("tok2", http.MethodPost, approve, url.Values{}, htmx).Code)
+	})
+
+	t.Run("it does not use the bucket of the messages", func(t *testing.T) {
+		h := answersHarness(t, 1)
+		h.cards.On("Approve", mock.Anything, alice.ID, convID, streamMsgID).Return(cardReply(domain.InteractionPaid), nil).Once()
+		h.chat.On("Send", mock.Anything, alice.ID, convID, "hi").Return(service.Turn{
+			Conversation: domain.Conversation{ID: convID, UserID: alice.ID, Title: "t"},
+			User:         domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleUser, Status: domain.StatusComplete, Content: "hi"},
+			Reply:        domain.Message{ID: uuid.NewV7(), ConversationID: convID, Role: domain.RoleAssistant, Status: domain.StatusPending},
+		}, nil).Once()
+		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, approve, url.Values{}, htmx).Code)
+
+		rec := h.as("tok", http.MethodPost, "/c/"+convID.String()+"/messages", url.Values{"content": {"hi"}}, htmx)
+
+		assert.Equal(t, http.StatusOK, rec.Code, "paying does not use up the messages")
+	})
+
+	t.Run("confirming a contact from the picker is limited too", func(t *testing.T) {
+		h := answersHarness(t, 1)
+		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(domain.Candidates("maria")[0], nil).Once()
+		form := url.Values{"q": {"maria"}, "choice": {"0"}}
+		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/contacts/confirm", form, htmx).Code)
+
+		assert.Equal(t, http.StatusTooManyRequests, h.as("tok", http.MethodPost, "/contacts/confirm", form, htmx).Code)
+	})
+}
