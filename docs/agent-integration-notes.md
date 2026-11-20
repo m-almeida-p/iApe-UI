@@ -76,3 +76,17 @@ and it happened: the next paths all failed with that text, which looks like a bu
 - A reply whose card is closed (paid, rejected, confirmed) still offers **Regenerate**; regenerating would ask the agent for another card.
 - A card answered from another tab gives the first tab a 409, and that tab shows the old card until it is reloaded.
 - A Web UI that runs against the real BFF needs the token program on its own computer; there is no static token setting, on purpose.
+## Decisions the tests pinned and did not change
+
+Edge-case tests found these, and they are choices more than bugs, so they stay as they are until someone decides:
+
+- **A 2xx answer to a card's action whose body is empty or unreadable is an error** ("reading the BFF's answer"), even though the action may
+  have gone through at the service. After a payment, how to show a success that cannot be told is a product decision.
+- **A zero, negative or absurd amount on a transfer card** offers Reject only; the service has the last word on whether it can be paid.
+- **`AGENT_REQUEST_TIMEOUT` has no floor or ceiling** (`1ns` makes every call time out; `999h` is accepted).
+- **A refusal on a request without htmx** redirects to the conversation and loses its reason; only the htmx answer shows it on the card.
+- **A graceful close of Chrome DevTools MCP** does not kill its process group, so a Chrome helper that outlives the server would survive it.
+- **A secret split across two lines** is not found by the explorer's filter. The accessibility tree is one element a line, and the password is
+  only typed in the sign-in page, from which nothing is recorded.
+- Several answers to one card may each reach the service (the gateway is called before the compare-and-set save): exactly one save wins, the
+  others get `ErrInvalidState`, but the service's own idempotency is what keeps a double click from paying twice.

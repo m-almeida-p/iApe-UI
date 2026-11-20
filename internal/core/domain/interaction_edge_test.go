@@ -303,3 +303,14 @@ func TestActionError(t *testing.T) {
 		assert.Equal(t, "action refused: ", (&domain.ActionError{}).Error())
 	})
 }
+
+func TestAgentError_SaysItIsTheAgentsAndKeepsItsWordsForTheLogs(t *testing.T) {
+	err := fmt.Errorf("turn failed: %w", &domain.AgentError{Detail: "scripted failure requested with #error"})
+
+	got, ok := errors.AsType[*domain.AgentError](err)
+
+	require.True(t, ok)
+	assert.Equal(t, "scripted failure requested with #error", got.Detail)
+	assert.Equal(t, "agent reported an error: scripted failure requested with #error", got.Error())
+	assert.Equal(t, "agent reported an error: ", (&domain.AgentError{}).Error(), "an agent that said nothing still reads as one")
+}
