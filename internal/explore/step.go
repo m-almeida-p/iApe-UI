@@ -182,3 +182,27 @@ func ParseAll(raws []string) ([]Step, error) {
 	}
 	return steps, nil
 }
+
+// StepForm describes one form of a step, for the help of the command: how it is written, what it does, and an example that Parse
+// reads (a test keeps that true).
+type StepForm struct {
+	Form    string
+	Does    string
+	Example string
+}
+
+// StepForms are the steps there are, in the order the help shows them.
+var StepForms = []StepForm{
+	{"<text>", "send it as a message to the agent (anything that is no step below)", "quiero yapear"},
+	{"@", "type @ in the message box: the contact picker opens", "@"},
+	{"@pick[:<name>]", "choose a contact in the picker: the first, or the first whose line has the name", "@pick:Juan Perez"},
+	{"type:<text>", "type text after what the message box holds, without sending", "type:20 soles"},
+	{"send", "send what the message box holds", "send"},
+	{"click:<text>", "press the button, option or link with the text in its name; none is a failure", "click:Pay"},
+	{"click?:<text>", "the same, but a page without it is fine", "click?:Pay"},
+	{"wait:<duration>", "pause without touching the page, like a person reading (up to 5m)", "wait:8s"},
+	{"otp:<code>", "type the code the bank asked for (4 to 8 digits) in the card's field and confirm it", "otp:123456"},
+	{"expect:<text>", "fail unless the page shows the text", "expect:S/500"},
+	{"expect-card:<kind>=<state>", "fail unless the newest card of that kind is in that state (kinds: approval, contact)", "expect-card:approval=paid"},
+	{"expect-no-card", "fail if the page shows any card", "expect-no-card"},
+}

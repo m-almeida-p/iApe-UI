@@ -54,21 +54,16 @@ type usageError struct{ msg string }
 
 func (e usageError) Error() string { return e.msg }
 
-func parseOptions(args []string, stderr io.Writer) (options, error) {
+// helpRequested is what parseOptions returns for -h: not a mistake in the call.
+var helpRequested = flag.ErrHelp
+
+func parseOptions(args []string) (options, error) {
 	var o options
-	fs := flag.NewFlagSet("iape-explore", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.StringVar(&o.envFile, "env", defaultEnvFile, "settings file")
-	fs.StringVar(&o.pathID, "path", "", "a path of the catalog (see -list)")
-	fs.BoolVar(&o.all, "all", false, "run every path of the catalog")
-	fs.BoolVar(&o.list, "list", false, "list the paths and exit")
-	fs.StringVar(&o.out, "out", "", "directory for the records (default temp/iape-explore/<time>)")
-	fs.StringVar(&o.contact, "contact", "", `contact to pick in a payment, such as "Maria Torres" (default the first)`)
-	fs.StringVar(&o.amount, "amount", "", "amount in soles for a payment (default the path's)")
-	fs.BoolVar(&o.withGuard, "with-guard", false, "with -all: also run the paths that trip the agent's guard (guard), which can get the account banned")
-	fs.BoolVar(&o.headless, "headless", false, "run Chrome without a window (the default is a window, to watch the run)")
-	fs.DurationVar(&o.settle, "wait", 90*time.Second, "how long a step waits for the page to settle")
+	fs := newFlagSet(&o)
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return o, helpRequested
+		}
 		return o, usageError{msg: err.Error()}
 	}
 	o.steps = fs.Args()
@@ -138,11 +133,14 @@ func (d deps) defaultOut() string {
 }
 
 func (d deps) run(ctx context.Context, args []string) int {
-	opts, err := parseOptions(args, d.stderr)
+	opts, err := parseOptions(args)
+	if errors.Is(err, helpRequested) {
+		_, _ = fmt.Fprint(d.stdout, helpText())
+		return exitOK
+	}
 	if err != nil {
-		if !errors.Is(err, flag.ErrHelp) {
-			_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
-		}
+		_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
+		_, _ = fmt.Fprintln(d.stderr, "Try: iape-explore -h")
 		return exitUsage
 	}
 	if opts.list {

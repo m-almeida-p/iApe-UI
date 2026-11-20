@@ -84,3 +84,15 @@ func TestParseAll_NamesTheStepThatIsWrong(t *testing.T) {
 	assert.Contains(t, err.Error(), "step 2")
 	assert.Contains(t, err.Error(), `"wait:soon"`)
 }
+
+func TestStepForms_EveryFormInTheHelpIsOneParseReads(t *testing.T) {
+	require.NotEmpty(t, explore.StepForms)
+	for _, f := range explore.StepForms {
+		t.Run(f.Form, func(t *testing.T) {
+			_, err := explore.Parse(f.Example)
+
+			require.NoError(t, err, "the example of %s", f.Form)
+			assert.NotEmpty(t, f.Does)
+		})
+	}
+}

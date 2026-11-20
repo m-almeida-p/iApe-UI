@@ -111,6 +111,22 @@ bin/iape-explore -headless -all       # without a window, for a machine that has
 bin/iape-explore "Hola" "expect:Hola" "expect-no-card"     # steps of your own
 ```
 
+`bin/iape-explore -h` says everything below and more: the flags, the paths, the steps, the settings, the records and the exit status.
+
+| Flag | What it does |
+|------|--------------|
+| `-list` | List the paths and exit |
+| `-path ID` | Run one path |
+| `-all` | Run every path, each in a conversation of its own (but `guard`) |
+| `-with-guard` | With `-all`: also run `guard`, which can get the account banned |
+| `-headless` | Run Chrome without a window (the default is a window, to watch the run) |
+| `-amount N`, `-contact NAME` | The amount in soles and the contact of a payment |
+| `-out DIR` | Where the records go (default `temp/iape-explore/<time>`) |
+| `-wait DURATION` | How long a step waits for the page to settle (default 90s) |
+| `-env FILE` | The settings file (default `.env`) |
+
+Exit status: 0 every path ended where it should, 1 the call or the settings are wrong, 2 a path failed, 4 Chrome could not be opened.
+
 The paths are `card`, `pay`, `otp`, `otp-tag`, `reject`, `limit`, `guard` and `contact`. A step is a message to send, or one of
 `@`, `@pick[:name]`, `type:`, `send`, `click:`, `click?:`, `wait:`, `otp:`, `expect:`, `expect-card:kind=state` and `expect-no-card`
 (see `internal/explore`). A run stops at the first step that fails, after recording what the page showed.
