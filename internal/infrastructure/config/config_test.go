@@ -405,6 +405,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			" config.HTTP.Addr=:8300 config.HTTP.MaxBodyBytes=131072 config.HTTP.BodyTimeout=30s config.HTTP.ResponseTimeout=2m0s"+
 			" config.DB.URL=[redacted] config.DB.MaxConns=10"+
 			" config.Agent.BaseURL=http://localhost:4000 config.Agent.RequestTimeout=2m0s config.Agent.AccountID=25906ac5-9f18-4099-b3fd-e1b74d8549a4 config.Agent.BearerBin=yape-token"+
+			" config.History.BaseURL=\"\" config.History.RequestTimeout=10s config.History.Timezone=America/Lima"+
 			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms config.Chat.ListLimit=100"+
 			" config.RateLimit.RPS=2 config.RateLimit.Burst=10 config.Session.TTL=24h0m0s"+
 			" config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
@@ -421,6 +422,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			"HTTP":{"Addr":":8300","MaxBodyBytes":131072,"BodyTimeout":30000000000,"ResponseTimeout":120000000000},
 			"DB":{"URL":"[redacted]","MaxConns":10},
 			"Agent":{"BaseURL":"http://localhost:4000","RequestTimeout":120000000000,"AccountID":"25906ac5-9f18-4099-b3fd-e1b74d8549a4","BearerBin":"yape-token"},
+			"History":{"BaseURL":"","RequestTimeout":10000000000,"Timezone":"America/Lima"},
 			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000,"ListLimit":100},
 			"RateLimit":{"RPS":2,"Burst":10},
 			"Session":{"TTL":86400000000000},
@@ -973,4 +975,75 @@ func TestConfig_LogValueDropsTheQueryOfTheAgentOfAConfigPutTogetherByHand(t *tes
 		assert.NotContains(t, out.String(), secret)
 	}
 	assert.Contains(t, out.String(), "config.Agent.BaseURL=https://agent.example.com/api")
+}
+
+func TestLoad_HistoryIsOffUntilItHasAnAddress(t *testing.T) {
+	c, err := loadWith(nil)
+
+	require.NoError(t, err)
+	assert.Empty(t, c.History.BaseURL, "no HISTORY_BASE_URL: the page has no history")
+	assert.Equal(t, 10*time.Second, c.History.RequestTimeout)
+	assert.Equal(t, "America/Lima", c.History.Timezone)
+}
+
+func TestLoad_History(t *testing.T) {
+	c, err := loadWith(map[string]string{
+		"HISTORY_BASE_URL":        "http://localhost:3100/",
+		"HISTORY_REQUEST_TIMEOUT": "3s",
+		"HISTORY_TIMEZONE":        "Europe/Madrid",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:3100", c.History.BaseURL, "the trailing slash goes: paths are added after it")
+	assert.Equal(t, 3*time.Second, c.History.RequestTimeout)
+	assert.Equal(t, "Europe/Madrid", c.History.Timezone)
+	assert.Equal(t, "Europe/Madrid", c.History.Location().String())
+}
+
+func TestHistory_LocationIsTheOneOfTheName(t *testing.T) {
+	c, err := loadWith(nil)
+	require.NoError(t, err)
+
+	lima := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC).In(c.History.Location())
+
+	assert.Equal(t, "America/Lima", c.History.Location().String())
+	assert.Equal(t, 7, lima.Hour(), "Lima is UTC-5 all year")
+}
+
+func TestLoad_HistoryRefusesWhatItCannotUse(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"an unknown time zone", map[string]string{"HISTORY_TIMEZONE": "Mars/Olympus"}, "HISTORY_TIMEZONE"},
+		{"a time zone that is no name", map[string]string{"HISTORY_TIMEZONE": "../../etc/passwd"}, "HISTORY_TIMEZONE"},
+		{"the time of the machine, which is not a place", map[string]string{"HISTORY_TIMEZONE": "Local"}, "HISTORY_TIMEZONE"},
+		{"a timeout that is zero", map[string]string{"HISTORY_REQUEST_TIMEOUT": "0s"}, "HISTORY_REQUEST_TIMEOUT"},
+		{"a timeout that is no duration", map[string]string{"HISTORY_REQUEST_TIMEOUT": "soon"}, "HISTORY_REQUEST_TIMEOUT"},
+		{"an address that is not http", map[string]string{"HISTORY_BASE_URL": "ftp://localhost:3100"}, "HISTORY_BASE_URL"},
+		{"an address with a query", map[string]string{"HISTORY_BASE_URL": "http://localhost:3100?x=1"}, "HISTORY_BASE_URL"},
+		{"an address with a fragment", map[string]string{"HISTORY_BASE_URL": "http://localhost:3100/#x"}, "HISTORY_BASE_URL"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadWith(tc.env)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestConfig_LogValueShowsTheHistoryWithoutItsCredentials(t *testing.T) {
+	c, err := loadWith(map[string]string{"HISTORY_BASE_URL": "http://user:hunter2@localhost:3100"})
+	require.NoError(t, err)
+	record := slog.NewRecord(time.Time{}, slog.LevelInfo, "starting", 0)
+	record.AddAttrs(slog.Any("config", c))
+	var buf bytes.Buffer
+
+	require.NoError(t, slog.NewTextHandler(&buf, nil).Handle(t.Context(), record))
+
+	assert.NotContains(t, buf.String(), "hunter2")
+	assert.Contains(t, buf.String(), "config.History.Timezone=America/Lima")
 }

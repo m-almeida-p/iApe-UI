@@ -1,0 +1,58 @@
+{
+  "conversation": {
+    "_id": "conv_v1_11111111-1111-4111-8111-000000000005"
+  },
+  "messages": [
+    {
+      "_id": "9",
+      "type": "text",
+      "role": "appUser",
+      "authorId": "25906ac5-0000-4000-8000-000000000001",
+      "text": "@(Juan Perez) 20 soles con mensaje \"[otp]\"",
+      "received": 1795146403.169,
+      "source": {
+        "type": "api"
+      },
+      "metadata": {
+        "sequence": 9,
+        "eventName": "UserMessageSent",
+        "truncated": false,
+        "flow": "p2p"
+      }
+    },
+    {
+      "_id": "15",
+      "type": "text",
+      "role": "appMaker",
+      "authorId": "ms-ml-genai-agent-bs",
+      "text": "Revisa tu yapeo y confirma si todo está bien. Si necesitas, puedes cambiar los datos.",
+      "received": 1795146405.701,
+      "source": {
+        "type": "api"
+      },
+      "metadata": {
+        "sequence": 15,
+        "eventName": "AgentMessageSent",
+        "truncated": false,
+        "flow": "p2p"
+      }
+    },
+    {
+      "_id": "21",
+      "type": "text",
+      "role": "appMaker",
+      "authorId": "ms-ml-genai-agent-bs",
+      "text": "Tu último yapeo a 9****0000 de S/20.00 se completó correctamente.",
+      "received": 1795146410.865,
+      "source": {
+        "type": "api"
+      },
+      "metadata": {
+        "sequence": 21,
+        "eventName": "AgentMessageSent",
+        "truncated": false,
+        "flow": "p2p"
+      }
+    }
+  ]
+}

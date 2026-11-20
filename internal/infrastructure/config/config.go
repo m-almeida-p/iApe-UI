@@ -18,6 +18,10 @@ import (
 	"unicode/utf8"
 	"uuid"
 
+	// The zone of the history is a name that the Web UI looks up: the data comes with it, so a container without
+	// /usr/share/zoneinfo shows the same hours.
+	_ "time/tzdata"
+
 	"iape-ui/internal/core/domain"
 	"iape-ui/internal/platform/envcfg"
 	"iape-ui/internal/platform/redact"
@@ -29,6 +33,7 @@ type Config struct {
 	HTTP      HTTP
 	DB        DB
 	Agent     Agent
+	History   History
 	Chat      Chat
 	RateLimit RateLimit
 	Session   Session
@@ -73,6 +78,24 @@ type Agent struct {
 	BearerBin string
 }
 
+// History holds the settings of the conversation history the chats are read from. Without a BaseURL the page has no history.
+type History struct {
+	// BaseURL is the history API (ms-ml-conv-history-bs), such as http://localhost:3100. Empty means the history is off.
+	BaseURL        string
+	RequestTimeout time.Duration
+	// Timezone is the name of the place the hours of the history are shown in, such as America/Lima.
+	Timezone string
+}
+
+// Location is the place of Timezone. Load has checked the name, so it is always one.
+func (h History) Location() *time.Location {
+	loc, err := time.LoadLocation(h.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
 // Chat holds chat behavior settings.
 type Chat struct {
 	MaxMessageChars     int
@@ -113,6 +136,7 @@ func (c Config) LogValue() slog.Value {
 	shown := c
 	shown.App.BaseURL = redact.URL(c.App.BaseURL)
 	shown.Agent.BaseURL = redact.URL(c.Agent.BaseURL)
+	shown.History.BaseURL = redact.URL(c.History.BaseURL)
 	view, err := redact.Struct(shown, "Email")
 	if err != nil {
 		return view // the placeholder alone: nothing of the settings is shown
@@ -179,6 +203,10 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 			RequestTimeout: r.positive("AGENT_REQUEST_TIMEOUT", 120*time.Second, time.ParseDuration),
 			BearerBin:      r.str("YAPE_TOKEN_BIN", "yape-token"),
 		},
+		History: History{
+			RequestTimeout: r.positive("HISTORY_REQUEST_TIMEOUT", 10*time.Second, time.ParseDuration),
+			Timezone:       r.timezone("HISTORY_TIMEZONE", "America/Lima"),
+		},
 		Chat: Chat{
 			MaxMessageChars:     r.positive("CHAT_MAX_MESSAGE_CHARS", 8000, strconv.Atoi),
 			StreamFlushInterval: r.positive("CHAT_STREAM_FLUSH_INTERVAL", 50*time.Millisecond, time.ParseDuration),
@@ -198,6 +226,7 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 	c.Agent.BaseURL = strings.TrimRight(r.baseURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
 	r.required("YAPE_ACCOUNT_ID") // names the key when it is missing; the value is read, and checked, next
 	c.Agent.AccountID = r.uuidString("YAPE_ACCOUNT_ID")
+	c.History.BaseURL = strings.TrimRight(r.baseURL("HISTORY_BASE_URL", r.str("HISTORY_BASE_URL", ""), "http", "https"), "/")
 	c.Admin = r.admin()
 
 	// The checks that compare keys run only when each key is sound by itself, so
@@ -300,6 +329,17 @@ func (r *reader) oneOf(key, def string, allowed ...string) string {
 	v := r.str(key, def)
 	if !slices.Contains(allowed, v) {
 		r.fail("%s must be one of %s (got %q)", key, strings.Join(allowed, ", "), v)
+		return def
+	}
+	return v
+}
+
+// timezone is str for the name of a place in the time zone database, such as America/Lima. "Local" is the zone of the machine
+// and not a place, so it is refused: the hours would change with where the program runs.
+func (r *reader) timezone(key, def string) string {
+	v := r.str(key, def)
+	if _, err := time.LoadLocation(v); err != nil || v == "Local" {
+		r.fail("%s must be the name of a place in the time zone database, like America/Lima or UTC (got %q)", key, v)
 		return def
 	}
 	return v

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/stretchr/testify/assert"
@@ -29,9 +30,13 @@ type chatHarness struct {
 	route http.Handler
 }
 
+// claimClock is the time of the claims that the tests make (processingReply) and the clock of the page: a claim goes stale with
+// the time, so a test that does not name its own clock must not depend on the day it runs.
+var claimClock = time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+
 func newChatHarness(t *testing.T) *chatHarness {
 	t.Helper()
-	return newChatHarnessWithOptions(t, Options{})
+	return newChatHarnessWithOptions(t, Options{Now: func() time.Time { return claimClock }})
 }
 
 func newChatHarnessWithOptions(t *testing.T, opts Options) *chatHarness {

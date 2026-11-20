@@ -1,0 +1,28 @@
+{
+  "conversations": [
+    {
+      "_id": "conv_v1_11111111-1111-4111-8111-000000000002",
+      "cursor": "1795192236801283~conv_v1_11111111-1111-4111-8111-000000000002",
+      "messageCount": 5,
+      "firstReceived": 1795192210.28,
+      "lastReceived": 1795192236.801,
+      "firstMessage": "quiero yapear"
+    },
+    {
+      "_id": "conv_v1_11111111-1111-4111-8111-000000000003",
+      "cursor": "1795192195371278~conv_v1_11111111-1111-4111-8111-000000000003",
+      "messageCount": 2,
+      "firstReceived": 1795192191.749,
+      "lastReceived": 1795192195.371,
+      "firstMessage": "quiero yapear"
+    },
+    {
+      "_id": "conv_v1_11111111-1111-4111-8111-000000000004",
+      "cursor": "1795192107588090~conv_v1_11111111-1111-4111-8111-000000000004",
+      "messageCount": 2,
+      "firstReceived": 1795192102.923,
+      "lastReceived": 1795192107.588,
+      "firstMessage": "quiero yapear"
+    }
+  ]
+}
