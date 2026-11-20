@@ -229,7 +229,24 @@ func TestApp_BuildFailures(t *testing.T) {
 		application, err := app.Build(t.Context(), cfg, quietLogger())
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "first user")
+		assert.Contains(t, err.Error(), "user of the Yape account")
+		assert.Nil(t, application)
+	})
+
+	t.Run("an email that belongs to another user stops the start, and says what to do", func(t *testing.T) {
+		dsn := pgenv.NewDatabase(t)
+		first := testConfig(t, dsn, agent.URL)
+		built, err := app.Build(t.Context(), first, quietLogger())
+		require.NoError(t, err)
+		built.Close()
+		second := testConfig(t, dsn, agent.URL)
+		second.Admin.AccountID = "5e565f30-3320-4c95-8080-a56cf8f3eb2e" // another account, the same email
+
+		application, err := app.Build(t.Context(), second, quietLogger())
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "use another email")
+		assert.NotContains(t, err.Error(), second.Admin.AccountID, "an account is not put in a message")
 		assert.Nil(t, application)
 	})
 }

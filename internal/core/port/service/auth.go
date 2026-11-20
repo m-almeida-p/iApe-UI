@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"time"
+	"uuid"
 
 	"iape-ui/internal/core/domain"
 )
@@ -32,7 +33,8 @@ type Auth interface {
 	// Logout ends the session. An unknown token is not an error.
 	Logout(ctx context.Context, token string) error
 
-	// BootstrapAdmin creates the first user when no user exists yet and reports
-	// whether it did. Bad input is a *domain.ValidationError.
-	BootstrapAdmin(ctx context.Context, email, password string) (created bool, err error)
+	// BootstrapAdmin creates the user of a Yape account, with the id of the account as its id, unless there is already a user with
+	// that id, and reports whether it did. An existing user is not touched. Bad input is a *domain.ValidationError. An email that
+	// another user has is domain.ErrEmailTaken: the user of the account needs an email of their own.
+	BootstrapAdmin(ctx context.Context, account uuid.UUID, email, password string) (created bool, err error)
 }

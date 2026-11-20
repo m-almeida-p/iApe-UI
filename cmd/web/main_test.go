@@ -25,14 +25,13 @@ func TestRun_ReadsTheFileItIsTold(t *testing.T) {
 	taken, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = taken.Close() })
-	settings := func(account string) string {
+	settings := func(agent string) string {
 		return "APP_HTTP_ADDR=" + taken.Addr().String() + "\n" +
 			"DB_URL=postgres://u:p@127.0.0.1:1/db\n" + // nothing listens there
-			"AGENT_BASE_URL=http://127.0.0.1:1\n" +
-			"YAPE_ACCOUNT_ID=" + account + "\n"
+			"AGENT_BASE_URL=" + agent + "\n"
 	}
-	const noAccount = "missing required configuration: YAPE_ACCOUNT_ID"
-	const account = "25906ac5-9f18-4099-b3fd-e1b74d8549a4"
+	const noAgent = "missing required configuration: AGENT_BASE_URL"
+	const agent = "http://127.0.0.1:1"
 	listening := "listen on " + taken.Addr().String()
 
 	tests := []struct {
@@ -42,9 +41,9 @@ func TestRun_ReadsTheFileItIsTold(t *testing.T) {
 		want   string
 		not    string
 	}{
-		{"a key the named file leaves empty is not taken from the .env beside it", settings(account), settings(""), noAccount, listening},
-		{"what the named file says is what the server gets", settings(""), settings(account), listening, noAccount},
-		{"with no file named, it is the .env beside it", settings(account), "", listening, noAccount},
+		{"a key the named file leaves empty is not taken from the .env beside it", settings(agent), settings(""), noAgent, listening},
+		{"what the named file says is what the server gets", settings(""), settings(agent), listening, noAgent},
+		{"with no file named, it is the .env beside it", settings(agent), "", listening, noAgent},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -83,12 +84,16 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 		return nil, err
 	}
 	if cfg.Admin.Email != "" {
-		created, err := authSvc.BootstrapAdmin(ctx, cfg.Admin.Email, cfg.Admin.Password.Reveal())
+		account, err := uuid.Parse(cfg.Admin.AccountID) // Load has checked it
 		if err != nil {
-			return nil, fmt.Errorf("creating the first user: %w", err)
+			return nil, fmt.Errorf("the account of the first user: %w", err)
+		}
+		created, err := authSvc.BootstrapAdmin(ctx, account, cfg.Admin.Email, cfg.Admin.Password.Reveal())
+		if err != nil {
+			return nil, fmt.Errorf("creating the user of the Yape account: %w", err)
 		}
 		if created {
-			log.InfoContext(ctx, "created the first user", "email", cfg.Admin.Email)
+			log.InfoContext(ctx, "created the user of the Yape account", "email", cfg.Admin.Email)
 		}
 	}
 

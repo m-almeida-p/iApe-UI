@@ -72,8 +72,6 @@ type Agent struct {
 	// BaseURL is the BFF, such as http://localhost:4000.
 	BaseURL        string
 	RequestTimeout time.Duration
-	// AccountID is the Yape account the BFF is asked as, in its canonical form.
-	AccountID string
 	// BearerBin is the program that prints the account's bearer token (yape-token).
 	BearerBin string
 }
@@ -114,10 +112,13 @@ type Session struct {
 	TTL time.Duration
 }
 
-// Admin optionally bootstraps the first user.
+// Admin optionally creates the first user at startup: the person whose Yape account is AccountID. The id of a user is the id of their
+// Yape account, so that what the history holds for the account is what the user sees: the user is made with AccountID as its id.
 type Admin struct {
-	Email    string
-	Password envcfg.Secret
+	// AccountID is the Yape account of the first user, in its canonical form. It is required with Email and Password.
+	AccountID string
+	Email     string
+	Password  envcfg.Secret
 }
 
 // SecureCookies reports whether cookies must carry the Secure attribute.
@@ -127,9 +128,9 @@ func (c Config) SecureCookies() bool {
 }
 
 // LogValue implements slog.LogValuer: every setting, under the name of its
-// field. The two secrets hide themselves, the address of the first user is
-// hidden by the name of its field, and the two base URLs are shown without the
-// credentials or the query they may carry. Two attributes follow the settings:
+// field. The two secrets hide themselves, the address and the Yape account of
+// the first user are hidden by the names of their fields, and the base URLs are
+// shown without the credentials or the query they may carry. Two attributes follow the settings:
 // db is where the database is, its host and its name, and admin_bootstrap is
 // whether a first user is set.
 func (c Config) LogValue() slog.Value {
@@ -137,7 +138,7 @@ func (c Config) LogValue() slog.Value {
 	shown.App.BaseURL = redact.URL(c.App.BaseURL)
 	shown.Agent.BaseURL = redact.URL(c.Agent.BaseURL)
 	shown.History.BaseURL = redact.URL(c.History.BaseURL)
-	view, err := redact.Struct(shown, "Email")
+	view, err := redact.Struct(shown, "Email", "AccountID")
 	if err != nil {
 		return view // the placeholder alone: nothing of the settings is shown
 	}
@@ -224,8 +225,6 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 	c.App.BaseURL = strings.TrimRight(r.absoluteURL("APP_BASE_URL", r.str("APP_BASE_URL", "http://localhost:8300"), "http", "https"), "/")
 	c.DB.URL = envcfg.Secret(r.databaseURL("DB_URL", r.required("DB_URL")))
 	c.Agent.BaseURL = strings.TrimRight(r.baseURL("AGENT_BASE_URL", r.required("AGENT_BASE_URL"), "http", "https"), "/")
-	r.required("YAPE_ACCOUNT_ID") // names the key when it is missing; the value is read, and checked, next
-	c.Agent.AccountID = r.uuidString("YAPE_ACCOUNT_ID")
 	c.History.BaseURL = strings.TrimRight(r.baseURL("HISTORY_BASE_URL", r.str("HISTORY_BASE_URL", ""), "http", "https"), "/")
 	c.Admin = r.admin()
 
@@ -417,6 +416,9 @@ func (r *reader) refuseURL(key string, schemes []string) {
 func (r *reader) admin() Admin {
 	email, hasEmail := r.raw("ADMIN_EMAIL")
 	password, hasPassword := r.raw("ADMIN_PASSWORD")
+	// The account is checked whenever it is set, and is required when the user is to be made: the user is the person of that account.
+	account := r.uuidString("YAPE_ACCOUNT_ID")
+	_, hasAccount := r.raw("YAPE_ACCOUNT_ID")
 	switch {
 	case hasEmail && !hasPassword:
 		r.fail("ADMIN_PASSWORD is required when ADMIN_EMAIL is set")
@@ -430,7 +432,10 @@ func (r *reader) admin() Admin {
 			r.fail("ADMIN_PASSWORD must be at least %d characters", domain.MinPasswordChars)
 		}
 	}
-	return Admin{Email: email, Password: envcfg.Secret(password)}
+	if (hasEmail || hasPassword) && !hasAccount {
+		r.missing = append(r.missing, "YAPE_ACCOUNT_ID") // the user to make is the person of an account
+	}
+	return Admin{AccountID: account, Email: email, Password: envcfg.Secret(password)}
 }
 
 func parseInt64(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }

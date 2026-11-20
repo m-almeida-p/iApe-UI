@@ -33,6 +33,11 @@ func requiredEnv() map[string]string {
 	}
 }
 
+// adminEnv is the first user: with it, the account is required.
+func adminEnv() map[string]string {
+	return map[string]string{"ADMIN_EMAIL": "admin@example.com", "ADMIN_PASSWORD": secretAdminPassword}
+}
+
 func without(base map[string]string, keys ...string) map[string]string {
 	out := maps.Clone(base)
 	for _, k := range keys {
@@ -77,7 +82,7 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, "http://localhost:4000", c.Agent.BaseURL, "the slash at the end is taken off")
 				assert.Equal(t, 120*time.Second, c.Agent.RequestTimeout)
 				assert.Equal(t, "yape-token", c.Agent.BearerBin)
-				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Agent.AccountID)
+				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Admin.AccountID)
 				assert.Equal(t, 8000, c.Chat.MaxMessageChars)
 				assert.Equal(t, 50*time.Millisecond, c.Chat.StreamFlushInterval)
 				assert.Equal(t, 100, c.Chat.ListLimit)
@@ -133,7 +138,7 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 45*time.Second, c.HTTP.ResponseTimeout)
 				assert.Equal(t, 25, c.DB.MaxConns)
 				assert.Equal(t, 600*time.Second, c.Agent.RequestTimeout)
-				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Agent.AccountID, "the account is kept in its canonical lower-case form")
+				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Admin.AccountID, "the account is kept in its canonical lower-case form")
 				assert.Equal(t, "/usr/local/bin/yape-token", c.Agent.BearerBin)
 				assert.Equal(t, 500, c.Chat.MaxMessageChars)
 				assert.Equal(t, 100*time.Millisecond, c.Chat.StreamFlushInterval)
@@ -180,13 +185,14 @@ func TestLoad_Invalid(t *testing.T) {
 		wantNotErr []string
 	}{
 		{
-			name:      "all missing required keys are named in one error",
-			env:       map[string]string{},
-			wantInErr: []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID"},
+			name:       "all missing required keys are named in one error",
+			env:        map[string]string{},
+			wantInErr:  []string{"DB_URL", "AGENT_BASE_URL"},
+			wantNotErr: []string{"YAPE_ACCOUNT_ID"},
 		},
 		{
-			name:      "the BFF needs the account it is asked as",
-			env:       without(requiredEnv(), "YAPE_ACCOUNT_ID"),
+			name:      "the first user is the person of an account: it needs one",
+			env:       with(without(requiredEnv(), "YAPE_ACCOUNT_ID"), adminEnv()),
 			wantInErr: []string{"YAPE_ACCOUNT_ID", "required"},
 		},
 		{
@@ -404,11 +410,11 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			" config.App.LogFormat=json config.App.ShutdownGrace=10s"+
 			" config.HTTP.Addr=:8300 config.HTTP.MaxBodyBytes=131072 config.HTTP.BodyTimeout=30s config.HTTP.ResponseTimeout=2m0s"+
 			" config.DB.URL=[redacted] config.DB.MaxConns=10"+
-			" config.Agent.BaseURL=http://localhost:4000 config.Agent.RequestTimeout=2m0s config.Agent.AccountID=25906ac5-9f18-4099-b3fd-e1b74d8549a4 config.Agent.BearerBin=yape-token"+
+			" config.Agent.BaseURL=http://localhost:4000 config.Agent.RequestTimeout=2m0s config.Agent.BearerBin=yape-token"+
 			" config.History.BaseURL=\"\" config.History.RequestTimeout=10s config.History.Timezone=America/Lima"+
 			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms config.Chat.ListLimit=100"+
 			" config.RateLimit.RPS=2 config.RateLimit.Burst=10 config.Session.TTL=24h0m0s"+
-			" config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
+			" config.Admin.AccountID=[redacted] config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
 			" config.db=localhost:5440/agentwebui config.admin_bootstrap=true\n", buf.String())
 	})
 
@@ -421,12 +427,12 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			"App":{"Env":"development","BaseURL":"http://localhost:8300","LogLevel":"info","LogFormat":"json","ShutdownGrace":10000000000},
 			"HTTP":{"Addr":":8300","MaxBodyBytes":131072,"BodyTimeout":30000000000,"ResponseTimeout":120000000000},
 			"DB":{"URL":"[redacted]","MaxConns":10},
-			"Agent":{"BaseURL":"http://localhost:4000","RequestTimeout":120000000000,"AccountID":"25906ac5-9f18-4099-b3fd-e1b74d8549a4","BearerBin":"yape-token"},
+			"Agent":{"BaseURL":"http://localhost:4000","RequestTimeout":120000000000,"BearerBin":"yape-token"},
 			"History":{"BaseURL":"","RequestTimeout":10000000000,"Timezone":"America/Lima"},
 			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000,"ListLimit":100},
 			"RateLimit":{"RPS":2,"Burst":10},
 			"Session":{"TTL":86400000000000},
-			"Admin":{"Email":"[redacted]","Password":"[redacted]"},
+			"Admin":{"AccountID":"[redacted]","Email":"[redacted]","Password":"[redacted]"},
 			"db":"localhost:5440/agentwebui","admin_bootstrap":true}}`, buf.String())
 	})
 }
@@ -821,6 +827,15 @@ func TestLoad_AgentBaseURL(t *testing.T) {
 	})
 }
 
+func TestLoad_NoFirstUserNeedsNoAccount(t *testing.T) {
+	c, err := loadWith(nil)
+	require.NoError(t, err)
+	_, errWithout := config.Load(lookupFrom(without(requiredEnv(), "YAPE_ACCOUNT_ID")))
+
+	assert.NoError(t, errWithout, "the account is the first user's: without a first user it is not asked for")
+	assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Admin.AccountID)
+}
+
 func TestLoad_AccountID(t *testing.T) {
 	const canonical = "25906ac5-9f18-4099-b3fd-e1b74d8549a4"
 
@@ -838,7 +853,7 @@ func TestLoad_AccountID(t *testing.T) {
 			c, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
 
 			require.NoError(t, err, name)
-			assert.Equal(t, canonical, c.Agent.AccountID, name)
+			assert.Equal(t, canonical, c.Admin.AccountID, name)
 		}
 	})
 
@@ -846,7 +861,7 @@ func TestLoad_AccountID(t *testing.T) {
 		c, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": "25906ac5-9f18-7099-b3fd-e1b74d8549a4"})
 
 		require.NoError(t, err)
-		assert.Equal(t, "25906ac5-9f18-7099-b3fd-e1b74d8549a4", c.Agent.AccountID)
+		assert.Equal(t, "25906ac5-9f18-7099-b3fd-e1b74d8549a4", c.Admin.AccountID)
 	})
 
 	t.Run("the same account in two spellings is one value, so a restart does not change who is asked as", func(t *testing.T) {
@@ -855,8 +870,8 @@ func TestLoad_AccountID(t *testing.T) {
 
 		require.NoError(t, errA)
 		require.NoError(t, errB)
-		assert.Equal(t, a.Agent.AccountID, b.Agent.AccountID)
-		assert.Equal(t, canonical, a.Agent.AccountID)
+		assert.Equal(t, a.Admin.AccountID, b.Admin.AccountID)
+		assert.Equal(t, canonical, a.Admin.AccountID)
 	})
 
 	t.Run("what is no UUID is refused without echoing it", func(t *testing.T) {
@@ -881,9 +896,9 @@ func TestLoad_AccountID(t *testing.T) {
 		}
 	})
 
-	t.Run("empty counts as unset, and the error says it is required", func(t *testing.T) {
+	t.Run("empty counts as unset, and the user to make needs it", func(t *testing.T) {
 		for _, given := range []string{"", "  ", "\t\n"} {
-			_, err := loadWith(map[string]string{"YAPE_ACCOUNT_ID": given})
+			_, err := loadWith(with(adminEnv(), map[string]string{"YAPE_ACCOUNT_ID": given}))
 
 			require.Error(t, err)
 			assert.Equal(t, "missing required configuration: YAPE_ACCOUNT_ID", err.Error(), "an account that is set to nothing is missing, and not also malformed")
