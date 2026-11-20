@@ -133,8 +133,12 @@ type ActionResult struct {
 }
 
 // ActionError is a card's action that the service refused (a wrong code, a transfer that is no longer open): its message is
-// for the user and the card stays as it was.
-type ActionError struct{ Message string }
+// for the user and the card stays as it was. Resolved is what the approval already is when the refusal says so ("APPROVED",
+// "REJECTED"): an answer that was sent twice, or whose reply was lost, finds out here what became of it.
+type ActionError struct {
+	Message  string
+	Resolved string
+}
 
 func (e *ActionError) Error() string { return "action refused: " + e.Message }
 

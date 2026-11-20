@@ -70,7 +70,7 @@ func (a *App) messageView(m domain.Message) messageView {
 	// A card is for a reply that completed: one that failed or was stopped is not one to pay or choose on, even if it was saved
 	// with a card.
 	if m.Status == domain.StatusComplete {
-		v.Card = newCardView(m)
+		v.Card = newCardViewAt(m, a.opts.Now())
 	}
 	return v
 }

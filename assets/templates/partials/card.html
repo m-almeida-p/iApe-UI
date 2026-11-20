@@ -10,7 +10,8 @@
   <div class="card-body">
     {{if .Chosen}}<div class="card-transfer-to" data-testid="card-chosen">{{.Chosen}}</div>{{end}}
     {{if .Error}}<div class="alert alert-warning mt-2 mb-2 py-1 small" role="alert" data-testid="card-error">{{.Error}}</div>{{end}}
-    {{if .Processing}}<div class="text-body-secondary small" role="status" data-testid="card-processing">Processing your answer… Reload in a moment to see the result.</div>{{end}}
+    {{if .Processing}}<div class="text-body-secondary small" role="status" data-testid="card-processing"
+         hx-get="{{.StatusURL}}" hx-trigger="every 3s" hx-target="closest .reply" hx-swap="outerHTML">Processing your answer… this updates by itself.</div>{{end}}
     {{if .Candidates}}
     <div class="card-contacts">
       {{range .Candidates}}<button type="button" class="btn btn-sm btn-outline-primary" data-testid="card-contact"
@@ -28,7 +29,8 @@
     {{if .Message}}<div class="text-body-secondary small" data-testid="card-message">{{.Message}}</div>{{end}}
     {{if .Result}}<div class="small mt-2" data-testid="card-result">{{.Result}}</div>{{end}}
     {{if .Error}}<div class="alert alert-warning mt-2 mb-0 py-1 small" role="alert" data-testid="card-error">{{.Error}}</div>{{end}}
-    {{if .Processing}}<div class="text-body-secondary small mt-2" role="status" data-testid="card-processing">Processing your answer… Reload in a moment to see the result.</div>{{end}}
+    {{if .Processing}}<div class="text-body-secondary small mt-2" role="status" data-testid="card-processing"
+         hx-get="{{.StatusURL}}" hx-trigger="every 3s" hx-target="closest .reply" hx-swap="outerHTML">Processing your answer… this updates by itself.</div>{{end}}
     {{if .Unpayable}}<div class="text-body-secondary small mt-2" data-testid="card-unpayable">This transfer does not say how much or to whom, so it cannot be paid from here.</div>{{end}}
     {{if .AsksForCode}}
     <form class="card-transfer-code mt-2" hx-post="{{.CodeURL}}" hx-target="closest .reply" hx-swap="outerHTML" hx-disabled-elt="find button">

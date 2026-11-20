@@ -64,7 +64,7 @@ func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) 
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			res, err := s.deps.Actions.Approve(ctx, card)
 			if err != nil {
-				return card, err
+				return resolvedAlready(card, err)
 			}
 			return card.Approved(res.Message, res.ChallengeID)
 		})
@@ -77,7 +77,7 @@ func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
 			res, err := s.deps.Actions.Reject(ctx, card)
 			if err != nil {
-				return card, err
+				return resolvedAlready(card, err)
 			}
 			return card.Rejected(res.Message)
 		})
@@ -234,4 +234,28 @@ func (s *Service) save(ctx context.Context, userID, convID, msgID uuid.UUID, fro
 func untouched(err error) bool {
 	_, refused := errors.AsType[*domain.ActionError](err)
 	return refused || errors.Is(err, domain.ErrNotSent)
+}
+
+// resolvedAlready is what an answer to a transfer becomes when the service says the approval was answered already: an answer that was
+// sent twice, or whose reply was lost, finds out here what became of it, and the card says so instead of asking again. When the
+// card cannot become that (it expired, or it waits for a code the approval needs), err is returned as it came.
+func resolvedAlready(card domain.Interaction, err error) (domain.Interaction, error) {
+	refused, ok := errors.AsType[*domain.ActionError](err)
+	if !ok {
+		return card, err
+	}
+	var next domain.Interaction
+	var transition error
+	switch strings.ToUpper(refused.Resolved) {
+	case "APPROVED":
+		next, transition = card.Approved("This transfer was already approved. Its result is in your history.", "")
+	case "REJECTED":
+		next, transition = card.Rejected("This transfer was already rejected.")
+	default:
+		return card, err
+	}
+	if transition != nil {
+		return card, err
+	}
+	return next, nil
 }

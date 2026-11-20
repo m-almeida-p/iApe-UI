@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"iape-ui/internal/core/domain"
@@ -29,6 +30,7 @@ type cardView struct {
 	ApproveURL  string
 	RejectURL   string
 	CodeURL     string
+	StatusURL   string // where a card being answered asks how it is
 	// A contact card: who the user may choose (each button posts its index) and whom they chose.
 	IsContact  bool
 	Candidates []candidateView
@@ -43,10 +45,25 @@ type candidateView struct {
 }
 
 // newCardView draws the card of m, or none when the reply has no approval card.
-func newCardView(m domain.Message) *cardView {
+func newCardView(m domain.Message) *cardView { return newCardViewAt(m, time.Time{}) }
+
+// staleNote is what a card says when its answer got no reply and it is offered again.
+const staleNote = "The last answer got no reply. Answering again is safe: the service ignores a repeat."
+
+// newCardViewAt draws the card of m as it is at now. A card whose claim has had its time is drawn as what it was before it was
+// claimed, with a note: nobody is answering it any more.
+func newCardViewAt(m domain.Message, now time.Time) *cardView {
 	card := m.Meta.Interaction
 	if card == nil {
 		return nil
+	}
+	if card.Stale(now) {
+		base := card.Base()
+		v := newCardViewAt(domain.Message{ID: m.ID, ConversationID: m.ConversationID, Meta: domain.Meta{Interaction: &base}}, now)
+		if v != nil {
+			v.Error = staleNote
+		}
+		return v
 	}
 	base := "/c/" + m.ConversationID.String() + "/m/" + m.ID.String() + "/card/"
 	if card.Kind == domain.InteractionContact {
@@ -71,12 +88,13 @@ func newCardView(m domain.Message) *cardView {
 		ApproveURL:  base + "approve",
 		RejectURL:   base + "reject",
 		CodeURL:     base + "otp",
+		StatusURL:   strings.TrimSuffix(base, "/"),
 	}
 }
 
 // newContactView draws a contact card: the candidates while it is pending, whom the user chose once it is confirmed.
 func newContactView(card *domain.Interaction, base string) *cardView {
-	v := &cardView{State: string(card.State), Open: card.Open(), Processing: card.State == domain.InteractionProcessing, IsContact: true, ContactURL: base + "contact"}
+	v := &cardView{State: string(card.State), Open: card.Open(), Processing: card.State == domain.InteractionProcessing, IsContact: true, ContactURL: base + "contact", StatusURL: strings.TrimSuffix(base, "/")}
 	if card.State == domain.InteractionPending {
 		for i, c := range domain.Candidates(card.Query) {
 			v.Candidates = append(v.Candidates, candidateView{Name: c.Name, Phone: c.Phone, Choice: strconv.Itoa(i)})
@@ -122,6 +140,22 @@ func amountText(t domain.Transfer) string {
 		return fmt.Sprintf("S/ %.2f", t.Amount)
 	}
 	return fmt.Sprintf("%.2f %s", t.Amount, plain(currency))
+}
+
+// showCard answers with the reply as it is now, for a card that is being answered to ask how it is: the answer replaces the reply,
+// and the new one polls no more once the card is no longer being answered.
+func (a *App) showCard(w http.ResponseWriter, r *http.Request) {
+	ref, ok := messageRefOf(w, r)
+	if !ok {
+		return
+	}
+	msg, err := a.svc.Conversations.Message(r.Context(), ref.userID, ref.convID, ref.msgID)
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	a.answerWithReply(w, r, ref.convID, msg)
 }
 
 func (a *App) approveCard(w http.ResponseWriter, r *http.Request) {

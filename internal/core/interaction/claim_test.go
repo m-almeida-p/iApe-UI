@@ -415,3 +415,77 @@ func (g *countingGateway) ConfirmOTP(context.Context, domain.Interaction, string
 func (g *countingGateway) ConfirmContact(context.Context, string, domain.Contact) error {
 	return errors.New("not used")
 }
+
+// An answer that is sent again, or whose reply was lost, is told what the approval already is. The card takes that for its
+// answer, so it shows what became of it instead of asking again.
+func TestClaim_AnApprovalThatIsResolvedAlreadyIsWhatTheCardBecomes(t *testing.T) {
+	approvedAlready := "This transfer was already approved. Its result is in your history."
+	rejectedAlready := "This transfer was already rejected."
+	for name, tc := range map[string]struct {
+		call     func(*claimRig) (domain.Message, error)
+		method   string
+		from     domain.InteractionState
+		resolved string
+		state    domain.InteractionState
+		result   string
+	}{
+		"approve, it was approved": {func(r *claimRig) (domain.Message, error) { return r.svc.Approve(t.Context(), userID, convID, replyID) },
+			"Approve", domain.InteractionPending, "APPROVED", domain.InteractionPaid, approvedAlready},
+		"approve, it was rejected": {func(r *claimRig) (domain.Message, error) { return r.svc.Approve(t.Context(), userID, convID, replyID) },
+			"Approve", domain.InteractionPending, "REJECTED", domain.InteractionRejected, rejectedAlready},
+		"reject, it was rejected": {func(r *claimRig) (domain.Message, error) { return r.svc.Reject(t.Context(), userID, convID, replyID) },
+			"Reject", domain.InteractionPending, "REJECTED", domain.InteractionRejected, rejectedAlready},
+		"reject, it was approved": {func(r *claimRig) (domain.Message, error) { return r.svc.Reject(t.Context(), userID, convID, replyID) },
+			"Reject", domain.InteractionPending, "APPROVED", domain.InteractionPaid, approvedAlready},
+		"the case of the word does not matter": {func(r *claimRig) (domain.Message, error) { return r.svc.Approve(t.Context(), userID, convID, replyID) },
+			"Approve", domain.InteractionPending, "approved", domain.InteractionPaid, approvedAlready},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newClaimRig(t)
+			card := *cardIn(tc.from)
+			r.reads(replyWith(&card))
+			claimed := claimOf(t, card, "claim-1", started)
+			r.saves("claim", card, claimed, nil)
+			r.actions.On(tc.method, mock.Anything, card).Run(func(mock.Arguments) { r.saw("service") }).
+				Return(domain.ActionResult{}, &domain.ActionError{Message: "approval already resolved: " + tc.resolved, Resolved: tc.resolved}).Once()
+			want := card
+			want.State, want.Result = tc.state, tc.result
+			r.saves("finish", claimed, want, nil)
+
+			got, err := tc.call(r)
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{"get", "claim", "service", "finish"}, r.order(), "the claim is not given back: the card says what became of it")
+			assert.Equal(t, want, *got.Meta.Interaction)
+		})
+	}
+}
+
+func TestClaim_AResolvedApprovalThatTheCardCannotBecomeIsGivenBackWithTheReason(t *testing.T) {
+	for name, tc := range map[string]struct {
+		from     domain.InteractionState
+		resolved string
+		call     func(*claimRig) (domain.Message, error)
+		method   string
+	}{
+		"it expired":                          {domain.InteractionPending, "EXPIRED", func(r *claimRig) (domain.Message, error) { return r.svc.Approve(t.Context(), userID, convID, replyID) }, "Approve"},
+		"a word nobody knows":                 {domain.InteractionPending, "WHATEVER", func(r *claimRig) (domain.Message, error) { return r.svc.Approve(t.Context(), userID, convID, replyID) }, "Approve"},
+		"approved while a code is waited for": {domain.InteractionOTPRequired, "APPROVED", func(r *claimRig) (domain.Message, error) { return r.svc.Reject(t.Context(), userID, convID, replyID) }, "Reject"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newClaimRig(t)
+			card := *cardIn(tc.from)
+			r.reads(replyWith(&card))
+			claimed := claimOf(t, card, "claim-1", started)
+			r.saves("claim", card, claimed, nil)
+			refusal := &domain.ActionError{Message: "approval already resolved: " + tc.resolved, Resolved: tc.resolved}
+			r.actions.On(tc.method, mock.Anything, card).Return(domain.ActionResult{}, refusal).Once()
+			r.saves("release", claimed, card, nil)
+
+			got, err := tc.call(r)
+
+			require.ErrorIs(t, err, refusal)
+			assert.Equal(t, card, *got.Meta.Interaction, "the card is as it was, with the reason")
+		})
+	}
+}

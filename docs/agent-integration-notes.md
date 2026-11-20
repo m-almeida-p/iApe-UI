@@ -105,10 +105,23 @@ What becomes of the claim, by what the service did:
 | did not answer in time, dropped the connection, or failed at the gateway (502/503/504) | **stays `processing`**: the payment may have gone through, so no one may answer it again for `domain.ClaimTTL` (2 minutes) |
 
 After the time a stale claim is taken over by one caller (the old holder's save is then refused) and the card goes back to the state it had.
-Nothing in the schema changed: the claim (`claim_id`, `claimed_at`, `resume`) lives in the card's JSON in `messages.meta`. A
-`processing` card shows no buttons. Pinned by: `internal/core/domain/claim_test.go`, `internal/core/interaction/claim_test.go` (including
-50 concurrent callers), `it/message/store_test.go` (`TestSaveInteraction_TheClaimOfACard`, against PostgreSQL) and the `ErrNotSent`
-tests of the BFF client.
+Nothing in the schema changed: the claim (`claim_id`, `claimed_at`, `resume`) lives in the card's JSON in `messages.meta`.
 
-Not done: nothing re-reads a `processing` card by itself, so the page says to reload; a card whose payment went through but whose answer
-was lost stays `processing` until the claim is stale and someone answers again (the service then says whether the transfer was paid).
+On the page a `processing` card shows no buttons and **asks `GET /c/{id}/m/{mid}/card` every 3 seconds** (htmx), replacing the reply; the
+new reply has no poll once the card is in another state, so it stops by itself. Once the claim is stale the card is drawn as what it
+was (Pay and Reject, the code field, the candidates) with a note, so the user can answer again.
+
+**Answering again is safe: checked against the real BFF.** A second `approve` of the same approval is `400 {"error":"approval already
+resolved: APPROVED"}` (also for a third), not a second payment. The BFF explains a refusal in `message` (NestJS) or in `error` (the
+approvals' own); the client reads both (an `error` that is only the status name, as in `"Bad Request"`, explains nothing) and sets
+`ActionError.Resolved` to the word after `already resolved:`. For `Approve` and `Reject` the service takes that as the answer: `APPROVED`
+leaves the card `paid` ("This transfer was already approved. Its result is in your history.") and `REJECTED` leaves it `rejected`. That
+is how a payment whose reply was lost finds out what became of it. Any other word (`EXPIRED`), or an approval that cannot become that
+(a rejection of a card that waits for a code, whose approval is `APPROVED`), is given back with the reason.
+
+Caveat: `APPROVED` does not say whether the transfer was paid or still waits for its code (the first reply, with the transfer id the code
+needs, is the one that was lost), so the card says "approved" and sends the user to the history for the result.
+
+Pinned by: `internal/core/domain/claim_test.go`, `internal/core/interaction/claim_test.go` (including 50 concurrent callers),
+`it/message/store_test.go` (`TestSaveInteraction_TheClaimOfACard`, against PostgreSQL), the `ErrNotSent` and refusal tests of the BFF
+client, and the card tests of the web layer.

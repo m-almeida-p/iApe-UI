@@ -89,6 +89,9 @@ var routes = []route{
 	{"POST /contacts/confirm", false, true, func(c *stack.Client, _ ids, h ...string) *stack.Response {
 		return c.Post("/contacts/confirm", url.Values{"q": {"maria"}, "choice": {"0"}}, h...)
 	}},
+	{"GET /c/{id}/m/{mid}/card", false, false, func(c *stack.Client, x ids, h ...string) *stack.Response {
+		return c.Get("/c/"+x.conv+"/m/"+x.reply+"/card", h...)
+	}},
 	{"POST /c/{id}/m/{mid}/card/approve", false, true,
 		func(c *stack.Client, x ids, h ...string) *stack.Response {
 			return c.Post("/c/"+x.conv+"/m/"+x.reply+"/card/approve", nil, h...)

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"iape-ui/internal/core/domain"
@@ -106,8 +107,8 @@ func (c *Client) postJSON(ctx context.Context, route string, body map[string]str
 	return got, nil
 }
 
-// refusal turns a 4xx with an explanation (NestJS puts it in "message") into the service's own words for the user. Any other
-// error is returned as it is.
+// refusal turns a 4xx with an explanation into the service's own words for the user: NestJS puts it in "message", the approvals'
+// own refusals in "error". Any other error is returned as it is.
 func refusal(err error) error {
 	httpErr, ok := errors.AsType[*HTTPError](err)
 	if !ok || httpErr.Status < http.StatusBadRequest || httpErr.Status >= http.StatusInternalServerError {
@@ -115,15 +116,34 @@ func refusal(err error) error {
 	}
 	var body struct {
 		Message any `json:"message"`
+		Error   any `json:"error"`
 	}
 	if json.Unmarshal([]byte(cmp.Or(httpErr.full, httpErr.Body)), &body) != nil {
 		return err
 	}
-	switch m := body.Message.(type) {
+	fromError := explanation(body.Error)
+	if strings.EqualFold(fromError, http.StatusText(httpErr.Status)) {
+		fromError = "" // NestJS names the status in "error" ("Bad Request"): that explains nothing
+	}
+	text := cmp.Or(explanation(body.Message), fromError)
+	if text == "" {
+		return err
+	}
+	refused := &domain.ActionError{Message: text}
+	if m := alreadyResolved.FindStringSubmatch(text); m != nil {
+		refused.Resolved = m[1]
+	}
+	return refused
+}
+
+// alreadyResolved is what the BFF says to a second answer to an approval: what the approval already is.
+var alreadyResolved = regexp.MustCompile(`^approval already resolved: ([A-Za-z_]+)$`)
+
+// explanation is the text of a "message" or an "error" of the BFF: a string, or a list of them (validation).
+func explanation(v any) string {
+	switch m := v.(type) {
 	case string:
-		if m != "" {
-			return &domain.ActionError{Message: m}
-		}
+		return m
 	case []any:
 		parts := make([]string, 0, len(m))
 		for _, p := range m {
@@ -131,9 +151,7 @@ func refusal(err error) error {
 				parts = append(parts, s)
 			}
 		}
-		if len(parts) > 0 {
-			return &domain.ActionError{Message: strings.Join(parts, "; ")}
-		}
+		return strings.Join(parts, "; ")
 	}
-	return err
+	return ""
 }
