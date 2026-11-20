@@ -44,7 +44,7 @@ was not there should be able to follow. -->
 - [ ] Tests are new or changed, table-driven, and fail without the change
 - [ ] A new or changed setting is read from `.env` and written down in `.env.example`
 - [ ] The docs match: `README.md` when a user would notice
-- [ ] No secrets, `.env` values, GAIA data, answers or results in the diff, the commits or the logs
+- [ ] No secrets, `.env` values, tokens or recordings with them in the diff, the commits or the logs
 - [ ] One thing, under 500 changed lines and 20 files (`scripts/pr-check.sh`), or the reason it is bigger is in the notes
 - [ ] The title has a prefix and is at most 80 characters
 

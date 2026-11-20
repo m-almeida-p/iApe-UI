@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"iape-ui/internal/core/domain"
-	"iape-ui/internal/testagent"
+	"iape-ui/internal/testbff"
 	"iape-ui/it/internal/leak"
 	"iape-ui/it/internal/stack"
 )
@@ -67,7 +67,7 @@ func lastOf(t *testing.T, messages []stack.Message) stack.Message {
 func TestChatSuite(t *testing.T) {
 	t.Run("a reply arrives in pieces and is saved as it was shown (SC-1)", func(t *testing.T) {
 		leak.Check(t)
-		s := stack.Start(t, stack.WithModel(testagent.WithSlow(15*time.Millisecond, 30)))
+		s := stack.Start(t, stack.WithBFF(testbff.WithSlow(15*time.Millisecond, 30)))
 		c := s.SignedIn()
 		conv, reply := c.Start("Tell me something #slow")
 
@@ -101,17 +101,19 @@ func TestChatSuite(t *testing.T) {
 		assert.Equal(t, "Tell me something #slow", reloaded[0].Text)
 		assert.Equal(t, final.Text, reloaded[1].Text, "a reload shows the same conversation")
 		assert.Equal(t, "complete", reloaded[1].Status)
-		for _, attr := range []string{"data-ttft-ms", "data-duration-ms", "data-prompt-tokens", "data-completion-tokens"} {
+		// The BFF's stream carries no token counts, so the page shows the times and no tokens.
+		for _, attr := range []string{"data-ttft-ms", "data-duration-ms"} {
 			assert.NotEmpty(t, stack.Attr(final.Node, attr), "%s is set once the reply is finished (SC-22)", attr)
 		}
-		assert.Equal(t, int64(1), s.Model.Probe().Runs())
+		assert.Empty(t, stack.Attr(final.Node, "data-prompt-tokens"), "nothing says how many tokens the agent used")
+		assert.Equal(t, int64(1), s.BFF.Probe().Runs())
 	})
 
 	t.Run("CHAT_STREAM_FLUSH_INTERVAL sets how often the page is updated", func(t *testing.T) {
 		leak.Check(t)
 		// The same reply, forty pieces ten milliseconds apart, under two settings.
 		updates := func(interval string) int {
-			s := stack.Start(t, stack.WithSetting("CHAT_STREAM_FLUSH_INTERVAL", interval), stack.WithModel(testagent.WithSlow(10*time.Millisecond, 40)))
+			s := stack.Start(t, stack.WithSetting("CHAT_STREAM_FLUSH_INTERVAL", interval), stack.WithBFF(testbff.WithSlow(10*time.Millisecond, 40)))
 			c := s.SignedIn()
 			conv, reply := c.Start("Tell me something #slow")
 			return len(deltas(t, c.OpenStream(within(t, 20*time.Second), conv, reply).Drain()))
@@ -125,11 +127,9 @@ func TestChatSuite(t *testing.T) {
 
 	t.Run("an answer the agent's server cuts off is kept as far as it got, and the page says so", func(t *testing.T) {
 		leak.Check(t)
-		// Fifty chunks 20 ms apart take a second; the agent's server lets a reply
-		// stream for 300 ms. A real agent does this to a long answer after two
-		// minutes (the launcher's --sse-write-timeout).
-		s := stack.Start(t, stack.WithModel(testagent.WithSlow(20*time.Millisecond, 50)),
-			stack.WithAgentServer(testagent.WithSSEWriteTimeout(300*time.Millisecond)))
+		// Fifty chunks 20 ms apart take a second; the BFF lets a reply
+		// stream for 300 ms. A real BFF ends a long answer that takes too long, without saying the run finished.
+		s := stack.Start(t, stack.WithBFF(testbff.WithSlow(20*time.Millisecond, 50), testbff.WithCutAfter(300*time.Millisecond)))
 		c := s.SignedIn()
 		conv, reply := c.Start("Tell me a long story #slow")
 
@@ -154,7 +154,7 @@ func TestChatSuite(t *testing.T) {
 
 	t.Run("Stop ends the agent's run within a second and keeps the text so far (SC-2)", func(t *testing.T) {
 		leak.Check(t)
-		s := stack.Start(t, stack.WithModel(testagent.WithSlow(20*time.Millisecond, 400)))
+		s := stack.Start(t, stack.WithBFF(testbff.WithSlow(20*time.Millisecond, 400)))
 		c := s.SignedIn()
 		conv, reply := c.Start("Go on and on #slow")
 		stream := c.OpenStream(within(t, 20*time.Second), conv, reply)
@@ -169,7 +169,7 @@ func TestChatSuite(t *testing.T) {
 
 		require.Equal(t, 200, res.Status, res.Body)
 		require.Equal(t, "stopped", stack.MessagesIn(t, res.Body)[0].Status, "the answer to Stop is the reply as saved")
-		require.Eventually(t, func() bool { return s.Model.Probe().Cancelled() == 1 }, time.Second, 5*time.Millisecond,
+		require.Eventually(t, func() bool { return s.BFF.Probe().Cancelled() == 1 }, time.Second, 5*time.Millisecond,
 			"the agent saw its run cancelled")
 		assert.Less(t, time.Since(pressed), time.Second)
 		rest := stream.Drain()
@@ -187,7 +187,7 @@ func TestChatSuite(t *testing.T) {
 
 	t.Run("closing the page mid-reply cancels the agent's run and saves the text so far (SC-2)", func(t *testing.T) {
 		leak.Check(t)
-		s := stack.Start(t, stack.WithModel(testagent.WithSlow(20*time.Millisecond, 400)))
+		s := stack.Start(t, stack.WithBFF(testbff.WithSlow(20*time.Millisecond, 400)))
 		c := s.SignedIn()
 		conv, reply := c.Start("Keep going #slow")
 		stream := c.OpenStream(within(t, 20*time.Second), conv, reply)
@@ -199,7 +199,7 @@ func TestChatSuite(t *testing.T) {
 
 		stream.Close() // the tab goes away
 
-		require.Eventually(t, func() bool { return s.Model.Probe().Cancelled() == 1 }, 2*time.Second, 10*time.Millisecond,
+		require.Eventually(t, func() bool { return s.BFF.Probe().Cancelled() == 1 }, 2*time.Second, 10*time.Millisecond,
 			"the agent saw its run cancelled")
 		var status, content string
 		require.Eventually(t, func() bool {
@@ -221,7 +221,7 @@ func TestChatSuite(t *testing.T) {
 		c.OpenStream(within(t, 20*time.Second), conv, second).Drain()
 		before := c.Messages(conv)
 		require.Len(t, before, 4)
-		require.Equal(t, int64(2), s.Model.Probe().Runs())
+		require.Equal(t, int64(2), s.BFF.Probe().Runs())
 
 		res := c.Regenerate(conv, second)
 
@@ -237,11 +237,11 @@ func TestChatSuite(t *testing.T) {
 		}
 		assert.Equal(t, "complete", after[3].Status)
 		assert.Equal(t, "You said: second question", after[3].Text, "the new reply answers the same question")
-		assert.Equal(t, int64(3), s.Model.Probe().Runs(), "the agent was asked once more")
+		assert.Equal(t, int64(3), s.BFF.Probe().Runs(), "the agent was asked once more")
 
 		earlier := c.Regenerate(conv, first)
 		assert.Equal(t, 409, earlier.Status, "an earlier reply can't be regenerated")
-		assert.Equal(t, int64(3), s.Model.Probe().Runs())
+		assert.Equal(t, int64(3), s.BFF.Probe().Runs())
 	})
 
 	t.Run("with the agent down the reply says so, and Retry works once it is back (SC-4)", func(t *testing.T) {
@@ -284,7 +284,7 @@ func TestChatSuite(t *testing.T) {
 		c := s.SignedIn()
 		conv, reply := c.Start("Say it once")
 		first := c.OpenStream(within(t, 20*time.Second), conv, reply).Drain()
-		require.Equal(t, int64(1), s.Model.Probe().Runs())
+		require.Equal(t, int64(1), s.BFF.Probe().Runs())
 
 		again := c.OpenStream(within(t, 20*time.Second), conv, reply).Drain()
 
@@ -293,7 +293,7 @@ func TestChatSuite(t *testing.T) {
 		assert.Equal(t, "done", again[1].Name)
 		assert.Equal(t, lastOf(t, deltas(t, first)).Text, replyOf(t, again[0]).Text)
 		assert.Equal(t, "complete", replyOf(t, again[0]).Status)
-		assert.Equal(t, int64(1), s.Model.Probe().Runs(), "no second run")
+		assert.Equal(t, int64(1), s.BFF.Probe().Runs(), "no second run")
 		page := c.Get("/c/" + conv)
 		assert.NotContains(t, page.Body, "sse-connect", "a finished reply opens no stream when the page is loaded")
 	})
@@ -314,13 +314,13 @@ func TestChatSuite(t *testing.T) {
 		assert.Equal(t, 1, strings.Count(saved.Body, "You said:"))
 		assert.Equal(t, "You said: What is two plus two? #think", lastOf(t, deltas(t, events)).Text)
 		assert.NotContains(t, c.Get("/c/"+conv).Body, "think about that")
-		assert.Equal(t, int64(1), s.Model.Probe().Runs())
+		assert.Equal(t, int64(1), s.BFF.Probe().Runs())
 	})
 
 	t.Run("shutting down ends the replies being written and saves their text (SC-19)", func(t *testing.T) {
 		leak.Check(t)
 		s := stack.Start(t,
-			stack.WithModel(testagent.WithSlow(20*time.Millisecond, 500)),
+			stack.WithBFF(testbff.WithSlow(20*time.Millisecond, 500)),
 			stack.WithSetting("APP_SHUTDOWN_GRACE", "5s"))
 		c := s.SignedIn()
 		conv, reply := c.Start("Keep going #slow")
@@ -342,6 +342,6 @@ func TestChatSuite(t *testing.T) {
 		require.NoError(t, s.Pool.QueryRow(t.Context(), `SELECT status, content FROM messages WHERE id = $1`, reply).Scan(&status, &content))
 		assert.Equal(t, "stopped", status)
 		assert.True(t, strings.HasPrefix(content, "tick 1 "), "the text so far is saved: %q", content)
-		assert.Equal(t, int64(1), s.Model.Probe().Cancelled(), "and the agent's run was cancelled")
+		assert.Equal(t, int64(1), s.BFF.Probe().Cancelled(), "and the agent's run was cancelled")
 	})
 }

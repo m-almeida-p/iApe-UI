@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"iape-ui/internal/explore"
 	"iape-ui/internal/chrome"
+	"iape-ui/internal/explore"
 )
 
 // session is a browser that is signed in, and can start a conversation of its own for each path.

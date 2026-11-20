@@ -4,61 +4,66 @@
 [![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**iApe-UI** is a web UI for any agent that speaks the ADK REST API, plus
-**agent-eval** — a second program that drives that UI in a real browser just like
-a person would, asks it GAIA problems, and scores both the agent's answers and the
-UI itself. The two programs are `agent-web-ui` and `agent-eval`.
+**iApe-UI** is the web UI of the Yape agent service. It talks to the service's **AG-UI BFF** (`POST /agent`, answered as
+server-sent events), so the page streams the agent's replies and draws its cards: choose a contact, approve or reject a
+transfer, give the code the bank asks for.
 
-- **Web UI** (`cmd/web`): built in Go, with server-rendered HTML, HTMX and
-  Server-Sent Events, Bootstrap 5, and PostgreSQL. You get sign-in, conversations,
-  streamed replies, Stop, Regenerate, rename and delete, a light/dark theme, and
-  it works well on keyboard and phone.
-- **Test agent** (`cmd/test-agent`): a real ADK REST server wrapped around a
-  scripted model, so you can run and test the UI with no LLM and no cost.
-- **agent-eval** (`cmd/eval`): the evaluator — see [Evaluating an agent](#evaluating-an-agent).
+- **Web UI** (`cmd/web`): Go, server-rendered HTML, HTMX and Server-Sent Events, Bootstrap 5 and PostgreSQL. Sign-in,
+  conversations, streamed replies, Stop, Regenerate, rename and delete, the P2P cards, a light/dark theme; it works well
+  on keyboard and phone.
+- **Scripted BFF** (`cmd/test-bff`): a stand-in for the BFF that answers from a script, so the UI can be run and tested
+  with no agent, no model and no Yape account.
+- **Explorer** (`cmd/iape-explore`): drives the real UI in Chrome through the paths of the P2P flows, with no model in the
+  loop, and says whether each ends where it should. See [Explorer](#explorer).
 
-Both programs live in one Go module, `iape-ui` (Go
-1.27), built as hexagonal services: `internal/core` doesn't know anything about
-HTTP, SQL or browsers, and the adapters under `internal/infrastructure` and
-`internal/eval/infrastructure` plug into its ports.
+One Go module, `iape-ui` (Go 1.27), built as hexagonal services: `internal/core` knows nothing of HTTP, SQL or browsers, and the
+adapters under `internal/infrastructure` plug into its ports.
 
 ## Prerequisites
 
-The scripts are bash, so you'll need macOS or Linux (Windows works through WSL).
+The scripts are bash: macOS or Linux (Windows through WSL).
 
 | Tool | Version | Needed for |
 |------|---------|------------|
-| [Go](https://go.dev/dl/) | 1.27+ | both programs |
-| [Docker](https://www.docker.com/) | any recent | PostgreSQL, the test agent, the full stack |
-| [Node.js](https://nodejs.org/) (for `npx`) | 20.19+, 22.12+ or 23+ | `agent-eval`'s browser tests; older fails at once, naming the Node it found |
-| Chrome | any recent | `agent-eval`, headless |
-| `make` | any | the [Makefile](#makefile) targets below |
-| [Google AI Studio API key](https://aistudio.google.com/apikey) | — | optional — only for [chatting with a real model](#chat-with-a-real-model) |
+| [Go](https://go.dev/dl/) | 1.27+ | everything |
+| [Docker](https://www.docker.com/) | any recent | PostgreSQL, the scripted BFF, the integration tests |
+| [Node.js](https://nodejs.org/) (for `npx`) | 20.19+, 22.12+ or 23+ | the explorer: it starts Chrome DevTools MCP with `npx` |
+| Chrome | any recent | the explorer |
+| `yape-token` | — | talking to the real BFF: it prints the Yape account's bearer token |
+| `make` | any | the [Makefile](#makefile) targets |
 
-Once those are installed, `make install` takes care of the rest: it writes your
-`.env` file and builds this project's own copies of the quality tools it
-relies on, since the ones installed globally are often compiled with an older
-Go than this module and then refuse to analyze it (mockery goes further and
-just fails to load it) — see [Makefile](#makefile) for which tools and where
-they go.
+`make install` writes your `.env` and builds this project's own copies of the quality tools, since globally installed ones are often
+compiled with an older Go than this module and refuse to analyze it.
 
 ## Quick start
 
+With the scripted BFF, which needs no Yape account:
+
 ```sh
 scripts/init-env.sh                   # writes .env with fresh random passwords (set DB_URL as in Database, below)
-docker compose up -d --wait agent     # the scripted test agent: no model, no cost
+docker compose up -d --wait agent     # the scripted BFF on :9093
 scripts/run.sh                        # the web server from source
 open http://localhost:8300            # sign in with ADMIN_EMAIL / ADMIN_PASSWORD from .env
 ```
 
-`scripts/stop.sh` (`make stop`) stops the server; `docker compose down` (`make down`) stops the test agent. The `full` profile of
-`docker-compose.yml` also starts a PostgreSQL of its own, which has no tables: use the PostgreSQL that `DB_URL` points to.
+Write `quiero yapear`, or `#pay`, `#otp`, `#contact` for a card, `#slow` for a long reply. `.env.example` points at the scripted
+BFF (`AGENT_BASE_URL=http://localhost:9093`, `YAPE_TOKEN_BIN=scripts/test-token.sh`).
+
+With the real BFF (`http://localhost:4000`), set in `.env`:
+
+```sh
+AGENT_BASE_URL=http://localhost:4000
+YAPE_ACCOUNT_ID=<the account's UUID>     # fixed for now
+YAPE_TOKEN_BIN=yape-token                # prints the account's token and caches it until it expires
+```
+
+`scripts/stop.sh` (`make stop`) stops the server; `docker compose down` (`make down`) stops PostgreSQL and the scripted BFF.
 
 ## Database
 
 **This program creates no table.** `DB_URL` must reach a PostgreSQL that has the tables `users`, `sessions`, `conversations` and
 `messages` in the schema `web_ui`, and it carries `search_path=web_ui`, which is how the program finds them. A database without them
-stops the program at start.
+stops the program at start. The tables come from the migrations of the history services, not from this repository.
 
 On the Yape cluster (`yape-postgres`, the network `yape-local`) the database is `agentwebui`, and the cluster trusts local
 connections, so there is no password:
@@ -67,439 +72,121 @@ connections, so there is no password:
 DB_URL="postgres://postgres@localhost:5432/agentwebui?sslmode=disable&search_path=web_ui"
 ```
 
-`scripts/cluster.sh` runs the web server in Docker on the `yape-local` network, against that database.
+Every setting is explained in `.env.example`, and a real environment variable always wins over what is in `.env`. The
+`.env` that `scripts/init-env.sh` writes has the web server listening on `127.0.0.1:8300`, this computer only
+(`APP_HTTP_ADDR`). The page is plain http: before you put this in front of a network, add a TLS proxy and give `APP_BASE_URL`
+its https address, which turns on Secure cookies and HSTS (`APP_ENV=production` will not start without it).
 
+## The cards
 
-To point this at your own agent, set `AGENT_BASE_URL` and `AGENT_APP_NAME` in
-`.env`. Every setting is explained in `.env.example`, and a real environment
-variable always wins over what's in `.env`.
+When the agent's reply carries a card, the page draws it from what is saved with the reply, so it is the same after a reload:
 
-By default, the `.env` that `scripts/init-env.sh` writes has the web server
-listening on `127.0.0.1:8300` — this computer only (`APP_HTTP_ADDR`). Leave that
-key out and it listens on every interface (`:8300`), which is what the container
-needs. Keep in mind the page is plain http: before you put this in front of a
-network, add a TLS proxy and give `APP_BASE_URL` its https address — that turns
-on Secure cookies and HSTS, and `APP_ENV=production` won't start without it.
-Compose also publishes the port on `127.0.0.1` only (`WEB_PORT` changes the
-number, not the address).
+| Card | What it asks | Answered with |
+|------|--------------|---------------|
+| Contact (`CONTACT_REQUEST`) | Who to pay: the candidates are test contacts, always the same for the same name | A button: the contact is confirmed with the BFF and the agent goes on (the page sends `usuario confirmado`) |
+| Transfer (`ACTION_REQUEST`) | Pay or reject S/ N to a destination | **Pay** or **Reject**; when the bank asks for a code, a field for it |
+
+The composer's `@` picker offers the same test contacts and puts `@(Name)` in the message. A card keeps its state in
+`messages.meta` (the key `interaction`), and it only goes forward: of several answers to one card exactly one wins.
 
 ## Makefile
 
-Run `make help` any time to see every target. They're grouped the same way this
-project's scripts are: setup (`install`, `install/env`, `install/tools`,
-`install/tools/global`), quality control (`audit`, `audit/it`, `test`,
-`test/cover`), development (`build`, `up`, `down`, `run`, `stop`, `full/up`,
-`full/down`, `yape-agent/check`, `yape-agent/up`, `yape-agent/down`, `cluster/up`,
-`cluster/down`, `tidy`) and operations (`push`, which runs the gate and refuses to
-push a dirty tree). Each target just calls the matching `scripts/*.sh` file, so there's one
-place to go read (or change) what it actually does.
+`make help` lists every target, grouped like the scripts: setup (`install`, `install/env`, `install/tools`, `install/tools/global`),
+quality control (`audit`, `audit/it`, `test`, `test/cover`), development (`build`, `up`, `down`, `run`, `stop`, `tidy`) and operations
+(`push`, which runs the gate and refuses to push a dirty tree). Each target calls the matching `scripts/*.sh`.
 
-By default, `make install` (or `make install/tools` on its own) builds
-`golangci-lint`, `staticcheck`, `govulncheck`, `modernize` and `mockery` into this
-repo's own `bin/tools` folder, which `scripts/check.sh` already adds to `PATH` for
-the gate — nothing outside the repo gets touched. If you'd rather have them
-available everywhere on your machine, run `make install/tools/global` instead: it
-overwrites the tools in your global Go bin (`go env GOBIN`, or `GOPATH/bin` if
-that's unset), so every project you work on picks up the same versions. That one's
-deliberately left out of `make install`, since it can replace binaries other
-projects on your machine expect at a different version — so only run it when you
-actually mean to.
+`make install/tools` builds `golangci-lint`, `staticcheck`, `govulncheck`, `modernize` and `mockery` into this repository's own
+`bin/tools`, which `scripts/check.sh` adds to `PATH`. `make install/tools/global` overwrites the ones in your global Go bin instead,
+which can replace binaries other projects expect at a different version, so it is left out of `make install`.
 
-## Chat with a real model
+## Explorer
 
-By default, Compose starts a scripted agent that just echoes your message back.
-To chat with a real model instead, run a real ADK agent and point the Web UI at
-it. `scripts/real-agent.sh` builds the `ui-agent` sample from `adk-training-go` (a
-sibling checkout) and runs it on Gemini — every message you send goes to Google
-with your key and counts against your quota. Gemini is the only model this script
-supports; for any other model, run your own ADK REST agent and point the Web UI
-at it with `AGENT_BASE_URL`/`AGENT_APP_NAME` instead (see [Quick start](#quick-start)).
+```sh
+make build                            # bin/agent-web-ui and bin/iape-explore
+bin/iape-explore -list                # the paths
+bin/iape-explore -path pay            # one path
+bin/iape-explore -all                 # every path, each in a conversation of its own
+bin/iape-explore -path pay -amount 35 -contact "Maria Torres"
+bin/iape-explore -headed -path card   # Chrome with a window, to watch it
+bin/iape-explore "Hola" "expect:Hola" "expect-no-card"     # steps of your own
+```
 
-Everything for this lives in `.env`, under the "Real agent" section (plus
-`AGENT_BASE_URL`) — you never need to type a variable before a command.
-`.env.example` explains each key.
+The paths are `card`, `pay`, `otp`, `otp-tag`, `reject`, `limit`, `guard` and `contact`. A step is a message to send, or one of
+`@`, `@pick[:name]`, `type:`, `send`, `click:`, `click?:`, `wait:`, `otp:`, `expect:`, `expect-card:kind=state` and `expect-no-card`
+(see `internal/explore`). A run stops at the first step that fails, after recording what the page showed.
 
-1. **Settings.** In `.env`: `GOOGLE_AI_STUDIO_API_KEY=...` (get one from
-   [Google AI Studio](https://aistudio.google.com/apikey) — the script hands it to the agent and never prints it; without it, the
-   agent falls back to its own `.env` and your environment), `GEMINI_MODEL`
-   (defaults to `gemini-3.5-flash`; change it to any model name you want — nothing
-   here enforces a particular one), `AGENT_BASE_URL=http://localhost:9094/api`
-   and `AGENT_REQUEST_TIMEOUT=600s`.
-2. **Database.**
+After every step it records, under `temp/iape-explore/<time>/<path>/`: the page's accessibility tree, a screenshot, the network
+requests and the lines that are new, then `report.md`, and a `summary.md` for the whole run. Nothing it writes holds the password or a
+token. It signs in as `EXPLORE_USER_EMAIL`/`EXPLORE_USER_PASSWORD`, or as the first user (`ADMIN_EMAIL`/`ADMIN_PASSWORD`), and starts
+Chrome DevTools MCP with `EXPLORE_MCP_COMMAND` and `EXPLORE_MCP_ARGS`: `npx` on a pinned package, headless unless `-headed`, and
+always with the flags that keep usage statistics off and the profile temporary.
 
-   ```sh
-   docker compose up -d --wait postgres
-   ```
-
-3. **Agent.**
-
-   ```sh
-   scripts/real-agent.sh
-   ```
-
-   It prints `The agent is ready ... serving "ui_agent" on Gemini`. The sample
-   pins ADK 2.4, whose server listens on every network interface, so
-   `REAL_AGENT_ADK` (set to the version in `go.mod`, via `.env.example`) builds it
-   against 2.5 instead, which only listens on this computer, using a copy of the
-   sample's `go.mod` — its own files are left untouched. If an agent does end up
-   listening on the network, the script stops it for you.
-4. **Web UI.**
-
-   ```sh
-   scripts/run.sh
-   ```
-
-   Then open <http://localhost:8300> and sign in with `ADMIN_EMAIL` and
-   `ADMIN_PASSWORD` from `.env`. The first word can take 10 to 20 seconds while
-   the model thinks.
-5. **Stop.**
-
-   ```sh
-   scripts/stop.sh
-   scripts/real-agent.sh stop
-   ```
-
-Want to switch back to the scripted agent? Set `AGENT_BASE_URL` to
-`http://localhost:9093/api` and the timeout to `120s` (that's the agent
-`docker compose up` starts, on port 9093).
-
-## Chat with the Yape gateway models and the history's MCP tools
-
-A second real agent, `cmd/yape-agent`, answers with the models of the Yape AI gateway
-(the ones the Yape agent service uses) and reads the conversation history through
-the history service's MCP server. It is meant for the Yape cluster: the Web UI runs
-in Docker next to it, with its database in the cluster's PostgreSQL.
-
-| Piece | Where it comes from |
-|-------|---------------------|
-| The cluster (`yape-postgres`, the `yape-local` network) | `cluster/scripts/up.sh` in the Yape repositories; this repository only joins it |
-| The MCP server (`:3200/mcp`, six read-only tools) | the history service: `scripts/run_mcp.sh` there |
-| The models | the gateway, `YAPETECH_AI_GATEWAY`, through the OpenAI Responses API |
-| The credentials | the Yape agent service's `.env` (`YAPE_AGENT_BS_ENV` in `.env`), read every time the script runs |
-
-The credentials are never copied here. `scripts/yape-agent.sh` reads the gateway, its
-headers and the anonymous-token credentials from that service's `.env` and hands them
-to the agent in its environment only (not its arguments, which `ps` shows), so nothing
-is written to a file in this repository and nothing is printed. The agent fetches its
-own bearer token with them, keeps it until 80% of its life has passed, and asks again
-for every request after that. It refuses a gateway or token endpoint that is not https,
-and an MCP server that is not on this computer (it has no authentication).
-
-1. **Cluster and MCP.** From the Yape repositories: `cluster/scripts/up.sh`, then the
-   history service's `scripts/run_consumer.sh` and `scripts/run_mcp.sh`.
-2. **Check.** Without starting anything or sending a word to a model:
-
-   ```sh
-   make yape-agent/check      # scripts/yape-agent.sh check
-   ```
-
-   It asks for a token and lists the MCP tools: `token: ok` and `mcp: ok, 6 tools`.
-3. **Agent.**
-
-   ```sh
-   make yape-agent/up         # scripts/yape-agent.sh
-   ```
-
-   It builds `bin/yape-agent`, listens on `127.0.0.1:9095` (`YAPE_AGENT_PORT`) and stops
-   itself if it ends up listening on the network.
-4. **Web UI on the cluster.**
-
-   ```sh
-   make cluster/up            # scripts/cluster.sh
-   ```
-
-   It checks the cluster and the database `agentwebui` in `yape-postgres` (`CLUSTER_DB_NAME`), which must exist with its tables,
-   and starts the `web-cluster` service of
-   `docker-compose.yml`: the Web UI on `http://localhost:8300`, on the `yape-local`
-   network, talking to the agent as `host.docker.internal:9095`. Sign in with
-   `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env` and ask, for example, *which accounts
-   have data in the history?* The model calls `list_accounts` and the other tools, and
-   answers only with what they return.
-5. **Stop.**
-
-   ```sh
-   make cluster/down          # the database stays in the cluster
-   make yape-agent/down
-   ```
-
-`scripts/cluster.sh status` says what is up. The Web UI can also run from source against
-this agent: set `AGENT_BASE_URL=http://localhost:9095/api`, `AGENT_APP_NAME=yape_agent` and
-`AGENT_REQUEST_TIMEOUT=600s` in `.env`, and use `DB_URL` for `yape-postgres` on `localhost:5432`.
-`YAPE_AGENT_MODEL` changes the gateway model (default `gpt-5.4-mini-priority`) and
-`YAPE_MCP_URL` the MCP address.
+**Mind the guardrail.** The agent service bans an account that trips its prompt-injection guard too often: with the settings of
+a development `.env` (`CIRCUIT_BREAKER_MAX_BLOCKS_PER_WINDOW`, `CIRCUIT_BREAKER_BAN_DURATION_SECONDS`) two runs of `guard` in a few
+minutes can ban the account for a long time, and every later message then answers "Por seguridad, limitamos tu acceso al
+asistente". Run `guard` rarely, and not as part of every `-all`.
 
 ## Configuration
 
-**Every setting lives in `.env`** — for the programs, the scripts, Docker Compose
-and the tests — and **`.env.example` documents every one of them**, with its
-default and what it does. `scripts/init-env.sh` copies the example into `.env`
-with freshly generated passwords, so you never need to type a variable before a
-command. Here's who actually reads it:
+**Every setting lives in `.env`** (the programs, the scripts, Docker Compose and the tests), and **`.env.example` documents every
+one**, with its default and what it does. `scripts/init-env.sh` copies the example into `.env` with fresh passwords. Here is who reads it:
 
-- The programs read `.env` from whichever directory they're run in. A variable
-  already set in your environment wins over the file, and a bad value stops the
-  program at startup, listing every problem it found without showing any secrets.
-  `agent-web-ui [--env FILE] [healthcheck [URL]]` reads its settings from FILE (or
-  `.env` if you don't say otherwise), with your environment still taking
-  priority. If you name a file that doesn't exist, pass an unknown flag, add a
-  flag after `healthcheck`, or give a second address, it exits with status 2 and
-  a usage line. `scripts/run.sh --env FILE` passes the file straight through, so
-  the server never picks up keys from a `.env` sitting next to it. Every
-  `agent-eval` command accepts `--env FILE` too, and refuses the same way if the
-  file is missing.
-- The scripts read `.env` (or whatever file `--env` points to, which has to
-  exist) and fill in anything missing from `.env.example`. They don't look at
-  your environment at all (aside from two hooks the tests use). `run.sh` and
-  `eval.sh` hand the whole file to the program they start, which then overrides
-  anything already set; `real-agent.sh` only passes the agent — someone else's
-  program — its model settings.
-- Docker Compose reads `.env` on its own and forwards every Web UI setting into
-  its container; it decides `APP_HTTP_ADDR`, `DB_URL` and
-  `AGENT_BASE_URL` itself.
-- An empty value counts as unset.
+- The programs read `.env` from the directory they run in. A variable already set in your environment wins over the file, and a bad
+  value stops the program at start, listing every problem it found without showing any secret. `agent-web-ui [--env FILE]
+  [healthcheck [URL]]` reads FILE (or `.env`); a file that does not exist, an unknown flag, a flag after `healthcheck` or a second
+  address makes it exit with status 2 and a usage line. `scripts/run.sh --env FILE` passes the file through.
+- The scripts read `.env` (or the file `--env` names, which has to exist) and fill in what is missing from `.env.example`. They do not
+  look at your environment (apart from two hooks the tests use). `run.sh` hands the whole file to the server.
+- Docker Compose reads `.env` on its own. An empty value counts as unset.
 
-A test fails if any script, Go file or the Compose file reads a setting that
-isn't documented in `.env.example`, so that file always stays the complete list.
-Its sections are: App, Database, Agent, Chat, Rate limiting, Sessions, Docker
-Compose, Scripted test agent, Real agent, Evaluator, Scripts and tools (the go
-command, bin and log folders, coverage floors), Pull requests (title prefixes,
-size limits), and Tests (the opt-in switches). Here are the keys you'll touch
-first:
+A test fails if a script, a Go file or the Compose file reads a setting that is not documented in `.env.example`. Its sections:
+App, Database, Agent, Chat, Rate limiting, Sessions, Docker Compose, Scripted BFF, Explorer, Scripts and tools (the go command, the
+bin and log folders, the coverage floors), Pull requests, and Tests (the opt-in switches).
 
 | Key | Default | What it does |
 |-----|---------|--------------|
-| `DB_URL` | required | PostgreSQL connection URL (a secret). Percent-encode `@`, `/`, `?` and `#` in its user and password (`%40`, `%2F`, `%3F`, `%23`): a URL setting with an `@` after its host is refused at start, and so is a `DB_URL` with more than one `@` before it. A `DB_URL` the driver cannot read stops the start with the driver's reason, as in `parsing DB_URL: invalid port`; the reason may name the piece it stumbled on, and the connection string as a whole is not quoted |
-| `AGENT_BASE_URL`, `AGENT_APP_NAME` | required | The ADK REST agent to talk to |
-| `AGENT_REQUEST_TIMEOUT` | `120s` | The longest a reply may take; use `600s` for GAIA |
-| `APP_HTTP_ADDR` | `:8300` | Where to listen: a host, which may be left out, and a port from 1 to 65535 (`.env.example`: `127.0.0.1:8300`) |
+| `DB_URL` | required | PostgreSQL URL (a secret). Percent-encode `@`, `/`, `?` and `#` in its user and password (`%40`, `%2F`, `%3F`, `%23`). A URL the driver cannot read stops the start with the driver's reason |
+| `AGENT_BASE_URL` | required | The BFF, such as `http://localhost:4000` |
+| `YAPE_ACCOUNT_ID` | required | The Yape account the BFF is asked as (a UUID, kept in lower case) |
+| `YAPE_TOKEN_BIN` | `yape-token` | The program that prints the account's bearer token: run once for each turn, `--account ID`, and `--refresh` after a 401 |
+| `AGENT_REQUEST_TIMEOUT` | `120s` | The longest a reply may take; use `600s` with the real BFF |
+| `APP_HTTP_ADDR` | `:8300` | Where to listen (`.env.example`: `127.0.0.1:8300`) |
 | `APP_BASE_URL` | `http://localhost:8300` | The public address; https turns on Secure cookies and HSTS |
 | `APP_ENV` | `development` | `production` refuses to start without an https `APP_BASE_URL` |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | none | Creates the first user when there is none (password: 12+ characters) |
 | `CHAT_MAX_MESSAGE_CHARS`, `SESSION_TTL` | `8000`, `24h` | Longest message; how long a sign-in lasts |
-| `RATE_LIMIT_RPS`, `RATE_LIMIT_BURST` | `2`, `10` | Per user on sends, per client on sign-in; both greater than zero, the rate a finite number |
+| `RATE_LIMIT_RPS`, `RATE_LIMIT_BURST` | `2`, `10` | Per user on sends, per client on sign-in |
 | `APP_LOG_LEVEL`, `APP_LOG_FORMAT` | `info`, `json` | Logging |
-| `GEMINI_MODEL`, `GOOGLE_AI_STUDIO_API_KEY` | `gemini-3.5-flash`, none | The Gemini model that `scripts/real-agent.sh` runs, and its key; set `GEMINI_MODEL` to any model name you want |
-| `AGENT_LIVE`, `EVAL_MEASURE` | `0`, `0` | Switch on the opt-in live and measurement tests |
+| `EXPLORE_*` | see `.env.example` | The explorer: the UI's address, who signs in, how Chrome is started |
+| `AGENT_LIVE` | `0` | Switches on the opt-in live test against the real BFF |
 
 ## Operating it
 
-- **Logs.** JSON lines go to stdout (`scripts/run.sh` keeps a copy in `logs/`).
-  The first line, `starting`, lists every setting under `config` by its field
-  name (e.g. `config.DB.MaxConns=10`; nested objects as JSON) — `DB_URL` and
-  `ADMIN_PASSWORD` show as `[redacted]`, along with the first user's address;
-  URLs appear without credentials or query strings (one that can't be shown
-  safely just refuses to start); `config.db` shows the host and database name;
-  and `config.admin_bootstrap` says whether a first user is configured. Each
-  request gets one line with `request_id`, `method`, `path` (no query string),
-  `status`, `bytes`, `duration` (nanoseconds) and `remote` — nothing else: no
-  header, cookie or form value, except a well-formed `X-Request-ID`, which
-  becomes the request id and gets echoed back to the caller. A failed reply logs
-  `reply failed` with its `message_id`; one that can't be rendered logs
-  `rendering a reply failed` at error level, also with `message_id`;
-  `stream ended: client went away` (debug level) just means a failed write.
-  Message text and passwords are never logged.
-- **Health.** `GET /healthz` confirms the process is up. `GET /readyz` checks the
-  database and the agent, and returns 503 naming whatever failed (the full reason
-  is in the log). The container's health check runs `agent-web-ui healthcheck`.
-- **Stopping.** SIGTERM (via `scripts/stop.sh` or `docker stop`) lets replies in
-  progress finish writing, saves each as stopped, and exits within
-  `APP_SHUTDOWN_GRACE`. `scripts/stop.sh` waits that long plus 2 seconds before
-  sending SIGKILL. It reads the setting the same way the server does — any Go
-  duration like `1h30m`, `1.5s` or `500ms`, rounding any partial second up — and
-  falls back to the server's own ten-second default if the setting is missing or
-  invalid.
-- **The page.** If a page request gets no answer within 30 seconds, it gives up
-  and shows "The server took too long to answer. Try again." A reply's event
-  stream has no such limit. Code blocks get a `data-lang` label in lowercase — a
-  fence written `Go` becomes `go` — and an indented code block gets the same
-  styling as a fenced one, labeled `text`, with a Copy button.
-- **Back up and restore** (Compose database). The dump contains conversations
-  and password hashes, so keep it private.
+- **Logs.** JSON lines go to stdout (`scripts/run.sh` keeps a copy in `logs/`). The first line, `starting`, lists every setting under
+  `config` by its field name; `DB_URL` and `ADMIN_PASSWORD` show as `[redacted]`, along with the first user's address, and URLs appear
+  without credentials or query strings. Each request gets one line with `request_id`, `method`, `path` (no query string), `status`,
+  `bytes`, `duration` (nanoseconds) and `remote`, and nothing else: no header, cookie or form value, except a well-formed
+  `X-Request-ID`, which becomes the request id. A failed reply logs `reply failed` with its `message_id`. Message text, passwords and
+  tokens are never logged.
+- **Health.** `GET /healthz` confirms the process is up. `GET /readyz` checks the database and the BFF (`GET /health`, which needs no
+  token) and returns 503 naming whatever failed. The container's health check runs `agent-web-ui healthcheck`.
+- **Stopping.** SIGTERM (`scripts/stop.sh` or `docker stop`) lets replies in progress finish writing, saves each as stopped, and exits
+  within `APP_SHUTDOWN_GRACE`. `scripts/stop.sh` waits that long plus 2 seconds before SIGKILL.
+- **The page.** A page request with no answer in 30 seconds gives up and says "The server took too long to answer. Try again." A reply's
+  event stream has no such limit.
+- **The image.** `Dockerfile` builds the web server as a distroless, non-root image. It needs a program for `YAPE_TOKEN_BIN` that
+  belongs to wherever it runs (yape-token is not in the image), which is why Compose runs only PostgreSQL and the scripted BFF.
+- **Back up and restore.** The dump holds conversations and password hashes: keep it private.
 
   ```sh
   docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > backup.sql   # back up
   docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backup.sql      # restore, into an empty database
   ```
 
-- **Upgrade and roll back** (single instance). The program creates and changes no table,
-  so a release that needs a different schema needs it in place before the new program
-  starts: take a backup first. An older program works against a newer schema only if the
-  change is backward compatible (add columns first, remove them in a later release).
-
-  ```sh
-  docker tag agent-web-ui:latest agent-web-ui:previous          # tag the running image first
-  docker compose --profile full up -d --build web               # upgrade
-
-  docker tag agent-web-ui:previous agent-web-ui:latest           # to roll back
-  docker compose --profile full up -d --no-build --force-recreate web   # takes about six seconds
-  ```
-
-- **Limits to know.** Only one instance at a time — the Stop registry and rate
-  limits live in memory. Long conversations get loaded in full. There's no TLS,
-  no metrics endpoint, and no password change. Deleting a chat doesn't delete the
-  agent's own copy of that session, and restarting the agent makes it forget the
-  conversation, even though the history stays here.
-
-## Evaluating an agent
-
-`agent-eval` opens a headless Chrome through
-[Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp)
-(pinned to a specific version, running with usage statistics off and a throwaway
-profile), signs in to the Web UI, and for each problem: opens a new conversation,
-types the GAIA prompt, waits for the reply (pressing Stop if it's taking too
-long), reads the reply as stored, pulls out the `FINAL ANSWER:`, scores it with a
-Go port of GAIA's official `question_scorer` (checked against 366 cases computed
-by the official Python file), and judges how the UI behaved the whole time.
-
-```sh
-scripts/eval.sh selftest              # check the evaluator itself (no cost, about two minutes)
-scripts/eval.sh datasets fetch        # download GAIA (needs HF_TOKEN in .env)
-scripts/eval.sh datasets list         # what was downloaded
-scripts/eval.sh run --level 1 --limit 5
-scripts/eval.sh report <run-id>       # rebuild a run's summary
-scripts/eval.sh probe                 # the UI probes alone
-```
-
-`scripts/eval.sh` builds `bin/agent-eval`, loads `.env`, and keeps a log in
-`logs/`. You'll find every command and flag by running `scripts/eval.sh help`.
-
-### Check the evaluator first
-
-`selftest` runs 13 made-up problems against a scripted agent whose answers are
-already known: eight right (a number written `$1,000`, a string in a different
-case, a `;`-separated list...), one wrong, one missing a `FINAL ANSWER:`, one
-error, one reply that's too slow, and one problem with a file attached. The
-results have to match
-`internal/eval/infrastructure/synthetic/data/selftest_expected.json` exactly,
-every single run, and every required UI check has to pass. For this you need the
-Web UI wired to that same agent:
-
-```sh
-docker compose --profile selftest up -d --wait   # use this instead of --profile full
-scripts/eval.sh selftest
-```
-
-If it fails, that means the evaluator (or the UI) has a bug — not the agent.
-Don't trust a GAIA score until this passes.
-
-### What is measured
-
-**For the agent** (per GAIA level, with 95% Wilson intervals): accuracy on the
-problems it was asked plus on all eligible ones, coverage (problems with
-attachments get skipped, which lowers it), status counts, how well it follows the
-answer format, latency, tokens and tool calls when the agent reports them, and —
-with `--repeats R` — how much the results vary across repeats and how many
-problems flip between right and wrong.
-
-**For the UI**, on every attempt (`U-`) and once per run as probes (`P-`). If a
-*must* check fails, the run ends with exit status 2:
-
-| Check | Must/Should | What it asks |
-|-------|-------------|--------------|
-| U-01 Console clean | must | no console errors or uncaught exceptions |
-| U-02 Network clean | must | no failed request, none answered with 400 or more |
-| U-03 Terminal state | must | the reply reaches a final status (a slow agent that Stop then ends is not a UI fault) |
-| U-04 Incremental streaming | must | a long answer arrives in pieces |
-| U-05 UI overhead | must | what the UI adds to the agent's own time to first token stays within 100 ms (95th percentile; the median when there are under 20 attempts; not judged when no attempt measured it) |
-| U-06 Render fidelity | must | the final answer is in the text the page shows |
-| U-07 Scroll follow | must | the view stays at the end of a growing reply |
-| U-08 Render safety | must | no script, handler attribute or external image in the answer |
-| P-01 Stop | must | takes effect within 1 s, keeps the text; a reply still being written with no Stop button fails |
-| P-02 Regenerate | must | replaces only the last reply |
-| P-03 Lighthouse | must | accessibility and best practices ≥ 90, desktop and phone |
-| P-04 Mobile | should | nothing scrolls sideways at 375 px; conversations reachable |
-| P-05 Rename / delete | should | both work and persist after a reload |
-| P-06 Theme | should | the switch works and persists |
-| P-07 Reload mid-stream | should | one reply, with its text, which ends |
-| P-08 Keyboard only | should | send, stop and open a conversation without a mouse |
-| P-09 Layout shift | should | CLS ≤ 0.1 while a long reply arrives |
-| P-10 Agent down | should | a failed reply says so and Retry works (self-test only) |
-
-The thresholds above are settings (`EVAL_*` in `.env.example`) — please don't
-tune them just to make a run pass.
-
-Every probe cleans up the conversations it started, whether it succeeds or
-fails, unless you set `EVAL_KEEP_CHATS=true`.
-
-### Running against GAIA
-
-1. Add `HF_TOKEN` to `.env` — a Hugging Face token from an account that's
-   accepted GAIA's terms.
-2. Download GAIA, then check what came down:
-
-   ```sh
-   scripts/eval.sh datasets fetch
-   scripts/eval.sh datasets list
-   ```
-
-3. Start the Web UI wired to whichever agent you want to evaluate
-   (`AGENT_BASE_URL`, and `AGENT_REQUEST_TIMEOUT=600s` for tool-using agents).
-   For a first try, `scripts/real-agent.sh` runs the `ui-agent` sample from
-   `adk-training-go` at `http://localhost:9094/api`, application `ui_agent`, on
-   Gemini (its key is `GOOGLE_AI_STUDIO_API_KEY` in `.env` — see *Chat with a
-   real model* above). `scripts/real-agent.sh stop` shuts it down. The model
-   takes a little time to think before answering (about 16 to 20 seconds before
-   the first word on GAIA problems); a typical problem took 5 to 45 seconds on
-   Gemini in testing. The ADK launcher cuts off a reply after it's streamed for
-   two minutes, which a long answer can exceed — when that happens the page
-   shows the reply cut short — so the script starts the agent with a ten-minute
-   limit instead (`REAL_AGENT_SSE_TIMEOUT`). A sample built with an ADK older
-   than 2.5 listens on every network interface, meaning anyone who can reach
-   your machine could use your model and key — the script checks where it's
-   listening and stops it unless you either build the sample against a newer
-   ADK (`REAL_AGENT_ADK` in `.env`, already the default) or explicitly set
-   `REAL_AGENT_ALLOW_LAN=1`.
-4. Start with a quick try, then drop `--limit` for the real thing:
-
-   ```sh
-   scripts/eval.sh run --level 1 --limit 5
-   ```
-
-   `--repeats 3` tells you how much the answers vary. Ctrl-C stops things
-   cleanly, and `--resume <run-id>` picks up where you
-   left off, skipping anything already finished. Only run one `agent-eval` per
-   run id at a time — nothing stops you from accidentally resuming the same run
-   twice, and both would end up appending to `results.jsonl` (each row stays
-   intact, but the file would then hold rows from both runs). If Ctrl-C cuts
-   short the probes of a resumed run, whatever outcome was already in
-   `probes.json` for the unfinished probe is kept.
-
-A run writes everything to `results/<run-id>/`: `results.jsonl` (one row per
-attempt, written as it finishes), `run.json` (versions, settings and
-thresholds — never a secret), `probes.json`, `summary.json`, `summary.md`, and
-`evidence/` (screenshots of failures). A run started with `--human-typing`
-records `human_typing=true` among its settings — you'll see it in `run.json`, in
-the Settings table of `summary.md`, and in a warning if a resume changes it.
-
-**GAIA's terms forbid sharing its questions and answers**, so the evaluator
-keeps `datasets/` and `results/` out of git and refuses to start if either is
-tracked; results also hold no question, answer or reply text unless you pass
-`--include-text`. Keep those files private.
-
-### Exit status
-
-| | |
-|-|-|
-| 0 | ok |
-| 1 | wrong usage or configuration (including wrong credentials) |
-| 2 | a required UI check or probe failed; also a settings file that `--env` names and that is not there |
-| 3 | `--min-accuracy` not reached, or the self-test found other results than expected |
-| 4 | something outside the evaluator broke (no browser, no Web UI, disk) |
-| 130 | interrupted |
-
-### When something is wrong
-
-- *"the Web UI is not answering"*: start it (see above) and double-check
-  `EVAL_BASE_URL`. The message tells you where that address points, without
-  exposing any credentials it might carry.
-- *self-test: "none of the scripted outcomes turned up"*: the Web UI is talking
-  to the regular test agent instead. Use `--profile selftest`, and make sure
-  nothing else (like a `scripts/run.sh` instance) is already listening on port
-  8300.
-- *sign-in refused*: set `EVAL_USER_EMAIL` and `EVAL_USER_PASSWORD`, or
-  `ADMIN_EMAIL` and `ADMIN_PASSWORD` for the first user.
-- *"refuses to start ... not ignored"*: add `datasets/` and `results/` to
-  `.gitignore`.
+- **Upgrade.** The program creates and changes no table, so a release that needs another schema needs it in place first: take a
+  backup. An older program works against a newer schema only if the change is backward compatible.
+- **Limits to know.** One instance at a time (the Stop registry and the rate limits live in memory). Long conversations are loaded in
+  full. No TLS, no metrics endpoint, no password change. A reply's token counts are unknown: the BFF's stream carries none.
 
 ## Tests
 
@@ -508,86 +195,60 @@ scripts/check.sh                  # the quality gate: format, vet, linters, vuln
 scripts/check.sh --it             # the same, with all the integration tests
 scripts/pr-check.sh --title "fix: stop dropping the partial reply"   # before a pull request: its title and size
 go clean -testcache && go test -race ./internal/... ./cmd/...   # unit tests, no Docker
-go test ./it/...                  # integration: needs Docker (add -short to skip browsers and image builds)
-go test ./it/live/               # with AGENT_LIVE=1 in .env: the real agent it names; never part of the default run
+go test ./it/...                  # integration: needs Docker (add -short to skip the image builds)
+go test ./it/live/                # with AGENT_LIVE=1 in .env: the real BFF it names; never part of the default run
 ```
 
-Or just run `make audit`, `make audit/it` and `make test` — see
-[Makefile](#makefile).
+Or `make audit`, `make audit/it` and `make test`. The gate expects 85% coverage on the use cases (`internal/core`) and 70% everywhere
+else under `internal/` and `cmd/`, counted from unit tests alone and excluding generated mocks (`COVER_CORE_MIN`, `COVER_ALL_MIN`,
+`COVER_PKG_MIN` and `COVER_EXEMPT` in `.env`). The shares are truncated, not rounded, to one decimal: 84.96% prints as 84.9% and counts
+as under 85. The linters come from `bin/tools` (`scripts/build-tools.sh`).
 
-The gate expects 85% coverage on the use cases (`internal/core`,
-`internal/eval/core`) and 70% everywhere else under `internal/` and `cmd/`,
-counted from unit tests alone and excluding generated mocks (`COVER_CORE_MIN`,
-`COVER_ALL_MIN`, `COVER_PKG_MIN` and `COVER_EXEMPT` in `.env` set these targets).
-It prints both shares. The linters come from `bin/tools`, since globally
-installed ones may predate Go 1.27 — `scripts/build-tools.sh` builds matching
-ones for you.
+After the coverage, `scripts/check.sh` runs the tests under `it/` that need no Docker: `./it/scripts/` and the `TestRoutes_` tests of
+`./it/security/`. `--it` runs everything under `./it/...`; `--quick` skips the race detector and the vulnerability scan.
 
-After checking coverage, `scripts/check.sh` runs the tests under `it/` that
-don't need Docker: `./it/scripts/` and the `TestRoutes_` tests in
-`./it/security/`. It prints a line per package and names any skipped tests; if
-something fails, it prints all of that output. `--it` runs everything under
-`./it/...` instead; `--quick` skips just the race detector and the vulnerability
-scan. Coverage floors are compared against the share as counted, and the printed
-share is truncated (not rounded) to one decimal — so 84.96% prints as 84.9% and
-counts as under 85 — with a decimal point regardless of locale. If the
-integration tests fail, the gate prints the lines naming them and keeps the full
-output in a temporary file, which its last line points to; if they pass, that
-file gets removed.
+On GitHub the same checks run on every pull request (`.github/workflows/ci.yml`: the gate, a secret scan, the title and size check),
+plus a build, vet and test of the Windows-specific process handling on a `windows-latest` runner.
 
-On GitHub, the same checks run on every pull request (`.github/workflows/ci.yml`:
-the gate, a secret scan, and the title/size check), plus a build, vet and test of
-the Windows-specific process handling on a real `windows-latest` runner — the
-only Windows machine this project has access to.
-
-The integration suites spin up PostgreSQL with Testcontainers and run the real
-application against the scripted agent. The chat and security suites start a
-fresh stack per case (chat) or per test (security), and fail if any of the
+The integration suites start PostgreSQL with Testcontainers and run the real application against the scripted BFF
+(`internal/testbff`). The chat and security suites start a fresh stack per case (chat) or per test (security), and fail if any of the
 application's goroutines are still running afterward.
 
 | Suite | What it proves |
 |-------|----------------|
-| `it/chat` | A reply arrives in pieces and is saved as shown; Stop, closing the page and shutdown cancel the agent's run and keep the text; Regenerate touches only the last reply; a dead agent gives an error with Retry, and so does an answer the agent's server cuts off, with the text it got to; the flush interval setting paces the updates; replays never call the agent; reasoning never reaches the page; the Web UI adds under 100 ms (95th percentile) |
-| `it/security` | Security headers on every route (the table follows every route pattern the web package names, in any file); anonymous visitors, other origins and other users get nowhere; hostile replies and user text stay inert; passwords and sessions are stored safely; cookies; size and rate limits; https; the server's log never holds what people write or the passwords they type |
+| `it/chat` | A reply arrives in pieces and is saved as shown; Stop, closing the page and shutdown cancel the agent's run and keep the text; Regenerate touches only the last reply; a dead agent gives an error with Retry, and so does an answer the BFF cuts off, with the text it got to; the flush interval paces the updates; replays never call the agent; the Web UI adds under 100 ms (95th percentile) |
+| `it/security` | Security headers on every route (the table follows every route pattern the web package names); anonymous visitors, other origins and other users get nowhere; hostile replies and user text stay inert; passwords and sessions are stored safely; cookies; size and rate limits; https; the log never holds what people write or the passwords they type |
 | `it/container` | The images build from their Dockerfiles, run as an ordinary user, answer their health checks, carry a chat between them, and stop at once on `docker stop` |
-| `it/evaldriver`, `it/evalselftest` | The evaluator against the real Web UI in headless Chrome: the driver, the observer, a reader who scrolls up, sending brings the view back, only browser-like requests, the self-test three times over, the probes, Ctrl-C and `--resume`, and browsers killed in the middle of a run |
-| `it/app` | The assembled application: the schema, first user, restart recovery, and `/readyz` following the agent down and up |
-| `it/scripts` | The shell scripts, run for real, with no Docker: the pid-file helpers, `.env` loading and its file mode, how settings are read (and what a broken or missing file does), that `run.sh` passes `--env` on, durations and how long `stop.sh` waits, the real-agent script's network and timeout handling, the pull-request check, the gate itself against stand-in tools, the settings Compose passes on, what `.gitignore` and `.dockerignore` keep out, and that the CI workflow runs the scripts |
-| `it/live` | A real agent answers and can be stopped (`AGENT_LIVE=1` in `.env`) |
+| `it/app` | The assembled application: the schema, first user, restart recovery, and `/readyz` following the BFF down and up |
+| `it/message` | The message store against PostgreSQL, including that of several answers to one card exactly one wins |
+| `it/scripts` | The shell scripts, run for real, with no Docker: the pid-file helpers, `.env` loading, how settings are read, that `run.sh` passes `--env` on, how long `stop.sh` waits, the pull-request check, the gate against stand-in tools, what `.gitignore` and `.dockerignore` keep out, and that the CI workflow runs the scripts |
+| `it/live` | The real BFF answers and can be stopped (`AGENT_LIVE=1` in `.env`) |
 
 ## Layout
 
 ```
-cmd/web              the Web UI binary          cmd/eval         agent-eval
-cmd/test-agent       the scripted ADK agent
-internal/core        chat, conversation, auth, domain (ports in core/port)
-internal/infrastructure   postgres, adkrest, web (HTTP, templates), auth, config
-internal/contract    the hooks the evaluator relies on (data-testid, names, version)
-internal/platform    what both programs share and neither owns (reading .env, secrets, a view of a struct for a log)
-internal/testagent   the scripted model and its fixture mode
-internal/eval/core   domain, ports, score (GAIA scorer), report, uicheck, probe, run
-internal/eval/infrastructure   config, gaia (parquet, fetch), store, devtools (MCP), synthetic
-assets               templates, static files (HTMX, Bootstrap vendored)
-it                   integration tests
-scripts              init-env, run, stop, eval, check, real-agent, build-tools, pr-check
-sketches             small, standard-library-only reference implementations (see sketches/README.md)
-.github              CI workflow and pull request form
+cmd/web                   the Web UI binary
+cmd/test-bff              the scripted BFF
+cmd/iape-explore          the explorer
+internal/core             chat, conversation, auth, interaction (the cards), domain (ports in core/port)
+internal/infrastructure   postgres, agent/aguibff (the BFF client), web (HTTP, templates), auth, config
+internal/platform         what the programs share and neither owns (reading .env, secrets, a view of a struct for a log)
+internal/testbff          the scripted BFF
+internal/explore          the explorer's logic: steps, the catalog of paths, the run
+internal/chrome           the explorer's browser: Chrome DevTools MCP
+assets                    templates, static files (HTMX, Bootstrap vendored)
+it                        integration tests
+scripts                   init-env, run, stop, check, build-tools, pr-check, test-token
+sketches                  small, standard-library-only reference implementations (see sketches/README.md)
+.github                   CI workflow and pull request form
 ```
 
-Which package can import which is tested too (`internal/architecture`): a Web UI
-use case can import its own domain and ports, and no other use case; an adapter
-can import the domain and the ports, but no use case; neither side of core
-imports `net/http`, `database/sql`, `os` or `io/fs`; and the two programs don't
-know anything about each other. The same package also enforces two rules about
-secrets: a `Secret` has to live in an exported struct field, and no string in a
-production file can hold the `%p` verb.
-
-The UI and the evaluator share one contract, `internal/contract`: stable
-`data-testid` hooks, accessible names, and a version stamped in
-`<body data-ui-contract>`. A test renders every page state and fails if a
-template change would break the evaluator, and the evaluator itself refuses to
-work with a page speaking a different version.
+Which package can import which is tested too (`internal/architecture`): a Web UI use case can import its own domain and ports and no
+other use case; an adapter can import the domain and the ports but no use case; neither side of core imports `net/http`,
+`database/sql`, `os` or `io/fs`; the explorer's logic knows only itself, its browser only the logic, and neither knows the Web UI. The
+same package enforces two rules about secrets: a `Secret` lives in an exported struct field, and no string in a production file holds
+the `%p` verb.
 
 ## License
 
-[MIT](LICENSE) — use, modify and sell it freely.
+[MIT](LICENSE): use, modify and sell it freely.

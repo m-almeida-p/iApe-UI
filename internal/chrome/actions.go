@@ -47,22 +47,6 @@ func (t *tab) fill(ctx context.Context, uid, value string) error {
 	return err
 }
 
-func (t *tab) press(ctx context.Context, key string) error {
-	_, err := t.call(ctx, "press_key", map[string]any{"key": key})
-	return err
-}
-
-// typeText sends keystrokes to the element that has focus, and presses
-// submitKey after them when it is not empty.
-func (t *tab) typeText(ctx context.Context, text, submitKey string) error {
-	args := map[string]any{"text": text}
-	if submitKey != "" {
-		args["submitKey"] = submitKey
-	}
-	_, err := t.call(ctx, "type_text", args)
-	return err
-}
-
 // navigate goes to url. initScript, when set, runs in the new document before
 // any of the page's own code: that is how the observer gets in (see observer.js).
 func (t *tab) navigate(ctx context.Context, url, initScript string) error {

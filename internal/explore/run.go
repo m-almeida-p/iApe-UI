@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -263,9 +264,7 @@ func newLines(seen map[string]int, text string) []string {
 		}
 	}
 	clear(seen)
-	for k, v := range now {
-		seen[k] = v
-	}
+	maps.Copy(seen, now)
 	return out
 }
 

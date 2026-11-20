@@ -17,10 +17,7 @@ import (
 	authcore "iape-ui/internal/core/auth"
 	"iape-ui/internal/core/chat"
 	"iape-ui/internal/core/conversation"
-	"iape-ui/internal/core/domain"
 	"iape-ui/internal/core/interaction"
-	"iape-ui/internal/core/port/resource"
-	"iape-ui/internal/infrastructure/agent/adkrest"
 	"iape-ui/internal/infrastructure/agent/aguibff"
 	"iape-ui/internal/infrastructure/api/web"
 	authinfra "iape-ui/internal/infrastructure/auth"
@@ -95,8 +92,9 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 		}
 	}
 
-	agent := newAgent(cfg.Agent)
-	actions := newActions(agent)
+	// The BFF of the Yape agent service is the agent and answers the cards of its replies. Its token comes from a program, once
+	// for each turn: that program caches it until it expires.
+	agent := aguibff.NewClient(cfg.Agent, aguibff.CommandToken{Bin: cfg.Agent.BearerBin, AccountID: cfg.Agent.AccountID}, nil)
 	chatSvc := chat.NewService(chat.Dependencies{
 		Conversations:   conversations,
 		Messages:        messages,
@@ -104,7 +102,7 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 		Logger:          log,
 		MaxMessageChars: cfg.Chat.MaxMessageChars,
 	})
-	interactionSvc := interaction.NewService(interaction.Dependencies{Messages: messages, Actions: actions, Logger: log})
+	interactionSvc := interaction.NewService(interaction.Dependencies{Messages: messages, Actions: agent, Logger: log})
 	conversationSvc := conversation.NewService(conversation.Dependencies{
 		Conversations: conversations,
 		Messages:      messages,
@@ -152,43 +150,4 @@ func Serve(ctx context.Context, cfg config.Config, log *slog.Logger, ln net.List
 	}
 	defer application.Close()
 	return web.NewServer(cfg, log, application.Handler, application.EndStreams).Serve(ctx, ln)
-}
-
-// newAgent is the adapter for how the agent is reached: the AG-UI BFF, as a Yape account whose token comes from a program, or
-// an ADK REST server (the default).
-func newAgent(cfg config.Agent) resource.AgentGateway {
-	if cfg.Protocol == config.ProtocolAGUIBFF {
-		return aguibff.NewClient(cfg, aguibff.CommandToken{Bin: cfg.BearerBin, AccountID: cfg.AccountID}, nil)
-	}
-	return adkrest.NewClient(cfg, nil)
-}
-
-// newActions answers the cards of the replies. The agent that makes cards (the AG-UI BFF) answers them too; an agent that makes
-// none has nothing to answer, and a card it left behind (the protocol was changed) cannot be answered.
-func newActions(agent resource.AgentGateway) resource.ActionGateway {
-	if actions, ok := agent.(resource.ActionGateway); ok {
-		return actions
-	}
-	return noActions{}
-}
-
-// noActions is the ActionGateway of an agent that has no cards.
-type noActions struct{}
-
-var _ resource.ActionGateway = noActions{}
-
-func (noActions) Approve(context.Context, domain.Interaction) (domain.ActionResult, error) {
-	return domain.ActionResult{}, domain.ErrAgentUnavailable
-}
-
-func (noActions) Reject(context.Context, domain.Interaction) (domain.ActionResult, error) {
-	return domain.ActionResult{}, domain.ErrAgentUnavailable
-}
-
-func (noActions) ConfirmContact(context.Context, string, domain.Contact) error {
-	return domain.ErrAgentUnavailable
-}
-
-func (noActions) ConfirmOTP(context.Context, domain.Interaction, string) (domain.ActionResult, error) {
-	return domain.ActionResult{}, domain.ErrAgentUnavailable
 }

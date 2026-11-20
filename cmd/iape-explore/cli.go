@@ -133,7 +133,7 @@ func (d deps) run(ctx context.Context, args []string) int {
 	opts, err := parseOptions(args, d.stderr)
 	if err != nil {
 		if !errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintln(d.stderr, "iape-explore:", err)
+			_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
 		}
 		return exitUsage
 	}
@@ -146,7 +146,7 @@ func (d deps) run(ctx context.Context, args []string) int {
 		err = cfg.requireUser()
 	}
 	if err != nil {
-		fmt.Fprintln(d.stderr, "iape-explore:", err)
+		_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
 		return exitUsage
 	}
 	out := opts.out
@@ -156,7 +156,7 @@ func (d deps) run(ctx context.Context, args []string) int {
 
 	sess, err := d.open(ctx, cfg, openOptions{Headed: opts.headed, Settle: opts.settle})
 	if err != nil {
-		fmt.Fprintln(d.stderr, "iape-explore: opening the browser:", err)
+		_, _ = fmt.Fprintln(d.stderr, "iape-explore: opening the browser:", err)
 		return exitInfra
 	}
 	defer func() { _ = sess.Close(context.WithoutCancel(ctx)) }()
@@ -166,7 +166,7 @@ func (d deps) run(ctx context.Context, args []string) int {
 
 func (d deps) list() {
 	for _, p := range explore.Paths() {
-		fmt.Fprintf(d.stdout, "  %-8s %s\n", p.ID, p.Title)
+		_, _ = fmt.Fprintf(d.stdout, "  %-8s %s\n", p.ID, p.Title)
 	}
 }
 
@@ -183,18 +183,18 @@ func (d deps) runPlans(ctx context.Context, sess session, plans []plan, out, pas
 		if f := rep.Failure(); f != nil {
 			verdict, why, code = "FAILED", fmt.Sprintf("step %d: %v", f.N, f.Err), exitFailed
 		}
-		fmt.Fprintf(d.stdout, "%-8s %s (%d steps, %s)\n", p.id, verdict, len(rep.Steps), took)
+		_, _ = fmt.Fprintf(d.stdout, "%-8s %s (%d steps, %s)\n", p.id, verdict, len(rep.Steps), took)
 		if why != "" {
-			fmt.Fprintf(d.stdout, "         %s\n", why)
+			_, _ = fmt.Fprintf(d.stdout, "         %s\n", why)
 		}
-		fmt.Fprintf(&summary, "| %s | %s | %d | %s | %s |\n", p.id, verdict, len(rep.Steps), took, strings.ReplaceAll(why, "|", `\|`))
+		_, _ = fmt.Fprintf(&summary, "| %s | %s | %d | %s | %s |\n", p.id, verdict, len(rep.Steps), took, strings.ReplaceAll(why, "|", `\|`))
 		if ctx.Err() != nil {
 			break
 		}
 	}
-	fmt.Fprintf(d.stdout, "records: %s\n", out)
+	_, _ = fmt.Fprintf(d.stdout, "records: %s\n", out)
 	if err := writeFile(filepath.Join(out, "summary.md"), summary.String()); err != nil {
-		fmt.Fprintln(d.stderr, "iape-explore:", err)
+		_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
 	}
 	return code
 }
@@ -210,10 +210,10 @@ func (d deps) runPlan(ctx context.Context, sess session, p plan, dir, password s
 	sink := &dirSink{dir: dir, secrets: []string{password}}
 	rep := (&explore.Runner{Browser: sess, Sink: sink}).Run(ctx, p.id, steps)
 	if err := writeFile(filepath.Join(dir, "report.md"), rep.Markdown()); err != nil {
-		fmt.Fprintln(d.stderr, "iape-explore:", err)
+		_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
 	}
 	if sink.redacted > 0 {
-		fmt.Fprintf(d.stderr, "iape-explore: %d secrets were taken out of the records of %s\n", sink.redacted, p.id)
+		_, _ = fmt.Fprintf(d.stderr, "iape-explore: %d secrets were taken out of the records of %s\n", sink.redacted, p.id)
 	}
 	return rep
 }

@@ -664,3 +664,18 @@ func TestCI_RunsTheScripts(t *testing.T) {
 	assert.Regexp(t, `(?m)^\s+run: scripts/check\.sh$`, gate, "the gate job runs the whole gate, with no option")
 	assert.Regexp(t, `(?m)^\s+run: scripts/pr-check\.sh `, pullRequest, "the pull request job runs the title and size check")
 }
+
+// withoutSecrets is an environment without the variables whose value is a secret of the developer's: they must not reach a test, as
+// the result would depend on the machine and a failed comparison could print one. (A test that needs one adds it to rig.env.)
+func withoutSecrets(env []string) []string {
+	var kept []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		switch name {
+		case "ADMIN_PASSWORD", "EXPLORE_USER_PASSWORD", "DB_URL":
+			continue
+		}
+		kept = append(kept, kv)
+	}
+	return kept
+}

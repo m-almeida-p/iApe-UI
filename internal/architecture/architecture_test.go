@@ -72,14 +72,10 @@ var rules = []rule{
 		under: []string{"internal/platform"}, thirdParty: true},
 	{what: "the view of a struct for a log is made with the standard library alone",
 		under: []string{"internal/platform/redact"}},
-	{what: "the scripted agent knows neither program",
-		under: []string{"internal/testagent"}, thirdParty: true},
-	{what: "the scripted agent's command is the scripted agent, with the settings every program reads",
-		under: []string{"cmd/test-agent"}, internal: []string{"internal/testagent", "internal/platform"}, thirdParty: true},
-	{what: "the Yape agent (the gateway model and the history's MCP tools) knows neither program, only the settings every program reads",
-		under: []string{"internal/yapeagent"}, internal: []string{"internal/platform"}, thirdParty: true},
-	{what: "the Yape agent's command is the Yape agent, with the settings every program reads",
-		under: []string{"cmd/yape-agent"}, internal: []string{"internal/yapeagent", "internal/platform"}, thirdParty: true},
+	{what: "the scripted BFF knows nothing of the programs it stands in for, only the standard library",
+		under: []string{"internal/testbff"}},
+	{what: "the scripted BFF's command is the scripted BFF, with the settings every program reads",
+		under: []string{"cmd/test-bff"}, internal: []string{"internal/testbff", "internal/platform"}, thirdParty: true},
 }
 
 func under(dir, parent string) bool { return dir == parent || strings.HasPrefix(dir, parent+"/") }
@@ -121,10 +117,10 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 		webAdapter    = "an adapter of the Web UI"
 		webRoot       = "the composition root of the Web UI"
 		shared        = "what both programs share"
-		agentCommand  = "the scripted agent's command"
 		exploreLogic  = "the explorer's logic"
 		exploreChrome = "the explorer's browser"
 		exploreCmd    = "the explorer's command"
+		testBFF       = "the scripted BFF"
 	)
 	type importCase struct {
 		who  string
@@ -173,9 +169,14 @@ func TestTheRulesCatchWhatTheyForbid(t *testing.T) {
 		{exploreCmd, "cmd/iape-explore", "the explorer's browser", ours("internal/chrome"), true},
 		{exploreCmd, "cmd/iape-explore", "what both programs share", ours("internal/platform/envcfg"), true},
 		{exploreCmd, "cmd/iape-explore", "the Web UI", ours("internal/core/domain"), false},
-		{agentCommand, "cmd/test-agent", "the scripted agent", ours("internal/testagent"), true},
-		{agentCommand, "cmd/test-agent", "the Web UI", ours("internal/infrastructure/config"), false},
 
+		{testBFF, "internal/testbff", "the Web UI", ours("internal/core/domain"), false},
+		{testBFF, "internal/testbff", "the BFF's adapter", ours("internal/infrastructure/agent/aguibff"), false},
+		{testBFF, "internal/testbff", "another module", "github.com/stretchr/testify/assert", false},
+		{testBFF, "internal/testbff", "the network", "net/http", true},
+		{testBFF, "cmd/test-bff", "the scripted BFF", ours("internal/testbff"), true},
+		{testBFF, "cmd/test-bff", "what both programs share", ours("internal/platform/envcfg"), true},
+		{testBFF, "cmd/test-bff", "the Web UI", ours("internal/core/domain"), false},
 		{webAdapter, "internal/infrastructure/api/web", "net/http", "net/http", true},
 		{webAdapter, "internal/infrastructure/postgres", "database/sql", "database/sql", true},
 	}

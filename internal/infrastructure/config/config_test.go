@@ -27,10 +27,18 @@ const (
 
 func requiredEnv() map[string]string {
 	return map[string]string{
-		"DB_URL":         "postgres://app:" + secretDBPassword + "@localhost:5440/agentwebui",
-		"AGENT_BASE_URL": "http://localhost:9093/api/",
-		"AGENT_APP_NAME": "ui_agent",
+		"DB_URL":          "postgres://app:" + secretDBPassword + "@localhost:5440/agentwebui",
+		"AGENT_BASE_URL":  "http://localhost:4000/",
+		"YAPE_ACCOUNT_ID": "25906ac5-9f18-4099-b3fd-e1b74d8549a4",
 	}
+}
+
+func without(base map[string]string, keys ...string) map[string]string {
+	out := maps.Clone(base)
+	for _, k := range keys {
+		delete(out, k)
+	}
+	return out
 }
 
 func with(base map[string]string, extra map[string]string) map[string]string {
@@ -66,11 +74,10 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 30*time.Second, c.HTTP.BodyTimeout)
 				assert.Equal(t, 2*time.Minute, c.HTTP.ResponseTimeout)
 				assert.Equal(t, 10, c.DB.MaxConns)
-				assert.Equal(t, "ui_agent", c.Agent.AppName)
+				assert.Equal(t, "http://localhost:4000", c.Agent.BaseURL, "the slash at the end is taken off")
 				assert.Equal(t, 120*time.Second, c.Agent.RequestTimeout)
-				assert.Equal(t, config.ProtocolADKREST, c.Agent.Protocol, "the ADK REST agent unless another is asked for")
 				assert.Equal(t, "yape-token", c.Agent.BearerBin)
-				assert.Empty(t, c.Agent.AccountID)
+				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Agent.AccountID)
 				assert.Equal(t, 8000, c.Chat.MaxMessageChars)
 				assert.Equal(t, 50*time.Millisecond, c.Chat.StreamFlushInterval)
 				assert.Equal(t, 100, c.Chat.ListLimit)
@@ -85,7 +92,7 @@ func TestLoad_Valid(t *testing.T) {
 			name: "trailing slash is trimmed from base URLs",
 			env:  with(requiredEnv(), map[string]string{"APP_BASE_URL": "https://chat.example.com/"}),
 			check: func(t *testing.T, c config.Config) {
-				assert.Equal(t, "http://localhost:9093/api", c.Agent.BaseURL)
+				assert.Equal(t, "http://localhost:4000", c.Agent.BaseURL)
 				assert.Equal(t, "https://chat.example.com", c.App.BaseURL)
 				assert.True(t, c.SecureCookies())
 			},
@@ -104,7 +111,6 @@ func TestLoad_Valid(t *testing.T) {
 				"HTTP_RESPONSE_TIMEOUT":      "45s",
 				"DB_MAX_CONNS":               "25",
 				"AGENT_REQUEST_TIMEOUT":      "600s",
-				"AGENT_PROTOCOL":             "agui-bff",
 				"YAPE_ACCOUNT_ID":            "25906AC5-9F18-4099-B3FD-E1B74D8549A4",
 				"YAPE_TOKEN_BIN":             "/usr/local/bin/yape-token",
 				"CHAT_MAX_MESSAGE_CHARS":     "500",
@@ -127,7 +133,6 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, 45*time.Second, c.HTTP.ResponseTimeout)
 				assert.Equal(t, 25, c.DB.MaxConns)
 				assert.Equal(t, 600*time.Second, c.Agent.RequestTimeout)
-				assert.Equal(t, config.ProtocolAGUIBFF, c.Agent.Protocol)
 				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Agent.AccountID, "the account is kept in its canonical lower-case form")
 				assert.Equal(t, "/usr/local/bin/yape-token", c.Agent.BearerBin)
 				assert.Equal(t, 500, c.Chat.MaxMessageChars)
@@ -177,21 +182,16 @@ func TestLoad_Invalid(t *testing.T) {
 		{
 			name:      "all missing required keys are named in one error",
 			env:       map[string]string{},
-			wantInErr: []string{"DB_URL", "AGENT_BASE_URL", "AGENT_APP_NAME"},
-		},
-		{
-			name:      "an unknown agent protocol is named",
-			env:       with(requiredEnv(), map[string]string{"AGENT_PROTOCOL": "soap"}),
-			wantInErr: []string{"AGENT_PROTOCOL", "adk-rest", "agui-bff"},
+			wantInErr: []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID"},
 		},
 		{
 			name:      "the BFF needs the account it is asked as",
-			env:       with(requiredEnv(), map[string]string{"AGENT_PROTOCOL": "agui-bff"}),
-			wantInErr: []string{"YAPE_ACCOUNT_ID", "agui-bff"},
+			env:       without(requiredEnv(), "YAPE_ACCOUNT_ID"),
+			wantInErr: []string{"YAPE_ACCOUNT_ID", "required"},
 		},
 		{
 			name:       "an account that is not a UUID is refused without echoing it",
-			env:        with(requiredEnv(), map[string]string{"AGENT_PROTOCOL": "agui-bff", "YAPE_ACCOUNT_ID": "not-a-uuid-canary-7"}),
+			env:        with(requiredEnv(), map[string]string{"YAPE_ACCOUNT_ID": "not-a-uuid-canary-7"}),
 			wantInErr:  []string{"YAPE_ACCOUNT_ID"},
 			wantNotErr: []string{"not-a-uuid-canary-7"},
 		},
@@ -269,7 +269,6 @@ func TestLoad_Invalid(t *testing.T) {
 			env: map[string]string{
 				"DB_URL":         "mysql://app:" + secretDBPassword + "@localhost/db",
 				"AGENT_BASE_URL": "not a url",
-				"AGENT_APP_NAME": "ui_agent",
 				"APP_BASE_URL":   "ftp://files.example.com",
 			},
 			wantInErr:  []string{"DB_URL", "AGENT_BASE_URL", "APP_BASE_URL"},
@@ -362,7 +361,7 @@ func TestConfig_LogValueRedactsSecrets(t *testing.T) {
 	assert.NotContains(t, out, secretDBPassword)
 	assert.NotContains(t, out, secretAdminPassword)
 	assert.Contains(t, out, "localhost:5440")
-	assert.Contains(t, out, "ui_agent")
+	assert.Contains(t, out, "http://localhost:4000")
 }
 
 func TestConfig_LogValueDropsCredentialsFromURLs(t *testing.T) {
@@ -405,7 +404,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			" config.App.LogFormat=json config.App.ShutdownGrace=10s"+
 			" config.HTTP.Addr=:8300 config.HTTP.MaxBodyBytes=131072 config.HTTP.BodyTimeout=30s config.HTTP.ResponseTimeout=2m0s"+
 			" config.DB.URL=[redacted] config.DB.MaxConns=10"+
-			" config.Agent.BaseURL=http://localhost:9093/api config.Agent.AppName=ui_agent config.Agent.RequestTimeout=2m0s config.Agent.Protocol=adk-rest config.Agent.AccountID=\"\" config.Agent.BearerBin=yape-token"+
+			" config.Agent.BaseURL=http://localhost:4000 config.Agent.RequestTimeout=2m0s config.Agent.AccountID=25906ac5-9f18-4099-b3fd-e1b74d8549a4 config.Agent.BearerBin=yape-token"+
 			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms config.Chat.ListLimit=100"+
 			" config.RateLimit.RPS=2 config.RateLimit.Burst=10 config.Session.TTL=24h0m0s"+
 			" config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
@@ -421,7 +420,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			"App":{"Env":"development","BaseURL":"http://localhost:8300","LogLevel":"info","LogFormat":"json","ShutdownGrace":10000000000},
 			"HTTP":{"Addr":":8300","MaxBodyBytes":131072,"BodyTimeout":30000000000,"ResponseTimeout":120000000000},
 			"DB":{"URL":"[redacted]","MaxConns":10},
-			"Agent":{"BaseURL":"http://localhost:9093/api","AppName":"ui_agent","RequestTimeout":120000000000,"Protocol":"adk-rest","AccountID":"","BearerBin":"yape-token"},
+			"Agent":{"BaseURL":"http://localhost:4000","RequestTimeout":120000000000,"AccountID":"25906ac5-9f18-4099-b3fd-e1b74d8549a4","BearerBin":"yape-token"},
 			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000,"ListLimit":100},
 			"RateLimit":{"RPS":2,"Burst":10},
 			"Session":{"TTL":86400000000000},
@@ -625,7 +624,7 @@ func TestConfig_LogValueOfADatabaseThatIsNoAddress(t *testing.T) {
 
 func TestEnvExample(t *testing.T) {
 	const path = "../../../.env.example"
-	for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "AGENT_APP_NAME", "ADMIN_EMAIL", "ADMIN_PASSWORD"} {
+	for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID", "ADMIN_EMAIL", "ADMIN_PASSWORD"} {
 		t.Setenv(key, "") // an empty value counts as unset
 	}
 
@@ -633,7 +632,7 @@ func TestEnvExample(t *testing.T) {
 		c, err := config.LoadEnv(path)
 		require.NoError(t, err)
 		assert.Equal(t, "127.0.0.1:8300", c.HTTP.Addr, "run from source, the page is for this computer only unless you open it up")
-		assert.Equal(t, "ui_agent", c.Agent.AppName)
+		assert.Equal(t, "scripts/test-token.sh", c.Agent.BearerBin, "the example is set up for the scripted BFF")
 	})
 
 	t.Run("is safe to source from a shell", func(t *testing.T) {
@@ -658,37 +657,38 @@ func TestEnvExample(t *testing.T) {
 func TestLoadEnv(t *testing.T) {
 	const fileContent = "# local settings\n" +
 		"DB_URL=postgres://app:pw@localhost:5440/agentwebui\n" +
-		"AGENT_BASE_URL=http://localhost:9093/api\n" +
-		"AGENT_APP_NAME=from_file\n" +
+		"AGENT_BASE_URL=http://localhost:4000\n" +
+		"YAPE_ACCOUNT_ID=25906ac5-9f18-4099-b3fd-e1b74d8549a4\n" +
+		"YAPE_TOKEN_BIN=from_file\n" +
 		"CHAT_LIST_LIMIT=7\n"
 
 	tests := []struct {
-		name        string
-		writeFile   bool
-		processEnv  map[string]string
-		wantAppName string
-		wantLimit   int
-		wantErr     bool
+		name         string
+		writeFile    bool
+		processEnv   map[string]string
+		wantTokenBin string
+		wantLimit    int
+		wantErr      bool
 	}{
-		{name: "file values are used", writeFile: true, wantAppName: "from_file", wantLimit: 7},
+		{name: "file values are used", writeFile: true, wantTokenBin: "from_file", wantLimit: 7},
 		{
-			name:        "process env wins over the file",
-			writeFile:   true,
-			processEnv:  map[string]string{"AGENT_APP_NAME": "from_env"},
-			wantAppName: "from_env",
-			wantLimit:   7,
+			name:         "process env wins over the file",
+			writeFile:    true,
+			processEnv:   map[string]string{"YAPE_TOKEN_BIN": "from_env"},
+			wantTokenBin: "from_env",
+			wantLimit:    7,
 		},
 		{
-			name:        "missing file falls back to the process env",
-			processEnv:  requiredEnv(),
-			wantAppName: "ui_agent",
-			wantLimit:   100,
+			name:         "missing file falls back to the process env",
+			processEnv:   requiredEnv(),
+			wantTokenBin: "yape-token",
+			wantLimit:    100,
 		},
 		{name: "missing file and no env reports the required keys", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "AGENT_APP_NAME", "CHAT_LIST_LIMIT"} {
+			for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID", "YAPE_TOKEN_BIN", "CHAT_LIST_LIMIT"} {
 				t.Setenv(key, "") // an empty value counts as unset
 			}
 			for k, v := range tc.processEnv {
@@ -706,7 +706,7 @@ func TestLoadEnv(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantAppName, c.Agent.AppName)
+			assert.Equal(t, tc.wantTokenBin, c.Agent.BearerBin)
 			assert.Equal(t, tc.wantLimit, c.Chat.ListLimit)
 		})
 	}

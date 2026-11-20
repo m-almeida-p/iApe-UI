@@ -11,8 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"iape-ui/internal/infrastructure/config"
 )
 
 // Every setting has one home: .env, written down with its default in
@@ -94,55 +92,6 @@ func TestSettings_ComposeVariablesAreWrittenDown(t *testing.T) {
 	}
 }
 
-// A container gets only the variables the Compose file names, and the web server
-// in it takes whatever it is not given from its own defaults. So every key the Web
-// UI's loader asks for is named for both web services, among the settings they
-// share (x-web-environment) or in the service itself, and its value is taken from
-// .env: a setting somebody changed there reaches the server under Compose as it
-// does under scripts/run.sh. The few that Compose decides by itself are listed.
-func TestSettings_ComposePassesEveryWebSettingOn(t *testing.T) {
-	src, err := os.ReadFile("../../docker-compose.yml")
-	require.NoError(t, err)
-	// The loader is given nothing to read and says so. What it asked for is the list.
-	var asked []string
-	_, _ = config.Load(func(key string) (string, bool) {
-		asked = append(asked, key)
-		return "", false
-	})
-	slices.Sort(asked)
-	asked = slices.Compact(asked)
-	require.Greater(t, len(asked), 15, "the loader asked for its settings")
-	// Where the value in .env is not the container's, with what Compose gives it.
-	composeDecides := map[string]string{
-		"APP_HTTP_ADDR":  "every interface of the container, on port 8300",
-		"DB_URL":         "the postgres service, put together from the POSTGRES_ settings",
-		"AGENT_BASE_URL": "the agent service of the profile",
-	}
-
-	shared := gateYAMLBlock(t, string(src), "x-web-environment")
-	entry := regexp.MustCompile(`(?m)^\s+([A-Z][A-Z0-9_]*):[ \t]*(.*)$`)
-	for _, service := range []string{"web", "web-selftest"} {
-		t.Run(service, func(t *testing.T) {
-			own := gateYAMLBlock(t, string(src), "services", service, "environment")
-			require.Contains(t, own, "<<: *web-environment", "the service takes the settings the two share")
-			given := map[string]string{}
-			for _, m := range entry.FindAllStringSubmatch(shared+own, -1) {
-				given[m[1]] = m[2]
-			}
-
-			for _, name := range asked {
-				value, named := given[name]
-				if !assert.True(t, named, "the Web UI reads %s, which docker-compose.yml does not pass on to %s", name, service) {
-					continue
-				}
-				if _, decided := composeDecides[name]; !decided {
-					assert.Contains(t, value, "${"+name, "docker-compose.yml gives %s a value of its own, so the one in .env does not reach %s", name, service)
-				}
-			}
-		})
-	}
-}
-
 // The Go code reads its settings through the loaders, which have tests of their
 // own. This catches a read of a variable that goes around them.
 func TestSettings_GoCodeReadsOnlyWrittenDownVariables(t *testing.T) {
@@ -173,16 +122,4 @@ func TestSettings_GoCodeReadsOnlyWrittenDownVariables(t *testing.T) {
 		require.NoError(t, err)
 	}
 	assert.Positive(t, found, "the scan found the reads it knows of")
-}
-
-// The real agent is built against the ADK this module uses, so that its server
-// listens on this computer only. The example names the version, and a bump of the
-// module must bump it too.
-func TestSettings_TheExampleBuildsTheRealAgentAgainstTheADKThisModuleUses(t *testing.T) {
-	gomod, err := os.ReadFile("../../go.mod")
-	require.NoError(t, err)
-	m := regexp.MustCompile(`(?m)^\s*google\.golang\.org/adk/v2 (v\S+)`).FindStringSubmatch(string(gomod))
-	require.NotNil(t, m, "go.mod requires the ADK")
-
-	assert.Equal(t, m[1], exampleSetting(t, "REAL_AGENT_ADK"), "REAL_AGENT_ADK in .env.example follows go.mod")
 }

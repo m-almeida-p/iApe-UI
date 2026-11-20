@@ -182,7 +182,7 @@ func scriptTree(t *testing.T) string {
 	t.Helper()
 	tree := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(tree, "scripts", "lib"), 0o700))
-	for _, name := range []string{"lib/process.sh", "run.sh", "stop.sh", "check.sh", "real-agent.sh", "pr-check.sh"} {
+	for _, name := range []string{"lib/process.sh", "run.sh", "stop.sh", "check.sh", "pr-check.sh"} {
 		src, err := os.ReadFile(filepath.Join("..", "..", "scripts", name))
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(tree, "scripts", name), src, 0o700))
@@ -196,7 +196,7 @@ func TestScripts_HelpNeedsNoSettings(t *testing.T) {
 	tree := scriptTree(t)
 	require.NoError(t, os.WriteFile(filepath.Join(tree, ".env"), []byte("A=(\n"), 0o600)) // and no example at all
 
-	for _, name := range []string{"run.sh", "stop.sh", "check.sh", "real-agent.sh", "pr-check.sh"} {
+	for _, name := range []string{"run.sh", "stop.sh", "check.sh", "pr-check.sh"} {
 		t.Run(name, func(t *testing.T) {
 			cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(tree, "scripts", name), "--help")
 			cmd.Dir, cmd.Env = tree, withoutSecrets(os.Environ())
@@ -238,19 +238,19 @@ func TestStop_ReadsTheSettingsFileItIsTold(t *testing.T) {
 // required_setting says which setting is missing, and the script has to stop right
 // there. Written as $(f "$(required_setting X)"), the failure of the inner call never
 // reaches set -e, and the script carries on with an empty value.
-func TestRealAgent_StopsAtASettingTheExampleLost(t *testing.T) {
+func TestRun_StopsAtASettingTheExampleLost(t *testing.T) {
 	example, err := os.ReadFile("../../.env.example")
 	require.NoError(t, err)
 	lost := regexp.MustCompile(`(?m)^BIN_DIR=.*\n`).ReplaceAll(example, nil)
 	require.Less(t, len(lost), len(example), "the line was there")
 	// Ports nothing listens on, as in every tree that runs a script that could reach the real services.
-	for _, name := range []string{"REAL_AGENT_PORT=", "APP_HTTP_ADDR=127.0.0.1:"} {
+	for _, name := range []string{"APP_HTTP_ADDR=127.0.0.1:"} {
 		lost = regexp.MustCompile(`(?m)^`+name+`.*$`).ReplaceAll(lost, []byte(name+strconv.Itoa(freePort(t))))
 	}
 	tree := scriptTree(t)
 	require.NoError(t, os.WriteFile(filepath.Join(tree, ".env.example"), lost, 0o600))
 
-	cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(tree, "scripts", "real-agent.sh"), "status")
+	cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(tree, "scripts", "run.sh"))
 	cmd.Dir, cmd.Env = tree, withoutSecrets(os.Environ())
 	out, err := cmd.CombinedOutput()
 
@@ -272,7 +272,6 @@ func TestScripts_ANamedSettingsFileHasToExist(t *testing.T) {
 	}{
 		{"run.sh", nil},
 		{"stop.sh", nil},
-		{"real-agent.sh", []string{"status"}},
 		{"pr-check.sh", nil},
 	}
 	for _, tc := range tests {

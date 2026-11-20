@@ -124,10 +124,21 @@ func TestDecode_ARunErrorIsTheAgentsError(t *testing.T) {
 	assert.Equal(t, []string{"delta"}, shape(events), "what arrived before the error is delivered")
 }
 
-func TestDecode_AStreamThatEndsBeforeRunFinishedIsAnUnavailableAgent(t *testing.T) {
+func TestDecode_AStreamCutAfterSomeTextIsAnAnswerThatStoppedShort(t *testing.T) {
 	sse := "data: {\"type\":\"RUN_STARTED\"}\n\n" +
 		"data: {\"type\":\"TEXT_MESSAGE_START\",\"messageId\":\"m\"}\n\n" +
 		"data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"m\",\"delta\":\"corta\"}\n\n"
+
+	events, err := collect(aguibff.Decode(strings.NewReader(sse)))
+
+	require.ErrorIs(t, err, domain.ErrIncompleteStream)
+	assert.NotErrorIs(t, err, domain.ErrAgentUnavailable)
+	assert.Contains(t, err.Error(), "RUN_FINISHED")
+	assert.Equal(t, []string{"delta"}, shape(events), "what arrived is delivered")
+}
+
+func TestDecode_AStreamThatEndsBeforeAnyTextIsAnUnavailableAgent(t *testing.T) {
+	sse := "data: {\"type\":\"RUN_STARTED\"}\n\n"
 
 	_, err := collect(aguibff.Decode(strings.NewReader(sse)))
 

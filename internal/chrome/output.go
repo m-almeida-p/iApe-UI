@@ -74,8 +74,6 @@ func ParseScriptResult(text string) ([]byte, error) {
 	return []byte("null"), nil
 }
 
-var consoleLine = regexp.MustCompile(`^msgid=(\d+) \[([^\]]+)\] (.*)$`)
-
 func shorten(text string, n int) string {
 	text = strings.Join(strings.Fields(text), " ")
 	if r := []rune(text); len(r) > n {

@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"iape-ui/internal/explore"
 	"iape-ui/internal/chrome"
+	"iape-ui/internal/explore"
 )
 
 var _ explore.Browser = (*chrome.Browser)(nil)

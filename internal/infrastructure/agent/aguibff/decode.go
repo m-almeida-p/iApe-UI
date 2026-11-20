@@ -55,7 +55,7 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 
 		var segment strings.Builder
 		var runID string
-		open, finished := false, false
+		open, finished, delivered := false, false, false
 		fail := func(format string, args ...any) {
 			yield(domain.AgentEvent{}, fmt.Errorf("%w: "+format, append([]any{domain.ErrAgentUnavailable}, args...)...))
 		}
@@ -89,8 +89,11 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 			case "TEXT_MESSAGE_CONTENT":
 				open = true
 				segment.WriteString(ev.Delta)
-				if ev.Delta != "" && !yield(domain.AgentEvent{Kind: domain.AgentDelta, Text: ev.Delta}, nil) {
-					return
+				if ev.Delta != "" {
+					delivered = true
+					if !yield(domain.AgentEvent{Kind: domain.AgentDelta, Text: ev.Delta}, nil) {
+						return
+					}
 				}
 			case "TEXT_MESSAGE_END":
 				if open && !yield(domain.AgentEvent{Kind: domain.AgentFinal, Text: segment.String()}, nil) {
@@ -118,6 +121,11 @@ func Decode(r io.Reader) iter.Seq2[domain.AgentEvent, error] {
 			return
 		}
 		if !finished {
+			// A stream cut after some text is an answer that stopped short; one cut before any is an agent that did not answer.
+			if delivered {
+				yield(domain.AgentEvent{}, fmt.Errorf("%w: the stream ended before RUN_FINISHED", domain.ErrIncompleteStream))
+				return
+			}
 			fail("the stream ended before RUN_FINISHED")
 			return
 		}

@@ -52,7 +52,7 @@ func TestGitignore(t *testing.T) {
 		{"cmd/iape-explore/main.go", false, "and the explorer's command"},
 		{"README.md", false, "the readme"},
 		{"docs/spec.md", false, "the spec the build ends with"},
-		{"scripts/real-agent.sh", false, "scripts"},
+		{"scripts/stop.sh", false, "scripts"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {

@@ -95,6 +95,10 @@ func NewDatabase(t testing.TB) string {
 	return u.String()
 }
 
+// ApplySchema applies the web UI's schema (the schema web_ui and its tables) to the database at dbURL, for a test that runs its own
+// PostgreSQL.
+func ApplySchema(t testing.TB, dbURL string) { t.Helper(); createSchema(t, dbURL) }
+
 // createSchema applies the web UI's schema to the database at dbURL.
 func createSchema(t testing.TB, dbURL string) {
 	t.Helper()
