@@ -85,7 +85,6 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, "25906ac5-9f18-4099-b3fd-e1b74d8549a4", c.Admin.AccountID)
 				assert.Equal(t, 8000, c.Chat.MaxMessageChars)
 				assert.Equal(t, 50*time.Millisecond, c.Chat.StreamFlushInterval)
-				assert.Equal(t, 100, c.Chat.ListLimit)
 				assert.InDelta(t, 2.0, c.RateLimit.RPS, 0.0001)
 				assert.Equal(t, 10, c.RateLimit.Burst)
 				assert.Equal(t, 24*time.Hour, c.Session.TTL)
@@ -120,7 +119,6 @@ func TestLoad_Valid(t *testing.T) {
 				"YAPE_TOKEN_BIN":             "/usr/local/bin/yape-token",
 				"CHAT_MAX_MESSAGE_CHARS":     "500",
 				"CHAT_STREAM_FLUSH_INTERVAL": "100ms",
-				"CHAT_LIST_LIMIT":            "20",
 				"RATE_LIMIT_RPS":             "0.5",
 				"RATE_LIMIT_BURST":           "3",
 				"SESSION_TTL":                "1h",
@@ -142,7 +140,6 @@ func TestLoad_Valid(t *testing.T) {
 				assert.Equal(t, "/usr/local/bin/yape-token", c.Agent.BearerBin)
 				assert.Equal(t, 500, c.Chat.MaxMessageChars)
 				assert.Equal(t, 100*time.Millisecond, c.Chat.StreamFlushInterval)
-				assert.Equal(t, 20, c.Chat.ListLimit)
 				assert.InDelta(t, 0.5, c.RateLimit.RPS, 0.0001)
 				assert.Equal(t, 3, c.RateLimit.Burst)
 				assert.Equal(t, time.Hour, c.Session.TTL)
@@ -412,7 +409,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			" config.DB.URL=[redacted] config.DB.MaxConns=10"+
 			" config.Agent.BaseURL=http://localhost:4000 config.Agent.RequestTimeout=2m0s config.Agent.BearerBin=yape-token"+
 			" config.History.BaseURL=\"\" config.History.RequestTimeout=10s config.History.Timezone=America/Lima"+
-			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms config.Chat.ListLimit=100"+
+			" config.Chat.MaxMessageChars=8000 config.Chat.StreamFlushInterval=50ms"+
 			" config.RateLimit.RPS=2 config.RateLimit.Burst=10 config.Session.TTL=24h0m0s"+
 			" config.Admin.AccountID=[redacted] config.Admin.Email=[redacted] config.Admin.Password=[redacted]"+
 			" config.db=localhost:5440/agentwebui config.admin_bootstrap=true\n", buf.String())
@@ -429,7 +426,7 @@ func TestConfig_LogValueShowsEverySetting(t *testing.T) {
 			"DB":{"URL":"[redacted]","MaxConns":10},
 			"Agent":{"BaseURL":"http://localhost:4000","RequestTimeout":120000000000,"BearerBin":"yape-token"},
 			"History":{"BaseURL":"","RequestTimeout":10000000000,"Timezone":"America/Lima"},
-			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000,"ListLimit":100},
+			"Chat":{"MaxMessageChars":8000,"StreamFlushInterval":50000000},
 			"RateLimit":{"RPS":2,"Burst":10},
 			"Session":{"TTL":86400000000000},
 			"Admin":{"AccountID":"[redacted]","Email":"[redacted]","Password":"[redacted]"},
@@ -668,35 +665,35 @@ func TestLoadEnv(t *testing.T) {
 		"AGENT_BASE_URL=http://localhost:4000\n" +
 		"YAPE_ACCOUNT_ID=25906ac5-9f18-4099-b3fd-e1b74d8549a4\n" +
 		"YAPE_TOKEN_BIN=from_file\n" +
-		"CHAT_LIST_LIMIT=7\n"
+		"CHAT_MAX_MESSAGE_CHARS=1234\n"
 
 	tests := []struct {
 		name         string
 		writeFile    bool
 		processEnv   map[string]string
 		wantTokenBin string
-		wantLimit    int
+		wantMax      int
 		wantErr      bool
 	}{
-		{name: "file values are used", writeFile: true, wantTokenBin: "from_file", wantLimit: 7},
+		{name: "file values are used", writeFile: true, wantTokenBin: "from_file", wantMax: 1234},
 		{
 			name:         "process env wins over the file",
 			writeFile:    true,
 			processEnv:   map[string]string{"YAPE_TOKEN_BIN": "from_env"},
 			wantTokenBin: "from_env",
-			wantLimit:    7,
+			wantMax:      1234,
 		},
 		{
 			name:         "missing file falls back to the process env",
 			processEnv:   requiredEnv(),
 			wantTokenBin: "yape-token",
-			wantLimit:    100,
+			wantMax:      8000,
 		},
 		{name: "missing file and no env reports the required keys", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID", "YAPE_TOKEN_BIN", "CHAT_LIST_LIMIT"} {
+			for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID", "YAPE_TOKEN_BIN", "CHAT_MAX_MESSAGE_CHARS"} {
 				t.Setenv(key, "") // an empty value counts as unset
 			}
 			for k, v := range tc.processEnv {
@@ -715,7 +712,7 @@ func TestLoadEnv(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantTokenBin, c.Agent.BearerBin)
-			assert.Equal(t, tc.wantLimit, c.Chat.ListLimit)
+			assert.Equal(t, tc.wantMax, c.Chat.MaxMessageChars)
 		})
 	}
 }

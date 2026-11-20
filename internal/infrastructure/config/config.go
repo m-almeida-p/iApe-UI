@@ -98,7 +98,6 @@ func (h History) Location() *time.Location {
 type Chat struct {
 	MaxMessageChars     int
 	StreamFlushInterval time.Duration
-	ListLimit           int
 }
 
 // RateLimit holds the token bucket settings.
@@ -211,7 +210,6 @@ func Load(lookup envcfg.LookupFunc) (Config, error) {
 		Chat: Chat{
 			MaxMessageChars:     r.positive("CHAT_MAX_MESSAGE_CHARS", 8000, strconv.Atoi),
 			StreamFlushInterval: r.positive("CHAT_STREAM_FLUSH_INTERVAL", 50*time.Millisecond, time.ParseDuration),
-			ListLimit:           r.positive("CHAT_LIST_LIMIT", 100, strconv.Atoi),
 		},
 		RateLimit: RateLimit{
 			RPS:   r.positive("RATE_LIMIT_RPS", 2.0, parseFloat64),
