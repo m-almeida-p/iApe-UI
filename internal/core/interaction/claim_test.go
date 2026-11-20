@@ -489,3 +489,54 @@ func TestClaim_AResolvedApprovalThatTheCardCannotBecomeIsGivenBackWithTheReason(
 		})
 	}
 }
+
+// The save that writes what the service did is not tied to the request, so it has a time limit of its own: a store that hangs must not
+// hang the answer for ever.
+func TestClaim_TheFinishIsSavedWithinATimeLimit(t *testing.T) {
+	r := newClaimRig(t)
+	card := *cardIn(domain.InteractionPending)
+	r.reads(replyWith(&card))
+	claimed := claimOf(t, card, "claim-1", started)
+	r.saves("claim", card, claimed, nil)
+	r.actions.On("Approve", mock.Anything, card).Return(domain.ActionResult{Message: "paid"}, nil).Once()
+	paid := card
+	paid.State, paid.Result = domain.InteractionPaid, "paid"
+	var left time.Duration
+	var hasLimit bool
+	r.msgs.On("SaveInteraction", mock.MatchedBy(func(ctx context.Context) bool {
+		deadline, ok := ctx.Deadline()
+		left, hasLimit = time.Until(deadline), ok
+		return true
+	}), userID, convID, replyID, claimed, paid).Return(nil).Once()
+
+	_, err := r.svc.Approve(t.Context(), userID, convID, replyID)
+
+	require.NoError(t, err)
+	assert.True(t, hasLimit, "the context of the save has a deadline")
+	assert.Positive(t, left)
+	assert.LessOrEqual(t, left, 5*time.Second)
+}
+
+// Every claim has an id of its own. With the service as the app makes it (no id injected) two answers to two cards, or to one card in
+// turn, are told apart by it: it is what lets the store refuse the finish of a holder whose claim was taken over.
+func TestClaim_EveryClaimHasAnIDOfItsOwn(t *testing.T) {
+	msgs, actions := mocks.NewMessageStore(t), mocks.NewActionGateway(t)
+	svc := interaction.NewService(interaction.Dependencies{Messages: msgs, Actions: actions, Logger: slog.New(slog.DiscardHandler)})
+	var ids []string
+	msgs.On("Get", mock.Anything, userID, convID, replyID).Return(replyWith(cardIn(domain.InteractionPending)), nil).Twice()
+	msgs.On("SaveInteraction", mock.Anything, userID, convID, replyID, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		if card := args.Get(5).(domain.Interaction); card.State == domain.InteractionProcessing {
+			ids = append(ids, card.ClaimID)
+		}
+	}).Return(nil)
+	actions.On("Approve", mock.Anything, mock.Anything).Return(domain.ActionResult{Message: "paid"}, nil)
+
+	for range 2 {
+		_, err := svc.Approve(t.Context(), userID, convID, replyID)
+		require.NoError(t, err)
+	}
+
+	require.Len(t, ids, 2)
+	assert.NotEmpty(t, ids[0])
+	assert.NotEqual(t, ids[0], ids[1])
+}

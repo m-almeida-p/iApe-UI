@@ -189,10 +189,11 @@ func TestApprove_TheServiceAndTheStoreAnswerOddly(t *testing.T) {
 			Run(func(mock.Arguments) { cancel() }).Return(domain.ActionResult{}, &domain.ActionError{Message: "closed"}).Once()
 		h.expectRelease(domain.InteractionPending)
 
-		_, err := h.svc.Approve(ctx, userID, convID, replyID)
+		got, err := h.svc.Approve(ctx, userID, convID, replyID)
 
 		var refused *domain.ActionError
 		require.ErrorAs(t, err, &refused)
+		assert.Equal(t, *cardIn(domain.InteractionPending), *got.Meta.Interaction, "the card is the base one: pending, with no claim on it")
 	})
 
 	t.Run("the card handed to the store is the one that was answered, and the reply is the one that was read", func(t *testing.T) {
@@ -371,9 +372,11 @@ func TestChooseContact_TheChoiceMustBeOneOfTheCandidates(t *testing.T) {
 		chosen.State, chosen.Contact = domain.InteractionConfirmed, want
 		h.expectSaveFrom(*card, chosen, nil)
 
-		_, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
+		got, err := h.svc.ChooseContact(t.Context(), userID, convID, replyID, 0)
 
 		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionConfirmed, got.Meta.Interaction.State)
+		assert.Equal(t, want, got.Meta.Interaction.Contact, "the contact comes from the agent's own words")
 	})
 
 	t.Run("the agent being down leaves the card pending and nothing is saved", func(t *testing.T) {
@@ -386,7 +389,7 @@ func TestChooseContact_TheChoiceMustBeOneOfTheCandidates(t *testing.T) {
 
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 		assert.Equal(t, domain.InteractionPending, got.Meta.Interaction.State)
-		h.msgs.AssertNotCalled(t, "SaveInteraction")
+		h.msgs.AssertNumberOfCalls(t, "SaveInteraction", 2) // the claim, and the claim given back: nothing else was written
 	})
 
 	t.Run("a lost race to save is an invalid state and is logged", func(t *testing.T) {

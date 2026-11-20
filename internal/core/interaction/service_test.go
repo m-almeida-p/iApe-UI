@@ -224,9 +224,11 @@ func TestApprove(t *testing.T) {
 		paid.Result = "ok"
 		h.expectSave(domain.InteractionPending, paid, nil)
 
-		_, err := h.svc.Approve(ctx, userID, convID, replyID)
+		got, err := h.svc.Approve(ctx, userID, convID, replyID)
 
 		require.NoError(t, err)
+		assert.Equal(t, domain.InteractionPaid, got.Meta.Interaction.State)
+		assert.Empty(t, got.Meta.Interaction.ClaimID, "a finished card carries no claim")
 	})
 }
 
@@ -403,9 +405,10 @@ func TestConfirmCandidate(t *testing.T) {
 		maria := domain.Candidates("mar")[0]
 		h.actions.On("ConfirmContact", mock.Anything, maria.Name, maria).Return(nil).Once()
 
-		_, err := h.svc.ConfirmCandidate(t.Context(), "mar", 0)
+		got, err := h.svc.ConfirmCandidate(t.Context(), "mar", 0)
 
 		require.NoError(t, err)
+		assert.Equal(t, maria, got)
 	})
 
 	t.Run("a choice that is not a candidate is refused without asking the service", func(t *testing.T) {
