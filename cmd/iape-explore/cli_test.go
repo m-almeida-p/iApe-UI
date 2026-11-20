@@ -59,7 +59,6 @@ type harness struct {
 	out, err bytes.Buffer
 	sess     *fakeSession
 	opened   int
-	openArgs []string
 	openErr  error
 	cfgErr   error
 	cfg      config.Config
@@ -75,9 +74,8 @@ func (h *harness) run(args ...string) int {
 	d := deps{
 		stdout: &h.out, stderr: &h.err,
 		loadConfig: func(string) (config.Config, error) { return h.cfg, h.cfgErr },
-		open: func(_ context.Context, cfg config.Config, _ time.Duration) (session, error) {
+		open: func(context.Context, config.Config, time.Duration) (session, error) {
 			h.opened++
-			h.openArgs = cfg.MCP.Args
 			return h.sess, h.openErr
 		},
 		now: func() time.Time { return time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC) },
@@ -251,17 +249,4 @@ func TestRun_TheDefaultOutputDirectoryIsNamedAfterTheTime(t *testing.T) {
 	d := deps{now: func() time.Time { return time.Date(2026, 11, 19, 20, 30, 5, 0, time.UTC) }}
 
 	assert.Equal(t, filepath.Join("temp", "iape-explore", "20261119-203005"), d.defaultOut())
-}
-
-func TestRun_HeadedTakesTheHeadlessFlagOutOfChromesArguments(t *testing.T) {
-	h := newHarness(t, &fakeSession{text: `StaticText "No puedo ayudarte"`})
-	h.cfg.MCP.Args = []string{"--headless", "--isolated", "--no-usage-statistics"}
-
-	require.Equal(t, exitOK, h.run("-path", "guard", "-headed"), h.err.String())
-	assert.Equal(t, []string{"--isolated", "--no-usage-statistics"}, h.openArgs)
-	assert.Equal(t, []string{"--headless", "--isolated", "--no-usage-statistics"}, h.cfg.MCP.Args, "the settings are not changed under whoever gave them")
-
-	h.openArgs = nil
-	require.Equal(t, exitOK, h.run("-path", "guard"))
-	assert.Equal(t, []string{"--headless", "--isolated", "--no-usage-statistics"}, h.openArgs, "headless is the default")
 }

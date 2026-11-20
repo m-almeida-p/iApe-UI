@@ -9,6 +9,7 @@
 //	iape-explore -path pay -amount 35 -contact "Maria Torres"
 //	iape-explore "Hola" "expect:Hola"       steps of your own (see internal/explore)
 //
+// Chrome runs headless, as the evaluator requires: what a run shows is in the screenshots it records.
 // It signs in as the user of the evaluator (EVAL_USER_EMAIL and EVAL_USER_PASSWORD, or ADMIN_EMAIL and ADMIN_PASSWORD) and reads
 // EVAL_BASE_URL and EVAL_MCP_COMMAND from .env, as cmd/eval does. Nothing it records holds the password or a token.
 package main

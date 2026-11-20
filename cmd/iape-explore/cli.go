@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -45,7 +44,6 @@ type options struct {
 	contact string
 	amount  string
 	settle  time.Duration
-	headed  bool
 	steps   []string
 }
 
@@ -65,7 +63,6 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.out, "out", "", "directory for the records (default temp/iape-explore/<time>)")
 	fs.StringVar(&o.contact, "contact", "", `contact to pick in a payment, such as "Maria Torres" (default the first)`)
 	fs.StringVar(&o.amount, "amount", "", "amount in soles for a payment (default the path's)")
-	fs.BoolVar(&o.headed, "headed", false, "show Chrome: run it with a window, to watch the run")
 	fs.DurationVar(&o.settle, "wait", 90*time.Second, "how long a step waits for the page to settle")
 	if err := fs.Parse(args); err != nil {
 		return o, usageError{msg: err.Error()}
@@ -156,9 +153,6 @@ func (d deps) run(ctx context.Context, args []string) int {
 		out = d.defaultOut()
 	}
 
-	if opts.headed {
-		cfg.MCP.Args = slices.DeleteFunc(slices.Clone(cfg.MCP.Args), func(a string) bool { return a == "--headless" })
-	}
 	sess, err := d.open(ctx, cfg, opts.settle)
 	if err != nil {
 		fmt.Fprintln(d.stderr, "iape-explore: opening the browser:", err)
