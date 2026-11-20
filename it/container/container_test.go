@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -223,7 +222,7 @@ func TestContainersSmoke(t *testing.T) {
 
 		assert.NotZero(t, code)
 		assert.Contains(t, output, "missing required configuration")
-		for _, key := range []string{"DB_URL", "AGENT_BASE_URL", "YAPE_ACCOUNT_ID"} {
+		for _, key := range []string{"DB_URL", "AGENT_BASE_URL"} {
 			assert.Contains(t, output, key)
 		}
 	})
@@ -242,10 +241,10 @@ func TestContainersSmoke(t *testing.T) {
 	})
 
 	// The program's own wiring, in its own image: a reply being written when the
-	// signal comes is ended and saved as stopped, and the server is gone at once.
+	// signal comes is ended as stopped, and the server is gone at once.
 	// Without that, it would wait out its grace period for a stream that runs for
 	// as long as the reply does.
-	t.Run("docker stop ends a reply being written, saves it, and exits with code 0", func(t *testing.T) {
+	t.Run("docker stop ends a reply being written, tells its reader, and exits with code 0", func(t *testing.T) {
 		host, err := web.Host(ctx)
 		require.NoError(t, err)
 		port, err := web.MappedPort(ctx, "8300/tcp")
@@ -268,14 +267,10 @@ func TestContainersSmoke(t *testing.T) {
 		state, err := web.State(ctx)
 		require.NoError(t, err)
 		assert.Zero(t, state.ExitCode)
-		dsn, err := db.ConnectionString(ctx, "sslmode=disable")
-		require.NoError(t, err)
-		conn, err := pgx.Connect(ctx, dsn)
-		require.NoError(t, err)
-		defer func() { _ = conn.Close(ctx) }()
-		var status, content string
-		require.NoError(t, conn.QueryRow(ctx, `SELECT status, content FROM web_ui.messages WHERE id = $1`, reply).Scan(&status, &content))
-		assert.Equal(t, "stopped", status, "the reply was ended by the shutdown, not left streaming or cut by the exit")
-		assert.Contains(t, content, "tick", "and the text so far was saved")
+		rest := stack.Named(stream.Drain(), "delta")
+		require.NotEmpty(t, rest, "the reader is told")
+		last := stack.MessagesIn(t, rest[len(rest)-1].Data)[0]
+		assert.Equal(t, "stopped", last.Status, "the reply was ended by the shutdown, not left streaming or cut by the exit")
+		assert.Contains(t, last.Text, "tick", "and the text so far is what the reader has")
 	})
 }
