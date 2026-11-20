@@ -1,6 +1,7 @@
 package explore_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,6 +71,29 @@ func TestCatalog_OnlyTheGuardPathBurnsTheAccount(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"guard"}, burning, "a path that trips the agent's guard is marked, and no other is")
+}
+
+func TestPath_ContactNeedsANameTheBFFHasNeverHeard(t *testing.T) {
+	contact, ok := explore.Find("contact")
+	require.True(t, ok)
+
+	first, second := contact.Steps("", ""), contact.Steps("", "")
+
+	assert.NotEqual(t, first, second, "each run makes a name of its own")
+	for _, steps := range [][]string{first, second} {
+		for _, s := range steps {
+			assert.NotContains(t, s, "{new-name}", "the placeholder is always filled")
+		}
+		parsed, err := explore.ParseAll(steps)
+		require.NoError(t, err)
+		name := strings.TrimPrefix(steps[1], "quiero yapearle 20 soles a ")
+		assert.Regexp(t, `^[A-Z][a-z]{5}$`, name)
+		assert.Equal(t, "click:"+name, parsed[3].Raw, "the card's button is the one for the same name")
+	}
+
+	given := contact.Steps("", "Valeria")
+	assert.Equal(t, "quiero yapearle 20 soles a Valeria", given[1], "a contact that is asked for is the one used")
+	assert.Equal(t, "click:Valeria", given[3])
 }
 
 func TestFind(t *testing.T) {
