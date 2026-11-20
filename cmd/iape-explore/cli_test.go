@@ -59,6 +59,7 @@ type harness struct {
 	sess       *fakeSession
 	opened     int
 	openedWith openOptions
+	wrap       func(*fakeSession) session // when it is set, the session the explorer is given
 	openErr    error
 	cfgErr     error
 	cfg        settings
@@ -77,6 +78,9 @@ func (h *harness) run(args ...string) int {
 		open: func(_ context.Context, _ settings, o openOptions) (session, error) {
 			h.opened++
 			h.openedWith = o
+			if h.wrap != nil {
+				return h.wrap(h.sess), h.openErr
+			}
 			return h.sess, h.openErr
 		},
 		now: func() time.Time { return time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC) },
@@ -288,4 +292,48 @@ func TestRun_RunningThePathThatBurnsTheAccountSaysWhatItCosts(t *testing.T) {
 	require.Equal(t, exitOK, h.run("-path", "guard"))
 
 	assert.Contains(t, h.err.String(), "can get it banned")
+}
+
+// Nothing the explorer writes holds a secret, report.md and summary.md included: they carry what was on the page, the steps as they were
+// written and the errors, none of which goes through the sink of the snapshots.
+func TestRun_TheReportAndTheSummaryHoldNoSecretEither(t *testing.T) {
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijk"
+	page := "No puedo ayudarte\ntoken " + jwt + "\nBearer abc.def-ghi123456\nthe password is hunter2-secret"
+	h := newHarness(t, &fakeSession{text: page})
+	h.wrap = func(f *fakeSession) session { return &growingSession{fakeSession: f} } // the page is empty first, so all of it is new
+
+	h.run("-path", "guard")
+	h.run("-all")
+
+	var seen int
+	err := filepath.WalkDir(h.dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !(strings.HasSuffix(path, "report.md") || strings.HasSuffix(path, "summary.md")) {
+			return err
+		}
+		seen++
+		data, readErr := os.ReadFile(path)
+		require.NoError(t, readErr)
+		assert.NotContains(t, string(data), jwt, path)
+		assert.NotContains(t, string(data), "abc.def-ghi123456", path)
+		assert.NotContains(t, string(data), "hunter2-secret", path)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Positive(t, seen, "the report and the summary were written")
+	assert.NotContains(t, h.out.String(), jwt, "nor does the screen")
+	assert.NotContains(t, h.err.String(), jwt)
+}
+
+// growingSession shows an empty page the first time it is read and the whole page after: what the page shows is then new.
+type growingSession struct {
+	*fakeSession
+	reads int
+}
+
+func (g *growingSession) Text(ctx context.Context) (string, error) {
+	g.reads++
+	if g.reads == 1 {
+		return "", nil
+	}
+	return g.fakeSession.Text(ctx)
 }

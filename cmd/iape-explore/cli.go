@@ -237,7 +237,8 @@ func (d deps) runPlans(ctx context.Context, sess session, plans []plan, out, pas
 		took := d.now().Sub(start).Round(time.Millisecond)
 		verdict, why := "PASSED", ""
 		if f := rep.Failure(); f != nil {
-			verdict, why, code = "FAILED", fmt.Sprintf("step %d: %v", f.N, f.Err), exitFailed
+			// An error can carry what the page showed: it goes through the same filter as the records, on the screen too.
+			verdict, why, code = "FAILED", (&dirSink{secrets: []string{password}}).clean(fmt.Sprintf("step %d: %v", f.N, f.Err)), exitFailed
 		}
 		_, _ = fmt.Fprintf(d.stdout, "%-8s %s (%d steps, %s)\n", p.id, verdict, len(rep.Steps), took)
 		if why != "" {
@@ -276,7 +277,7 @@ func (d deps) runPlan(ctx context.Context, sess session, p plan, dir, password s
 	}
 	sink := &dirSink{dir: dir, secrets: []string{password}}
 	rep := (&explore.Runner{Browser: sess, Sink: sink}).Run(ctx, p.id, steps)
-	if err := writeFile(filepath.Join(dir, "report.md"), rep.Markdown()); err != nil {
+	if err := writeFile(filepath.Join(dir, "report.md"), sink.clean(rep.Markdown())); err != nil {
 		_, _ = fmt.Fprintln(d.stderr, "iape-explore:", err)
 	}
 	if sink.redacted > 0 {
