@@ -229,6 +229,27 @@
     syncJumpButton();
   }
 
+  // Earlier messages go in above what is on screen. The reader is reading the top of the list, so what they were looking at is kept where
+  // it is: the list grows upward by as much as the new messages take, and the scroll position grows with it.
+  let loadingEarlier = null;
+  document.body.addEventListener('htmx:beforeRequest', (event) => {
+    const log = scroller();
+    if (!log || !(event.target instanceof Element) || !event.target.closest('#earlier')) return;
+    loadingEarlier = { xhr: event.detail.xhr, height: log.scrollHeight, top: log.scrollTop };
+  });
+  document.body.addEventListener('htmx:afterSettle', (event) => {
+    if (!loadingEarlier || event.detail.xhr !== loadingEarlier.xhr) return;
+    const log = scroller();
+    if (log) {
+      log.scrollTop = loadingEarlier.top + (log.scrollHeight - loadingEarlier.height);
+      seenHeight = log.scrollHeight;
+      following = atEnd(log, seenHeight);
+      syncJumpButton();
+    }
+    loadingEarlier = null;
+  });
+  document.body.addEventListener('htmx:responseError', () => { loadingEarlier = null; });
+
   // --- Code blocks: copy -------------------------------------------------------
 
   // decorateCode puts a Copy button in each code block of a finished reply. The

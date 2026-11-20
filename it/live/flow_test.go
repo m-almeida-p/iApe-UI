@@ -9,8 +9,10 @@ package live_test
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -144,5 +146,105 @@ func TestLiveFlow(t *testing.T) {
 			t.Logf("the card after the second click: state=%s", stack.Attr(again, "data-state"))
 			assert.Equal(t, stack.Attr(card, "data-state"), stack.Attr(again, "data-state"), "the second click shows what the first did, and pays nothing")
 		}
+	})
+}
+
+// The edges of the flow against the real services: what a second tab sees, a reload in the middle of a reply, and the second or so in which
+// the history does not have the turn yet.
+func TestLiveEdges(t *testing.T) {
+	lookup, err := envcfg.EnvLookup("../../.env")
+	require.NoError(t, err)
+	if v, _ := lookup("AGENT_LIVE"); v != "1" {
+		t.Skip("set AGENT_LIVE=1 and HISTORY_LIVE=1 to run the flow against the real agent and history")
+	}
+	if v, _ := lookup("HISTORY_LIVE"); v != "1" {
+		t.Skip("set HISTORY_LIVE=1 too")
+	}
+	agentURL, _ := lookup("AGENT_BASE_URL")
+	account, _ := lookup("YAPE_ACCOUNT_ID")
+	historyURL, _ := lookup("HISTORY_BASE_URL")
+	bin, _ := lookup("YAPE_TOKEN_BIN")
+	opts := []stack.Option{
+		stack.WithExternalAgent(agentURL), stack.WithSetting("YAPE_ACCOUNT_ID", account), stack.WithSetting("HISTORY_BASE_URL", historyURL),
+		stack.WithSetting("AGENT_REQUEST_TIMEOUT", "300s"),
+	}
+	if bin != "" {
+		opts = append(opts, stack.WithSetting("YAPE_TOKEN_BIN", bin))
+	}
+	s := stack.Start(t, opts...)
+	patient := func() context.Context {
+		ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
+		t.Cleanup(cancel)
+		return ctx
+	}
+
+	t.Run("a reload in the middle of a reply shows the page, and writing waits for the reply", func(t *testing.T) {
+		c := s.SignedIn()
+		conv := c.NewChat()
+		reply := c.Send(conv, "quiero yapear")
+
+		page := c.Get("/c/" + conv) // the reply is still being written: it is live here, and not in the history
+
+		assert.Equal(t, 200, page.Status, "the page of a conversation the history does not have yet, started here")
+		assert.Contains(t, page.Body, "composer-input")
+		busy := c.Post("/c/"+conv+"/messages", url.Values{"content": {"otra cosa"}}, "HX-Request", "true")
+		assert.Equal(t, 409, busy.Status, "no second turn while the first is written")
+		assert.Contains(t, busy.Body, "Wait for the current reply")
+		events := c.OpenStream(patient(), conv, reply).Drain() // the stream is still there to be opened after the reload
+		require.NotEmpty(t, events)
+		next := c.Send(conv, "y si fuera a otra persona?")
+		assert.NotEmpty(t, next, "and once it ends, writing works")
+		c.OpenStream(patient(), conv, next).Drain()
+	})
+
+	t.Run("two tabs of one user writing at once: one turn is accepted, the other is told to wait", func(t *testing.T) {
+		tab1, tab2 := s.SignedIn(), s.SignedIn()
+		conv := tab1.NewChat()
+		results := make(chan int, 2)
+		var wg sync.WaitGroup
+		for i, tab := range []*stack.Client{tab1, tab2} {
+			wg.Go(func() {
+				results <- tab.Post("/c/"+conv+"/messages", url.Values{"content": {fmt.Sprintf("mensaje %d", i)}}, "HX-Request", "true").Status
+			})
+		}
+		wg.Wait()
+		close(results)
+
+		got := map[int]int{}
+		for status := range results {
+			got[status]++
+		}
+		assert.Equal(t, map[int]int{200: 1, 409: 1}, got)
+		// the one that was accepted has a reply to stream: finish it so the stack stops clean
+		page := tab1.Get("/c/" + conv)
+		assert.Equal(t, 200, page.Status)
+	})
+
+	t.Run("while the history catches up the page is whole at every moment, and only grows", func(t *testing.T) {
+		c := s.SignedIn()
+		conv := c.NewChat()
+		reply := c.Send(conv, "quiero yapear")
+		c.OpenStream(patient(), conv, reply).Drain()
+		deadline := time.Now().Add(20 * time.Second)
+		last, grew := 0, 0
+
+		for time.Now().Before(deadline) {
+			page := c.Get("/c/" + conv)
+			require.Equal(t, 200, page.Status, "a conversation started here is never a 404 or an error while the history catches up")
+			n := len(stack.MessagesIn(t, page.Body))
+			require.GreaterOrEqual(t, n, last, "the page never loses a message it showed")
+			if n > last {
+				grew++
+				t.Logf("the page shows %d messages after %s", n, time.Until(deadline).Round(time.Millisecond))
+			}
+			last = n
+			if n >= 2 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		assert.GreaterOrEqual(t, last, 2, "the user message and the agent's reply reached the history")
+		assert.Contains(t, c.Get("/history", "HX-Request", "true").Body, conv)
 	})
 }
