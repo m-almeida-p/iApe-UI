@@ -192,12 +192,15 @@ func validID(s string) bool {
 		return false
 	}
 	for i := range len(s) {
-		c := s[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("._:-", c) >= 0) {
+		if !idChar(s[i]) {
 			return false
 		}
 	}
 	return true
+}
+
+func idChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("._:-", c) >= 0
 }
 
 // pageQuery is the query of a request for the account's page. A request that the history would refuse is not made.
