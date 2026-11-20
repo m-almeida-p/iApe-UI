@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ const secret = "tok-secret-canary-91"
 
 func tokenFrom(t *testing.T, script string) (string, error) {
 	t.Helper()
-	return aguibff.CommandToken{Bin: fakeBin(t, script), AccountID: account, Timeout: 5 * time.Second}.Token(t.Context())
+	return aguibff.CommandToken{Bin: fakeBin(t, script), Timeout: 5 * time.Second}.Token(t.Context(), accountID)
 }
 
 func TestCommandToken_WhatTheProgramPrintsIsTheTokenOrNothing(t *testing.T) {
@@ -166,13 +167,13 @@ func TestCommandToken_AGiantOutputIsBoundedAndNotAToken(t *testing.T) {
 
 func TestCommandToken_TheProgram(t *testing.T) {
 	t.Run("one that is not there", func(t *testing.T) {
-		_, err := aguibff.CommandToken{Bin: filepath.Join(t.TempDir(), "nope"), AccountID: account}.Token(t.Context())
+		_, err := aguibff.CommandToken{Bin: filepath.Join(t.TempDir(), "nope")}.Token(t.Context(), accountID)
 
 		require.ErrorIs(t, err, aguibff.ErrToken)
 		assert.Contains(t, err.Error(), "nope")
 	})
 	t.Run("no program named", func(t *testing.T) {
-		_, err := aguibff.CommandToken{AccountID: account}.Token(t.Context())
+		_, err := aguibff.CommandToken{}.Token(t.Context(), accountID)
 
 		require.ErrorIs(t, err, aguibff.ErrToken)
 	})
@@ -180,13 +181,13 @@ func TestCommandToken_TheProgram(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "yape-token")
 		require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nprintf abc\n"), 0o600))
 
-		_, err := aguibff.CommandToken{Bin: path, AccountID: account}.Token(t.Context())
+		_, err := aguibff.CommandToken{Bin: path}.Token(t.Context(), accountID)
 
 		require.ErrorIs(t, err, aguibff.ErrToken)
 		assert.Contains(t, err.Error(), "permission denied")
 	})
 	t.Run("one that is a directory", func(t *testing.T) {
-		_, err := aguibff.CommandToken{Bin: t.TempDir(), AccountID: account}.Token(t.Context())
+		_, err := aguibff.CommandToken{Bin: t.TempDir()}.Token(t.Context(), accountID)
 
 		require.ErrorIs(t, err, aguibff.ErrToken)
 	})
@@ -194,7 +195,7 @@ func TestCommandToken_TheProgram(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "yape-token")
 		require.NoError(t, os.WriteFile(path, []byte("just text"), 0o700))
 
-		_, err := aguibff.CommandToken{Bin: path, AccountID: account}.Token(t.Context())
+		_, err := aguibff.CommandToken{Bin: path}.Token(t.Context(), accountID)
 
 		require.ErrorIs(t, err, aguibff.ErrToken)
 	})
@@ -210,7 +211,7 @@ func TestCommandToken_AProgramThatHangsIsStopped(t *testing.T) {
 	t.Run("a plain hang", func(t *testing.T) {
 		start := time.Now()
 
-		_, err := aguibff.CommandToken{Bin: fakeBin(t, "sleep 30"), AccountID: account, Timeout: 100 * time.Millisecond}.Token(t.Context())
+		_, err := aguibff.CommandToken{Bin: fakeBin(t, "sleep 30"), Timeout: 100 * time.Millisecond}.Token(t.Context(), accountID)
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Less(t, time.Since(start), 3*time.Second)
@@ -218,65 +219,64 @@ func TestCommandToken_AProgramThatHangsIsStopped(t *testing.T) {
 	t.Run("a hang of a child that holds the output open does not hold the caller", func(t *testing.T) {
 		start := time.Now()
 
-		_, err := aguibff.CommandToken{Bin: fakeBin(t, "sleep 8 & wait"), AccountID: account, Timeout: 100 * time.Millisecond}.Token(t.Context())
+		_, err := aguibff.CommandToken{Bin: fakeBin(t, "sleep 8 & wait"), Timeout: 100 * time.Millisecond}.Token(t.Context(), accountID)
 
 		require.ErrorIs(t, err, aguibff.ErrToken)
 		assert.Less(t, time.Since(start), 4*time.Second, "killing the shell must not leave the caller waiting for the sleep")
 	})
 	t.Run("a negative timeout is not an instant failure", func(t *testing.T) {
-		got, err := aguibff.CommandToken{Bin: fakeBin(t, "printf abc"), AccountID: account, Timeout: -time.Second}.Token(t.Context())
+		got, err := aguibff.CommandToken{Bin: fakeBin(t, "printf abc"), Timeout: -time.Second}.Token(t.Context(), accountID)
 
 		require.NoError(t, err)
 		assert.Equal(t, "abc", got)
 	})
 }
 
-func TestCommandToken_TheAccountIsOneArgumentAndNeverInterpreted(t *testing.T) {
-	dir := t.TempDir()
-	hostile := []string{
-		"$(touch " + dir + "/pwned1);",
-		"`touch " + dir + "/pwned2`",
-		"a; touch " + dir + "/pwned3",
-		"a && touch " + dir + "/pwned4",
-		"a | touch " + dir + "/pwned5",
-		"--refresh",
-		"-x --account y",
-		"with spaces and 'quotes' and \"doubles\"",
-		"line\nbreak",
-		"ñandú-🦤",
-		"dash-ed-id",
-		"",
+// The account is a UUID, so what the program is run with is its canonical text, whatever the caller held: two arguments, the flag and
+// the account, whole.
+func TestCommandToken_TheAccountIsOneArgumentInItsCanonicalForm(t *testing.T) {
+	accounts := []uuid.UUID{
+		accountID,
+		uuid.MustParse("5E565F30-3320-4C95-8080-A56CF8F3EB2E"), // capitals: the text is in lower case
+		uuid.New(),
 	}
-	for _, id := range hostile {
-		t.Run(id, func(t *testing.T) {
-			record := filepath.Join(dir, "args")
+	for _, id := range accounts {
+		t.Run(id.String(), func(t *testing.T) {
+			record := filepath.Join(t.TempDir(), "args")
 			bin := fakeBin(t, `printf '%s\n' "$#" "$1" "$2" "$3" > '`+record+`'; printf abc`)
 
-			got, err := aguibff.CommandToken{Bin: bin, AccountID: id, Timeout: 5 * time.Second}.Token(t.Context())
+			got, err := aguibff.CommandToken{Bin: bin, Timeout: 5 * time.Second}.Token(t.Context(), id)
 
 			require.NoError(t, err)
 			assert.Equal(t, "abc", got)
 			recorded, err := os.ReadFile(record)
 			require.NoError(t, err)
-			assert.Equal(t, "2\n--account\n"+id+"\n\n", string(recorded), "two arguments: the flag and the account, whole")
+			assert.Equal(t, "2\n--account\n"+strings.ToLower(id.String())+"\n\n", string(recorded))
 		})
 	}
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	for _, e := range entries {
-		assert.NotContains(t, e.Name(), "pwned", "the account id was run as a command")
-	}
+}
+
+func TestCommandToken_NoAccountIsNoToken(t *testing.T) {
+	ran := filepath.Join(t.TempDir(), "ran")
+	src := aguibff.CommandToken{Bin: fakeBin(t, `touch '`+ran+`'; printf abc`), Timeout: 5 * time.Second}
+
+	_, errToken := src.Token(t.Context(), uuid.Nil())
+	_, errRefresh := src.Refresh(t.Context(), uuid.Nil())
+
+	require.ErrorIs(t, errToken, aguibff.ErrToken)
+	require.ErrorIs(t, errRefresh, aguibff.ErrToken)
+	assert.NoFileExists(t, ran, "the program was not asked for the token of no one")
 }
 
 func TestCommandToken_RefreshAddsTheFlagAfterTheAccount(t *testing.T) {
 	record := filepath.Join(t.TempDir(), "args")
 	bin := fakeBin(t, `printf '%s\n' "$#" "$1" "$2" "$3" > '`+record+`'; printf abc`)
-	src := aguibff.CommandToken{Bin: bin, AccountID: account, Timeout: 5 * time.Second}
+	src := aguibff.CommandToken{Bin: bin, Timeout: 5 * time.Second}
 
-	_, err := src.Refresh(t.Context())
+	_, err := src.Refresh(t.Context(), accountID)
 	require.NoError(t, err)
 	refreshed, _ := os.ReadFile(record)
-	_, err = src.Token(t.Context())
+	_, err = src.Token(t.Context(), accountID)
 	require.NoError(t, err)
 	plain, _ := os.ReadFile(record)
 
@@ -285,24 +285,24 @@ func TestCommandToken_RefreshAddsTheFlagAfterTheAccount(t *testing.T) {
 }
 
 func TestCommandToken_RefreshFailsLikeToken(t *testing.T) {
-	src := aguibff.CommandToken{Bin: fakeBin(t, `echo '{"error":"idp said no"}' >&2; exit 1`), AccountID: account, Timeout: 5 * time.Second}
+	src := aguibff.CommandToken{Bin: fakeBin(t, `echo '{"error":"idp said no"}' >&2; exit 1`), Timeout: 5 * time.Second}
 
-	_, err := src.Refresh(t.Context())
+	_, err := src.Refresh(t.Context(), accountID)
 
 	require.ErrorIs(t, err, aguibff.ErrToken)
 	assert.Contains(t, err.Error(), "idp said no")
 }
 
 func TestCommandToken_ManyCallersAtOnceEachGetTheToken(t *testing.T) {
-	src := aguibff.CommandToken{Bin: fakeBin(t, `printf '%s' "$2"`), AccountID: account, Timeout: 10 * time.Second}
+	src := aguibff.CommandToken{Bin: fakeBin(t, `printf '%s' "$2"`), Timeout: 10 * time.Second}
 
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Go(func() {
-			got, err := src.Token(t.Context())
+			got, err := src.Token(t.Context(), accountID)
 			assert.NoError(t, err)
 			assert.Equal(t, account, got)
-			got, err = src.Refresh(t.Context())
+			got, err = src.Refresh(t.Context(), accountID)
 			assert.NoError(t, err)
 			assert.Equal(t, account, got)
 		})
@@ -316,7 +316,7 @@ func TestCommandToken_ACanceledCallerNeverStartsAnything(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, err := aguibff.CommandToken{Bin: bin, AccountID: account}.Token(ctx)
+	_, err := aguibff.CommandToken{Bin: bin}.Token(ctx, accountID)
 
 	require.ErrorIs(t, err, aguibff.ErrToken)
 	require.ErrorIs(t, err, context.Canceled)

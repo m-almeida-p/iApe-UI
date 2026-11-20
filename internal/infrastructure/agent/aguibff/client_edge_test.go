@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,13 +30,13 @@ type plainTokens struct {
 	err   error
 }
 
-func (p plainTokens) Token(context.Context) (string, error) { return p.token, p.err }
+func (p plainTokens) Token(context.Context, uuid.UUID) (string, error) { return p.token, p.err }
 
 // refreshFails is a Refresher whose refresh fails.
 type refreshFails struct{ calls int }
 
-func (r *refreshFails) Token(context.Context) (string, error) { return canary, nil }
-func (r *refreshFails) Refresh(context.Context) (string, error) {
+func (r *refreshFails) Token(context.Context, uuid.UUID) (string, error) { return canary, nil }
+func (r *refreshFails) Refresh(context.Context, uuid.UUID) (string, error) {
 	r.calls++
 	return "", errors.New("identity provider down")
 }
@@ -48,7 +49,7 @@ func serveSSE(body string) func(http.ResponseWriter, *http.Request, int) {
 }
 
 func clientAt(url string, timeout time.Duration, tokens aguibff.TokenSource) *aguibff.Client {
-	return aguibff.NewClient(config.Agent{BaseURL: url, AccountID: account, RequestTimeout: timeout}, tokens, nil)
+	return aguibff.NewClient(config.Agent{BaseURL: url, RequestTimeout: timeout}, tokens, nil)
 }
 
 func TestClient_TheContentTypeSaysWhetherItIsAStream(t *testing.T) {

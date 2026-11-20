@@ -56,12 +56,12 @@ func TestActions_AreGivenLessTimeThanTheClaimLasts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			b := newBFF(t, serveJSON(t, http.StatusCreated, "approve-ok.json"))
 			rec := &deadlines{next: http.DefaultTransport}
-			c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, AccountID: account, RequestTimeout: tc.setting}, &fakeTokens{token: "t"}, &http.Client{Transport: rec})
+			c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: tc.setting}, &fakeTokens{token: "t"}, &http.Client{Transport: rec})
 
 			for _, call := range []func() error{
-				func() error { _, err := c.Approve(t.Context(), card()); return err },
-				func() error { _, err := c.Reject(t.Context(), card()); return err },
-				func() error { _, err := c.ConfirmOTP(t.Context(), card(), "123456"); return err },
+				func() error { _, err := c.Approve(t.Context(), accountID, card()); return err },
+				func() error { _, err := c.Reject(t.Context(), accountID, card()); return err },
+				func() error { _, err := c.ConfirmOTP(t.Context(), accountID, card(), "123456"); return err },
 			} {
 				require.NoError(t, call())
 
@@ -74,7 +74,7 @@ func TestActions_AreGivenLessTimeThanTheClaimLasts(t *testing.T) {
 	t.Run("a turn of the agent keeps the limit of the settings", func(t *testing.T) {
 		b := newBFF(t, serveFixture(t, "guard.sse"))
 		rec := &deadlines{next: http.DefaultTransport}
-		c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, AccountID: account, RequestTimeout: time.Hour}, &fakeTokens{token: "t"}, &http.Client{Transport: rec})
+		c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: time.Hour}, &fakeTokens{token: "t"}, &http.Client{Transport: rec})
 
 		_, err := collect(c.Run(t.Context(), turn("hola")))
 
@@ -98,7 +98,7 @@ func TestApprove_ANotConfirmedTransferIsNotPaid(t *testing.T) {
 				_, _ = io.WriteString(w, body)
 			})
 
-			got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+			got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, domain.ErrAgentUnavailable, "the service did not confirm: the page says the answer is not known")
@@ -119,7 +119,7 @@ func TestApprove_ANotConfirmedTransferIsNotPaid(t *testing.T) {
 				_, _ = io.WriteString(w, body)
 			})
 
-			got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+			got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 			require.NoError(t, err)
 			assert.Equal(t, "ok", got.Message)
@@ -133,7 +133,7 @@ func TestConfirmOTP_ANotConfirmedTransferIsNotPaid(t *testing.T) {
 		_, _ = io.WriteString(w, `{"success":false,"displayMessage":"Transfer paid successfully."}`)
 	})
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), card(), "123456")
+	_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), accountID, card(), "123456")
 
 	require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 	assert.NotErrorIs(t, err, domain.ErrNotSent)
@@ -147,9 +147,9 @@ func TestClient_DoesNotFollowRedirects(t *testing.T) {
 		http.Redirect(w, r, elsewhere.srv.URL+"/bff/approvals/x/otp/confirm", http.StatusTemporaryRedirect)
 	}))
 	t.Cleanup(redirecting.Close)
-	c := aguibff.NewClient(config.Agent{BaseURL: redirecting.URL, AccountID: account, RequestTimeout: 5 * time.Second}, &fakeTokens{token: "secret-token"}, nil)
+	c := aguibff.NewClient(config.Agent{BaseURL: redirecting.URL, RequestTimeout: 5 * time.Second}, &fakeTokens{token: "secret-token"}, nil)
 
-	_, otpErr := c.ConfirmOTP(t.Context(), card(), "123456")
+	_, otpErr := c.ConfirmOTP(t.Context(), accountID, card(), "123456")
 	_, runErr := collect(c.Run(t.Context(), turn("hola")))
 
 	require.Error(t, otpErr)

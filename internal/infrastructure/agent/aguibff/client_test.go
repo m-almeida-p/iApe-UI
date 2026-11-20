@@ -27,18 +27,22 @@ type fakeTokens struct {
 	fresh     string
 	err       error
 	refreshed int
+	// asked is the account of every call, in order.
+	asked []uuid.UUID
 }
 
-func (f *fakeTokens) Token(context.Context) (string, error) {
+func (f *fakeTokens) Token(_ context.Context, account uuid.UUID) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.asked = append(f.asked, account)
 	return f.token, f.err
 }
 
-func (f *fakeTokens) Refresh(context.Context) (string, error) {
+func (f *fakeTokens) Refresh(_ context.Context, account uuid.UUID) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.refreshed++
+	f.asked = append(f.asked, account)
 	f.token = f.fresh
 	return f.fresh, f.err
 }
@@ -82,11 +86,11 @@ func serveFixture(t *testing.T, name string) func(http.ResponseWriter, *http.Req
 }
 
 func clientFor(b *bff, tokens aguibff.TokenSource) *aguibff.Client {
-	return aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, AccountID: account, RequestTimeout: 5 * time.Second}, tokens, nil)
+	return aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: 5 * time.Second}, tokens, nil)
 }
 
 func turn(text string) domain.AgentRequest {
-	return domain.AgentRequest{UserID: uuid.New(), ConversationID: uuid.New(), Text: text}
+	return domain.AgentRequest{UserID: accountID, ConversationID: uuid.New(), Text: text}
 }
 
 func TestClient_RunAsksTheBFFAsTheAccount(t *testing.T) {
@@ -220,7 +224,7 @@ func TestClient_AnotherContentTypeIsNotAStream(t *testing.T) {
 
 func TestClient_AServerThatDoesNotAnswerTimesOut(t *testing.T) {
 	b := newBFF(t, func(w http.ResponseWriter, r *http.Request, _ int) { <-r.Context().Done() })
-	c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, AccountID: account, RequestTimeout: 150 * time.Millisecond}, &fakeTokens{token: "t"}, nil)
+	c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: 150 * time.Millisecond}, &fakeTokens{token: "t"}, nil)
 
 	_, err := collect(c.Run(t.Context(), turn("Hola")))
 

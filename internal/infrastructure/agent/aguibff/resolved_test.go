@@ -28,7 +28,7 @@ func TestRefusal_WhatTheBFFSaysAndWhatTheApprovalAlreadyIs(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			})
 
-			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 			var refused *domain.ActionError
 			require.ErrorAs(t, err, &refused)
@@ -43,7 +43,7 @@ func TestRefusal_WhatTheBFFSaysAndWhatTheApprovalAlreadyIs(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":{"code":5}}`))
 		})
 
-		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 		var refused *domain.ActionError
 		assert.NotErrorAs(t, err, &refused)

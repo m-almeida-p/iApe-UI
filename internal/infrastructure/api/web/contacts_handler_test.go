@@ -68,7 +68,7 @@ func TestConfirmCandidate(t *testing.T) {
 
 	t.Run("confirms the choice and answers the mention for the message", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(domain.Contact{Name: "Maria Torres", Phone: "912345678"}, nil)
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", 0).Return(domain.Contact{Name: "Maria Torres", Phone: "912345678"}, nil)
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", form, nil)
 
@@ -79,7 +79,7 @@ func TestConfirmCandidate(t *testing.T) {
 
 	t.Run("a refusal is a 422 with the service's words", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(domain.Contact{}, &domain.ActionError{Message: "no such contact"})
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", 0).Return(domain.Contact{}, &domain.ActionError{Message: "no such contact"})
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", form, nil)
 
@@ -89,7 +89,7 @@ func TestConfirmCandidate(t *testing.T) {
 
 	t.Run("the agent being down is a 502", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(domain.Contact{}, domain.ErrAgentUnavailable)
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", 0).Return(domain.Contact{}, domain.ErrAgentUnavailable)
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", form, nil)
 
@@ -106,7 +106,7 @@ func TestConfirmCandidate(t *testing.T) {
 
 	t.Run("any other failure is a 500", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(domain.Contact{}, errors.New("boom"))
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", 0).Return(domain.Contact{}, errors.New("boom"))
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", form, nil)
 
@@ -215,7 +215,7 @@ func TestContactPicker_WhateverIsTyped(t *testing.T) {
 func TestConfirmCandidate_WhatTheFormHolds(t *testing.T) {
 	t.Run("no q is an empty query: the default contacts", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.cards.On("ConfirmCandidate", mock.Anything, "", 0).Return(domain.Contact{Name: "Juan Perez", Phone: "911111111"}, nil).Once()
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "", 0).Return(domain.Contact{Name: "Juan Perez", Phone: "911111111"}, nil).Once()
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"choice": {"0"}}, nil)
 
@@ -227,7 +227,7 @@ func TestConfirmCandidate_WhatTheFormHolds(t *testing.T) {
 		for _, choice := range []string{"5", "99", "999"} {
 			h := newChatHarness(t)
 			n, _ := strconv.Atoi(choice)
-			h.cards.On("ConfirmCandidate", mock.Anything, "maria", n).Return(domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}).Once()
+			h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", n).Return(domain.Contact{}, &domain.ActionError{Message: "Choose one of the contacts."}).Once()
 
 			rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {"maria"}, "choice": {choice}}, nil)
 
@@ -237,7 +237,7 @@ func TestConfirmCandidate_WhatTheFormHolds(t *testing.T) {
 
 	t.Run("the mention is the name as text, whatever the name holds", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.cards.On("ConfirmCandidate", mock.Anything, "x", 0).Return(domain.Contact{Name: `<b>"Ana"</b>`, Phone: "9"}, nil).Once()
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "x", 0).Return(domain.Contact{Name: `<b>"Ana"</b>`, Phone: "9"}, nil).Once()
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {"x"}, "choice": {"0"}}, nil)
 
@@ -248,7 +248,7 @@ func TestConfirmCandidate_WhatTheFormHolds(t *testing.T) {
 	t.Run("a hundred kilobytes of query reach the use case as they are, which cuts them", func(t *testing.T) {
 		h := newChatHarness(t)
 		long := strings.Repeat("ñ", 100<<10/2)
-		h.cards.On("ConfirmCandidate", mock.Anything, long, 0).Return(domain.Contact{Name: "N", Phone: "9"}, nil).Once()
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, long, 0).Return(domain.Contact{Name: "N", Phone: "9"}, nil).Once()
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {long}, "choice": {"0"}}, nil)
 
@@ -280,7 +280,7 @@ func TestConfirmCandidate_ThePersonThatWasShownIsThePersonThatIsConfirmed(t *tes
 
 	t.Run("the name that was shown, at that place of the list, is confirmed", func(t *testing.T) {
 		h := newChatHarness(t)
-		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(maria, nil).Once()
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", 0).Return(maria, nil).Once()
 
 		rec := h.do(http.MethodPost, "/contacts/confirm", url.Values{"q": {"maria"}, "choice": {"0"}, "name": {maria.Name}}, nil)
 
@@ -300,7 +300,7 @@ func TestConfirmCandidate_ThePersonThatWasShownIsThePersonThatIsConfirmed(t *tes
 
 			assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 			assert.Contains(t, rec.Body.String(), "list changed")
-			h.cards.AssertNotCalled(t, "ConfirmCandidate", mock.Anything, mock.Anything, mock.Anything)
+			h.cards.AssertNotCalled(t, "ConfirmCandidate", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }

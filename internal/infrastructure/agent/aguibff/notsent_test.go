@@ -23,7 +23,7 @@ func TestNotSent_WhatNeverLeftTheComputerIsSaidSo(t *testing.T) {
 	t.Run("a token program that fails", func(t *testing.T) {
 		b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusCreated) })
 
-		_, err := clientFor(b, &fakeTokens{err: errors.New("no VPN")}).Approve(t.Context(), card())
+		_, err := clientFor(b, &fakeTokens{err: errors.New("no VPN")}).Approve(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, domain.ErrNotSent)
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
@@ -32,7 +32,7 @@ func TestNotSent_WhatNeverLeftTheComputerIsSaidSo(t *testing.T) {
 	t.Run("a token that is empty", func(t *testing.T) {
 		b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusCreated) })
 
-		_, err := clientFor(b, &fakeTokens{token: "  "}).Reject(t.Context(), card())
+		_, err := clientFor(b, &fakeTokens{token: "  "}).Reject(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, domain.ErrNotSent)
 		assert.Zero(t, b.count())
@@ -42,9 +42,9 @@ func TestNotSent_WhatNeverLeftTheComputerIsSaidSo(t *testing.T) {
 		require.NoError(t, err)
 		addr := ln.Addr().String()
 		require.NoError(t, ln.Close()) // the port is free now: the connection is refused
-		c := aguibff.NewClient(config.Agent{BaseURL: "http://" + addr, AccountID: account, RequestTimeout: 2 * time.Second}, &fakeTokens{token: "t"}, nil)
+		c := aguibff.NewClient(config.Agent{BaseURL: "http://" + addr, RequestTimeout: 2 * time.Second}, &fakeTokens{token: "t"}, nil)
 
-		_, err = c.ConfirmOTP(t.Context(), card(), "123456")
+		_, err = c.ConfirmOTP(t.Context(), accountID, card(), "123456")
 
 		require.ErrorIs(t, err, domain.ErrNotSent)
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
@@ -52,7 +52,7 @@ func TestNotSent_WhatNeverLeftTheComputerIsSaidSo(t *testing.T) {
 	t.Run("a token that expired and cannot be renewed", func(t *testing.T) {
 		b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusUnauthorized) })
 
-		_, err := clientFor(b, &fakeTokens{token: "old", err: errors.New("refresh failed")}).Approve(t.Context(), card())
+		_, err := clientFor(b, &fakeTokens{token: "old", err: errors.New("refresh failed")}).Approve(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, domain.ErrNotSent, "a 401 is a request the service did not act on")
 	})
@@ -60,7 +60,7 @@ func TestNotSent_WhatNeverLeftTheComputerIsSaidSo(t *testing.T) {
 		b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusCreated) })
 		c := clientFor(b, &fakeTokens{err: errors.New("no VPN")})
 
-		contactErr := c.ConfirmContact(t.Context(), "Maria", domain.Contact{Name: "Maria Torres", Phone: "912345678"})
+		contactErr := c.ConfirmContact(t.Context(), accountID, "Maria", domain.Contact{Name: "Maria Torres", Phone: "912345678"})
 		_, runErr := collect(c.Run(t.Context(), turn("hola")))
 
 		require.ErrorIs(t, contactErr, domain.ErrNotSent)
@@ -71,9 +71,9 @@ func TestNotSent_WhatNeverLeftTheComputerIsSaidSo(t *testing.T) {
 func TestNotSent_WhatMayHaveReachedTheServiceIsNeverSaidNotSent(t *testing.T) {
 	t.Run("a service that does not answer in time", func(t *testing.T) {
 		b := newBFF(t, func(w http.ResponseWriter, r *http.Request, _ int) { <-r.Context().Done() })
-		c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, AccountID: account, RequestTimeout: 100 * time.Millisecond}, &fakeTokens{token: "t"}, nil)
+		c := aguibff.NewClient(config.Agent{BaseURL: b.srv.URL, RequestTimeout: 100 * time.Millisecond}, &fakeTokens{token: "t"}, nil)
 
-		_, err := c.Approve(t.Context(), card())
+		_, err := c.Approve(t.Context(), accountID, card())
 
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, domain.ErrNotSent, "the payment may have been made")
@@ -86,7 +86,7 @@ func TestNotSent_WhatMayHaveReachedTheServiceIsNeverSaidNotSent(t *testing.T) {
 			_ = conn.Close()
 		})
 
-		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, domain.ErrNotSent)
@@ -95,7 +95,7 @@ func TestNotSent_WhatMayHaveReachedTheServiceIsNeverSaidNotSent(t *testing.T) {
 		for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, http.StatusInternalServerError} {
 			b := newBFF(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(status) })
 
-			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 			require.Error(t, err, "%d", status)
 			assert.NotErrorIs(t, err, domain.ErrNotSent, "%d: the service was reached", status)
@@ -107,7 +107,7 @@ func TestNotSent_WhatMayHaveReachedTheServiceIsNeverSaidNotSent(t *testing.T) {
 			_, _ = w.Write([]byte(`{"message":"OTP verification failed"}`))
 		})
 
-		_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), card(), "000000")
+		_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), accountID, card(), "000000")
 
 		var refused *domain.ActionError
 		require.ErrorAs(t, err, &refused)
@@ -119,7 +119,7 @@ func TestNotSent_WhatMayHaveReachedTheServiceIsNeverSaidNotSent(t *testing.T) {
 			_, _ = w.Write([]byte(`not json`))
 		})
 
-		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, domain.ErrNotSent)

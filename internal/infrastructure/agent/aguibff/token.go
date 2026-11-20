@@ -15,20 +15,22 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+	"uuid"
 )
 
 // ErrToken marks a failure to get the account's token. Its text says what failed, never what the token is.
 var ErrToken = errors.New("agui-bff: no token")
 
-// TokenSource gives the bearer token the BFF asks for.
+// TokenSource gives the bearer token the BFF asks for, for the Yape account that is asking. A token is one account's: what is
+// given for an account is never given for another.
 type TokenSource interface {
-	Token(ctx context.Context) (string, error)
+	Token(ctx context.Context, account uuid.UUID) (string, error)
 }
 
 // Refresher is a TokenSource that can also get a new token when the BFF refuses the one it gave.
 type Refresher interface {
 	TokenSource
-	Refresh(ctx context.Context) (string, error)
+	Refresh(ctx context.Context, account uuid.UUID) (string, error)
 }
 
 const (
@@ -40,22 +42,25 @@ const (
 	stopGrace = time.Second
 )
 
-// CommandToken gets the token from a program that prints it (yape-token): it is run for the account, its standard output
-// is the token, and it caches the token until it is about to expire, so asking on every turn costs nothing.
+// CommandToken gets the token from a program that prints it (yape-token): it is run for an account (--account), its standard output
+// is the token, and it caches the token of each account until it is about to expire, so asking on every turn costs nothing.
 type CommandToken struct {
-	Bin       string
-	AccountID string
+	Bin string
 	// Timeout is how long the program may take. Zero is twenty seconds.
 	Timeout time.Duration
 }
 
 // Token runs the program. The token is the only thing read from its output; an error carries the program's own explanation
 // (the "error" of the JSON line it writes to its standard error) and never its output.
-func (c CommandToken) Token(ctx context.Context) (string, error) { return c.run(ctx) }
+func (c CommandToken) Token(ctx context.Context, account uuid.UUID) (string, error) {
+	return c.run(ctx, account)
+}
 
 // Refresh is Token with the program's own cache skipped (--refresh): the identity provider is asked again. It is for a token
 // the BFF refused.
-func (c CommandToken) Refresh(ctx context.Context) (string, error) { return c.run(ctx, "--refresh") }
+func (c CommandToken) Refresh(ctx context.Context, account uuid.UUID) (string, error) {
+	return c.run(ctx, account, "--refresh")
+}
 
 // serverSecretNames are the settings that only this server is to know; the token program has no use for them. Only these are named:
 // the program may need a secret of its own from the environment (an identity provider's client secret), so no pattern is cut.
@@ -75,7 +80,10 @@ func withoutServerSecrets(env []string) []string {
 	return kept
 }
 
-func (c CommandToken) run(ctx context.Context, extra ...string) (string, error) {
+func (c CommandToken) run(ctx context.Context, account uuid.UUID, extra ...string) (string, error) {
+	if account == uuid.Nil() { // the program would be asked for the token of no one
+		return "", fmt.Errorf("%w: no account to ask for", ErrToken)
+	}
 	timeout := c.Timeout
 	if timeout <= 0 {
 		timeout = defaultTokenTimeout
@@ -83,7 +91,7 @@ func (c CommandToken) run(ctx context.Context, extra ...string) (string, error) 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"--account", c.AccountID}, extra...)...)
+	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"--account", account.String()}, extra...)...)
 	stdout, stderr := &capture{limit: maxProgramOutput}, &capture{limit: maxProgramOutput}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.Env = withoutServerSecrets(os.Environ())

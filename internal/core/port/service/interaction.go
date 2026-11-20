@@ -30,5 +30,5 @@ type Interactions interface {
 
 	// ConfirmCandidate confirms the choice-th candidate for query before any card asks, as the composer's @ picker does, and
 	// returns the contact so its name can go in the message. A choice that is not one of them is a *domain.ActionError.
-	ConfirmCandidate(ctx context.Context, query string, choice int) (domain.Contact, error)
+	ConfirmCandidate(ctx context.Context, userID uuid.UUID, query string, choice int) (domain.Contact, error)
 }

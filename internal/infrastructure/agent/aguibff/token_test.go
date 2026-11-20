@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,8 @@ import (
 )
 
 const account = "25906ac5-9f18-4099-b3fd-e1b74d8549a4"
+
+var accountID = uuid.MustParse(account)
 
 // fakeBin writes an executable shell script and returns its path.
 func fakeBin(t *testing.T, script string) string {
@@ -45,9 +48,9 @@ func TestCommandToken_Token(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			src := aguibff.CommandToken{Bin: fakeBin(t, tc.script), AccountID: account, Timeout: 5 * time.Second}
+			src := aguibff.CommandToken{Bin: fakeBin(t, tc.script), Timeout: 5 * time.Second}
 
-			got, err := src.Token(t.Context())
+			got, err := src.Token(t.Context(), accountID)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -66,19 +69,19 @@ func TestCommandToken_Token(t *testing.T) {
 }
 
 func TestCommandToken_MissingProgramNamesIt(t *testing.T) {
-	src := aguibff.CommandToken{Bin: filepath.Join(t.TempDir(), "no-such-program"), AccountID: account, Timeout: time.Second}
+	src := aguibff.CommandToken{Bin: filepath.Join(t.TempDir(), "no-such-program"), Timeout: time.Second}
 
-	_, err := src.Token(t.Context())
+	_, err := src.Token(t.Context(), accountID)
 
 	require.ErrorIs(t, err, aguibff.ErrToken)
 	assert.Contains(t, err.Error(), "no-such-program")
 }
 
 func TestCommandToken_ASlowProgramIsStopped(t *testing.T) {
-	src := aguibff.CommandToken{Bin: fakeBin(t, "sleep 5"), AccountID: account, Timeout: 100 * time.Millisecond}
+	src := aguibff.CommandToken{Bin: fakeBin(t, "sleep 5"), Timeout: 100 * time.Millisecond}
 	start := time.Now()
 
-	_, err := src.Token(t.Context())
+	_, err := src.Token(t.Context(), accountID)
 
 	require.ErrorIs(t, err, aguibff.ErrToken)
 	assert.Less(t, time.Since(start), 3*time.Second, "the timeout ends the program")
@@ -86,11 +89,11 @@ func TestCommandToken_ASlowProgramIsStopped(t *testing.T) {
 }
 
 func TestCommandToken_TheCallerCanCancel(t *testing.T) {
-	src := aguibff.CommandToken{Bin: fakeBin(t, "sleep 5"), AccountID: account, Timeout: time.Minute}
+	src := aguibff.CommandToken{Bin: fakeBin(t, "sleep 5"), Timeout: time.Minute}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, err := src.Token(ctx)
+	_, err := src.Token(ctx, accountID)
 
 	require.ErrorIs(t, err, aguibff.ErrToken)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -101,9 +104,9 @@ func TestCommandToken_NothingIsLogged(t *testing.T) {
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
-	src := aguibff.CommandToken{Bin: fakeBin(t, `printf 'tok-secret-canary-91'`), AccountID: account, Timeout: time.Second}
+	src := aguibff.CommandToken{Bin: fakeBin(t, `printf 'tok-secret-canary-91'`), Timeout: time.Second}
 
-	_, err := src.Token(t.Context())
+	_, err := src.Token(t.Context(), accountID)
 
 	require.NoError(t, err)
 	assert.NotContains(t, logs.String(), "tok-secret-canary-91")
@@ -111,11 +114,11 @@ func TestCommandToken_NothingIsLogged(t *testing.T) {
 
 func TestCommandToken_RefreshSkipsTheCache(t *testing.T) {
 	bin := fakeBin(t, `case "$*" in *--refresh*) printf 'fresh-token';; *) printf 'cached-token';; esac`)
-	src := aguibff.CommandToken{Bin: bin, AccountID: account, Timeout: 5 * time.Second}
+	src := aguibff.CommandToken{Bin: bin, Timeout: 5 * time.Second}
 
-	cached, err := src.Token(t.Context())
+	cached, err := src.Token(t.Context(), accountID)
 	require.NoError(t, err)
-	fresh, err := src.Refresh(t.Context())
+	fresh, err := src.Refresh(t.Context(), accountID)
 	require.NoError(t, err)
 
 	assert.Equal(t, "cached-token", cached)
@@ -133,9 +136,9 @@ func TestCommandToken_DoesNotSeeTheServersOwnSecrets(t *testing.T) {
 	t.Setenv("AZURE_CLIENT_SECRET", "its-own-secret") // the program's own: it may need it
 	t.Setenv("HTTPS_PROXY", "http://proxy.example:3128")
 	t.Setenv("MY_OWN_SETTING", "kept")
-	src := aguibff.CommandToken{Bin: fakeBin(t, `env > '`+dump+`'; printf tok`), AccountID: account, Timeout: 5 * time.Second}
+	src := aguibff.CommandToken{Bin: fakeBin(t, `env > '`+dump+`'; printf tok`), Timeout: 5 * time.Second}
 
-	got, err := src.Token(t.Context())
+	got, err := src.Token(t.Context(), accountID)
 
 	require.NoError(t, err)
 	assert.Equal(t, "tok", got)

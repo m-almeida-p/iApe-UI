@@ -66,7 +66,7 @@ func (s *Service) Approve(ctx context.Context, userID, convID, msgID uuid.UUID) 
 		return card.Kind == domain.InteractionApproval && card.State == domain.InteractionPending
 	}, nil,
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
-			res, err := s.deps.Actions.Approve(ctx, card)
+			res, err := s.deps.Actions.Approve(ctx, userID, card)
 			if err != nil {
 				return resolvedAlready(card, err)
 			}
@@ -79,7 +79,7 @@ func (s *Service) Reject(ctx context.Context, userID, convID, msgID uuid.UUID) (
 	return s.answer(ctx, userID, convID, msgID,
 		func(card domain.Interaction) bool { return card.Kind == domain.InteractionApproval && card.Open() }, nil,
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
-			res, err := s.deps.Actions.Reject(ctx, card)
+			res, err := s.deps.Actions.Reject(ctx, userID, card)
 			if err != nil {
 				return resolvedAlready(card, err)
 			}
@@ -100,7 +100,7 @@ func (s *Service) ConfirmOTP(ctx context.Context, userID, convID, msgID uuid.UUI
 			return nil
 		},
 		func(ctx context.Context, card domain.Interaction) (domain.Interaction, error) {
-			res, err := s.deps.Actions.ConfirmOTP(ctx, card, code)
+			res, err := s.deps.Actions.ConfirmOTP(ctx, userID, card, code)
 			if err != nil {
 				return card, err
 			}
@@ -123,7 +123,7 @@ func (s *Service) ChooseContact(ctx context.Context, userID, convID, msgID uuid.
 			if err != nil {
 				return card, err
 			}
-			if err := s.deps.Actions.ConfirmContact(ctx, card.Query, chosen); err != nil {
+			if err := s.deps.Actions.ConfirmContact(ctx, userID, card.Query, chosen); err != nil {
 				return card, err
 			}
 			return card.ContactChosen(chosen)
@@ -132,12 +132,12 @@ func (s *Service) ChooseContact(ctx context.Context, userID, convID, msgID uuid.
 
 // ConfirmCandidate implements service.Interactions. As the BFF's own page does for its picker, the service is told the chosen
 // name: what the user typed after the @ may be nothing, or part of a name.
-func (s *Service) ConfirmCandidate(ctx context.Context, query string, choice int) (domain.Contact, error) {
+func (s *Service) ConfirmCandidate(ctx context.Context, userID uuid.UUID, query string, choice int) (domain.Contact, error) {
 	chosen, err := candidateAt(query, choice)
 	if err != nil {
 		return domain.Contact{}, err
 	}
-	if err := s.deps.Actions.ConfirmContact(ctx, chosen.Name, chosen); err != nil {
+	if err := s.deps.Actions.ConfirmContact(ctx, userID, chosen.Name, chosen); err != nil {
 		return domain.Contact{}, err
 	}
 	return chosen, nil

@@ -94,7 +94,7 @@ func wire(ctx context.Context, cfg config.Config, log *slog.Logger, pool *pgxpoo
 
 	// The BFF of the Yape agent service is the agent and answers the cards of its replies. Its token comes from a program, once
 	// for each turn: that program caches it until it expires.
-	agent := aguibff.NewClient(cfg.Agent, aguibff.CommandToken{Bin: cfg.Agent.BearerBin, AccountID: cfg.Agent.AccountID}, nil)
+	agent := aguibff.NewClient(cfg.Agent, aguibff.CommandToken{Bin: cfg.Agent.BearerBin}, nil)
 	chatSvc := chat.NewService(chat.Dependencies{
 		Conversations:   conversations,
 		Messages:        messages,

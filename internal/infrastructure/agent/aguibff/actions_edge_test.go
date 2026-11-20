@@ -56,7 +56,7 @@ func TestActions_TheRefusalsMessage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := newBFF(t, answerWith(http.StatusBadRequest, tc.body))
 
-			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 			require.Error(t, err)
 			refused, isRefusal := errors.AsType[*domain.ActionError](err)
@@ -97,7 +97,7 @@ func TestActions_EveryStatus(t *testing.T) {
 		t.Run(http.StatusText(tc.status), func(t *testing.T) {
 			b := newBFF(t, answerWith(tc.status, explained))
 
-			_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), card())
+			_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), accountID, card())
 
 			require.Error(t, err)
 			_, isRefusal := errors.AsType[*domain.ActionError](err)
@@ -115,7 +115,7 @@ func TestActions_EveryStatus(t *testing.T) {
 func TestActions_AnErrorBodyOf10MBIsBounded(t *testing.T) {
 	b := newBFF(t, answerWith(http.StatusInternalServerError, strings.Repeat("x", 10<<20)))
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 	httpErr, ok := errors.AsType[*aguibff.HTTPError](err)
 	require.True(t, ok)
@@ -125,7 +125,7 @@ func TestActions_AnErrorBodyOf10MBIsBounded(t *testing.T) {
 func TestActions_ARefusalWithABigBodyIsStillBounded(t *testing.T) {
 	b := newBFF(t, answerWith(http.StatusBadRequest, `{"message":"`+strings.Repeat("x", 10<<20)+`"}`))
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 	require.Error(t, err)
 	if refused, ok := errors.AsType[*domain.ActionError](err); ok {
@@ -157,7 +157,7 @@ func TestActions_AnApprovalIdIsOnePathSegmentWhateverItHolds(t *testing.T) {
 			c := card()
 			c.ApprovalID = tc.id
 
-			_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), c)
+			_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), accountID, c)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, b.requests[0].URL.EscapedPath())
@@ -173,9 +173,9 @@ func TestActions_AnApprovalIdThatWouldMoveTheRouteIsRefusedAndNothingIsSent(t *t
 			c.ApprovalID = id
 			client := clientFor(b, &fakeTokens{token: "t"})
 
-			_, errApprove := client.Approve(t.Context(), c)
-			_, errReject := client.Reject(t.Context(), c)
-			_, errOTP := client.ConfirmOTP(t.Context(), c, "123456")
+			_, errApprove := client.Approve(t.Context(), accountID, c)
+			_, errReject := client.Reject(t.Context(), accountID, c)
+			_, errOTP := client.ConfirmOTP(t.Context(), accountID, c, "123456")
 
 			for _, err := range []error{errApprove, errReject, errOTP} {
 				require.Error(t, err)
@@ -202,7 +202,7 @@ func TestActions_TheBodyIsJSONWhateverTheUserTyped(t *testing.T) {
 			c := card()
 			c.ChallengeID = "trf_9"
 
-			_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), c, code)
+			_, err := clientFor(b, &fakeTokens{token: "t"}).ConfirmOTP(t.Context(), accountID, c, code)
 
 			require.NoError(t, err)
 			var sent map[string]string
@@ -217,7 +217,7 @@ func TestActions_AnEmptyRunIDIsSentAsEmpty(t *testing.T) {
 	c := card()
 	c.RunID = ""
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), c)
+	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, c)
 
 	require.NoError(t, err)
 	var sent map[string]string
@@ -237,7 +237,7 @@ func TestActions_ConfirmContactSendsTheTextAsItIs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			b := newBFF(t, answerWith(http.StatusCreated, `{"status":"ok"}`))
 
-			err := clientFor(b, &fakeTokens{token: "t"}).ConfirmContact(t.Context(), "Ma\"ria\n", c)
+			err := clientFor(b, &fakeTokens{token: "t"}).ConfirmContact(t.Context(), accountID, "Ma\"ria\n", c)
 
 			require.NoError(t, err)
 			var sent map[string]string
@@ -252,8 +252,8 @@ func TestActions_TextThatIsNotUTF8IsAnErrorAndNothingIsSent(t *testing.T) {
 	client := clientFor(b, &fakeTokens{token: "t"})
 	c := card()
 
-	_, errOTP := client.ConfirmOTP(t.Context(), c, "12\xff34")
-	errContact := client.ConfirmContact(t.Context(), "q", domain.Contact{Name: "\xc3\x28"})
+	_, errOTP := client.ConfirmOTP(t.Context(), accountID, c, "12\xff34")
+	errContact := client.ConfirmContact(t.Context(), accountID, "q", domain.Contact{Name: "\xc3\x28"})
 
 	require.Error(t, errOTP)
 	require.Error(t, errContact)
@@ -279,7 +279,7 @@ func TestActions_ASuccessThatCannotBeRead(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := newBFF(t, answerWith(http.StatusCreated, tc.body))
 
-			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+			_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "reading the BFF's answer")
@@ -295,7 +295,7 @@ func TestActions_ASuccessWithNoMessageHasNoMessage(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			b := newBFF(t, answerWith(http.StatusOK, body))
 
-			got, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), card())
+			got, err := clientFor(b, &fakeTokens{token: "t"}).Reject(t.Context(), accountID, card())
 
 			require.NoError(t, err)
 			assert.Equal(t, strings.Contains(body, `"ok"`), got.Message == "ok")
@@ -306,7 +306,7 @@ func TestActions_ASuccessWithNoMessageHasNoMessage(t *testing.T) {
 func TestActions_ASuccessBodyOfTenMegabytesIsNotRead(t *testing.T) {
 	b := newBFF(t, answerWith(http.StatusCreated, `{"displayMessage":"`+strings.Repeat("x", 10<<20)+`"}`))
 
-	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+	_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 	require.Error(t, err)
 }
@@ -331,7 +331,7 @@ func TestActions_ACodeIsAskedFor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := newBFF(t, answerWith(http.StatusCreated, tc.body))
 
-			got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+			got, err := clientFor(b, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 			if tc.wantError != "" {
 				require.Error(t, err)
@@ -351,7 +351,7 @@ func TestActions_TheCallerLeavingIsItsOwnErrorNotARefusal(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(ctx, card())
+		_, err := clientFor(b, &fakeTokens{token: "t"}).Approve(ctx, accountID, card())
 
 		require.ErrorIs(t, err, context.Canceled)
 		assert.NotErrorIs(t, err, domain.ErrAgentUnavailable, "the user left: the service did nothing wrong")
@@ -364,7 +364,7 @@ func TestActions_TheCallerLeavingIsItsOwnErrorNotARefusal(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		go func() { <-arrived; cancel() }()
 
-		_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(ctx, card())
+		_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(ctx, accountID, card())
 
 		require.ErrorIs(t, err, context.Canceled)
 		assert.NotErrorIs(t, err, domain.ErrAgentUnavailable)
@@ -384,7 +384,7 @@ func TestActions_TheCallerLeavingIsItsOwnErrorNotARefusal(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		go func() { <-started; cancel() }()
 
-		_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(ctx, card())
+		_, err := clientFor(b, &fakeTokens{token: "t"}).Reject(ctx, accountID, card())
 
 		require.ErrorIs(t, err, context.Canceled)
 	})
@@ -394,7 +394,7 @@ func TestActions_TheTimeout(t *testing.T) {
 	t.Run("a service that does not answer is a timeout", func(t *testing.T) {
 		b := newBFF(t, func(_ http.ResponseWriter, r *http.Request, _ int) { <-r.Context().Done() })
 
-		_, err := clientAt(b.srv.URL, 100*time.Millisecond, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+		_, err := clientAt(b.srv.URL, 100*time.Millisecond, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Contains(t, err.Error(), "timed out")
@@ -402,14 +402,14 @@ func TestActions_TheTimeout(t *testing.T) {
 	t.Run("a tiny limit is a timeout", func(t *testing.T) {
 		b := newBFF(t, answerWith(http.StatusCreated, `{}`))
 
-		_, err := clientAt(b.srv.URL, time.Nanosecond, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+		_, err := clientAt(b.srv.URL, time.Nanosecond, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 	t.Run("zero is no limit", func(t *testing.T) {
 		b := newBFF(t, answerWith(http.StatusCreated, `{"displayMessage":"ok"}`))
 
-		got, err := clientAt(b.srv.URL, 0, &fakeTokens{token: "t"}).Approve(t.Context(), card())
+		got, err := clientAt(b.srv.URL, 0, &fakeTokens{token: "t"}).Approve(t.Context(), accountID, card())
 
 		require.NoError(t, err)
 		assert.Equal(t, "ok", got.Message)
@@ -420,7 +420,7 @@ func TestActions_TheTokenSource(t *testing.T) {
 	t.Run("a token source that fails means nothing is sent", func(t *testing.T) {
 		b := newBFF(t, answerWith(http.StatusCreated, `{}`))
 
-		_, err := clientFor(b, plainTokens{err: aguibff.ErrToken}).Approve(t.Context(), card())
+		_, err := clientFor(b, plainTokens{err: aguibff.ErrToken}).Approve(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 		require.ErrorIs(t, err, aguibff.ErrToken)
@@ -429,7 +429,7 @@ func TestActions_TheTokenSource(t *testing.T) {
 	t.Run("an empty token means nothing is sent", func(t *testing.T) {
 		b := newBFF(t, answerWith(http.StatusCreated, `{}`))
 
-		err := clientFor(b, plainTokens{}).ConfirmContact(t.Context(), "q", domain.Contact{})
+		err := clientFor(b, plainTokens{}).ConfirmContact(t.Context(), accountID, "q", domain.Contact{})
 
 		require.ErrorIs(t, err, aguibff.ErrToken)
 		assert.Zero(t, b.count())
@@ -438,7 +438,7 @@ func TestActions_TheTokenSource(t *testing.T) {
 		b := newBFF(t, answerWith(http.StatusUnauthorized, `{"statusCode":401,"message":"Unauthorized"}`))
 		tokens := &fakeTokens{token: canary, fresh: canary}
 
-		_, err := clientFor(b, tokens).Approve(t.Context(), card())
+		_, err := clientFor(b, tokens).Approve(t.Context(), accountID, card())
 
 		require.Error(t, err)
 		assert.Equal(t, 1, tokens.refreshed)
@@ -448,7 +448,7 @@ func TestActions_TheTokenSource(t *testing.T) {
 	t.Run("a refused token is an error when the source cannot refresh, after one request", func(t *testing.T) {
 		b := newBFF(t, answerWith(http.StatusUnauthorized, `{}`))
 
-		_, err := clientFor(b, plainTokens{token: "old"}).Reject(t.Context(), card())
+		_, err := clientFor(b, plainTokens{token: "old"}).Reject(t.Context(), accountID, card())
 
 		require.Error(t, err)
 		assert.Equal(t, 1, b.count())
@@ -457,7 +457,7 @@ func TestActions_TheTokenSource(t *testing.T) {
 		b := newBFF(t, answerWith(http.StatusUnauthorized, `{}`))
 		tokens := &refreshFails{}
 
-		_, err := clientFor(b, tokens).Reject(t.Context(), card())
+		_, err := clientFor(b, tokens).Reject(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 		assert.Equal(t, 1, b.count())
@@ -470,10 +470,10 @@ func TestActions_TheTokenIsNeverInAnyError(t *testing.T) {
 			b := newBFF(t, answerWith(status, `{"message":"nope"}`))
 			client := clientFor(b, &fakeTokens{token: canary, fresh: canary})
 
-			_, e1 := client.Approve(t.Context(), card())
-			_, e2 := client.Reject(t.Context(), card())
-			_, e3 := client.ConfirmOTP(t.Context(), card(), "1")
-			e4 := client.ConfirmContact(t.Context(), "q", domain.Contact{})
+			_, e1 := client.Approve(t.Context(), accountID, card())
+			_, e2 := client.Reject(t.Context(), accountID, card())
+			_, e3 := client.ConfirmOTP(t.Context(), accountID, card(), "1")
+			e4 := client.ConfirmContact(t.Context(), accountID, "q", domain.Contact{})
 
 			for _, err := range []error{e1, e2, e3, e4} {
 				require.Error(t, err)
@@ -486,7 +486,7 @@ func TestActions_TheTokenIsNeverInAnyError(t *testing.T) {
 		c := clientFor(b, &fakeTokens{token: canary})
 		b.srv.Close()
 
-		_, err := c.Approve(t.Context(), card())
+		_, err := c.Approve(t.Context(), accountID, card())
 
 		require.ErrorIs(t, err, domain.ErrAgentUnavailable)
 		assert.NotContains(t, err.Error(), canary)
@@ -497,9 +497,9 @@ func TestActions_TheRequestIsMadeAsTheAccount(t *testing.T) {
 	b := newBFF(t, answerWith(http.StatusCreated, `{"displayMessage":"ok"}`))
 	client := clientAt(b.srv.URL+"/api/", time.Second, &fakeTokens{token: "tok"})
 
-	_, err := client.Approve(t.Context(), card())
+	_, err := client.Approve(t.Context(), accountID, card())
 	require.NoError(t, err)
-	require.NoError(t, client.ConfirmContact(t.Context(), "q", domain.Contact{Name: "n", Phone: "p"}))
+	require.NoError(t, client.ConfirmContact(t.Context(), accountID, "q", domain.Contact{Name: "n", Phone: "p"}))
 
 	require.Equal(t, 2, b.count())
 	assert.Equal(t, "/api/bff/approvals/appr_28006196-bd87-4d46-931e-0f74a46b2c57/approve", b.requests[0].URL.Path)

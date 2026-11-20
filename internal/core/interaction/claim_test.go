@@ -86,7 +86,7 @@ func TestClaim_TheCardIsClaimedBeforeTheServiceIsAskedAndSavedWhenItAnswers(t *t
 	r.reads(replyWith(&card))
 	claimed := claimOf(t, card, "claim-1", started)
 	r.saves("claim", card, claimed, nil)
-	r.actions.On("Approve", mock.Anything, card).Run(func(mock.Arguments) { r.saw("approve") }).
+	r.actions.On("Approve", mock.Anything, userID, card).Run(func(mock.Arguments) { r.saw("approve") }).
 		Return(domain.ActionResult{Message: "Transfer paid successfully. TxnID: OP-1"}, nil).Once()
 	paid := card
 	paid.State, paid.Result = domain.InteractionPaid, "Transfer paid successfully. TxnID: OP-1"
@@ -152,7 +152,7 @@ func TestClaim_WhatTheServiceRefusesGivesTheCardBackToBeAnsweredAgain(t *testing
 			r.reads(replyWith(&card))
 			claimed := claimOf(t, card, "claim-1", started)
 			r.saves("claim", card, claimed, nil)
-			r.actions.On("ConfirmOTP", mock.Anything, card, "000000").Run(func(mock.Arguments) { r.saw("service") }).
+			r.actions.On("ConfirmOTP", mock.Anything, userID, card, "000000").Run(func(mock.Arguments) { r.saw("service") }).
 				Return(domain.ActionResult{}, failure).Once()
 			r.saves("release", claimed, card, nil)
 
@@ -178,7 +178,7 @@ func TestClaim_WhatMayHaveReachedTheServiceKeepsTheCardClaimed(t *testing.T) {
 			r.reads(replyWith(&card))
 			claimed := claimOf(t, card, "claim-1", started)
 			r.saves("claim", card, claimed, nil)
-			r.actions.On("Approve", mock.Anything, card).Run(func(mock.Arguments) { r.saw("service") }).Return(domain.ActionResult{}, failure).Once()
+			r.actions.On("Approve", mock.Anything, userID, card).Run(func(mock.Arguments) { r.saw("service") }).Return(domain.ActionResult{}, failure).Once()
 
 			got, err := r.svc.Approve(t.Context(), userID, convID, replyID)
 
@@ -197,7 +197,7 @@ func TestClaim_ACardClaimedLongAgoCanBeTakenOverAndAnsweredAgain(t *testing.T) {
 	taken, err := stale.Reclaim("claim-1", started)
 	require.NoError(t, err)
 	r.saves("reclaim", stale, taken, nil)
-	r.actions.On("Approve", mock.Anything, base).Run(func(mock.Arguments) { r.saw("service") }).
+	r.actions.On("Approve", mock.Anything, userID, base).Run(func(mock.Arguments) { r.saw("service") }).
 		Return(domain.ActionResult{Message: "paid"}, nil).Once()
 	paid := base
 	paid.State, paid.Result = domain.InteractionPaid, "paid"
@@ -228,7 +228,7 @@ func TestClaim_RejectingACardThatWaitsForACodeIsClaimedToo(t *testing.T) {
 	r.reads(replyWith(&card))
 	claimed := claimOf(t, card, "claim-1", started)
 	r.saves("claim", card, claimed, nil)
-	r.actions.On("Reject", mock.Anything, card).Run(func(mock.Arguments) { r.saw("service") }).
+	r.actions.On("Reject", mock.Anything, userID, card).Run(func(mock.Arguments) { r.saw("service") }).
 		Return(domain.ActionResult{Message: "rejected"}, nil).Once()
 	closed := card
 	closed.State, closed.Result = domain.InteractionRejected, "rejected"
@@ -272,7 +272,7 @@ func TestClaim_TheFinishAndTheReleaseAreSavedEvenWhenTheRequestIsGone(t *testing
 	claimed := claimOf(t, card, "claim-1", started)
 	r.saves("claim", card, claimed, nil)
 	ctx, cancel := context.WithCancel(t.Context())
-	r.actions.On("Approve", mock.Anything, card).Run(func(mock.Arguments) { cancel() }).
+	r.actions.On("Approve", mock.Anything, userID, card).Run(func(mock.Arguments) { cancel() }).
 		Return(domain.ActionResult{}, &domain.ActionError{Message: "no"}).Once()
 	r.saves("release", claimed, card, nil) // the matcher checks that this context is alive
 
@@ -289,7 +289,7 @@ func TestClaim_AFinishThatIsNotSavedIsLoggedWithTheApprovalAndTheClaimIsLeftForT
 	r.reads(replyWith(&card))
 	claimed := claimOf(t, card, "claim-1", started)
 	r.saves("claim", card, claimed, nil)
-	r.actions.On("Approve", mock.Anything, card).Return(domain.ActionResult{Message: "paid"}, nil).Once()
+	r.actions.On("Approve", mock.Anything, userID, card).Return(domain.ActionResult{Message: "paid"}, nil).Once()
 	paid := card
 	paid.State, paid.Result = domain.InteractionPaid, "paid"
 	boom := errors.New("connection reset")
@@ -308,7 +308,7 @@ func TestClaim_ARelease_ThatIsNotSavedIsLoggedAndTheRefusalIsStillTheAnswer(t *t
 	claimed := claimOf(t, card, "claim-1", started)
 	r.saves("claim", card, claimed, nil)
 	refusal := &domain.ActionError{Message: "Transfer is no longer open"}
-	r.actions.On("Approve", mock.Anything, card).Return(domain.ActionResult{}, refusal).Once()
+	r.actions.On("Approve", mock.Anything, userID, card).Return(domain.ActionResult{}, refusal).Once()
 	r.saves("release", claimed, card, errors.New("connection reset"))
 
 	_, err := r.svc.Approve(t.Context(), userID, convID, replyID)
@@ -396,7 +396,7 @@ type countingGateway struct {
 
 func (g *countingGateway) calls() int { g.mu.Lock(); defer g.mu.Unlock(); return g.n }
 
-func (g *countingGateway) Approve(context.Context, domain.Interaction) (domain.ActionResult, error) {
+func (g *countingGateway) Approve(context.Context, uuid.UUID, domain.Interaction) (domain.ActionResult, error) {
 	g.mu.Lock()
 	g.n++
 	g.mu.Unlock()
@@ -404,15 +404,15 @@ func (g *countingGateway) Approve(context.Context, domain.Interaction) (domain.A
 	return domain.ActionResult{Message: "paid"}, nil
 }
 
-func (g *countingGateway) Reject(context.Context, domain.Interaction) (domain.ActionResult, error) {
+func (g *countingGateway) Reject(context.Context, uuid.UUID, domain.Interaction) (domain.ActionResult, error) {
 	return domain.ActionResult{}, errors.New("not used")
 }
 
-func (g *countingGateway) ConfirmOTP(context.Context, domain.Interaction, string) (domain.ActionResult, error) {
+func (g *countingGateway) ConfirmOTP(context.Context, uuid.UUID, domain.Interaction, string) (domain.ActionResult, error) {
 	return domain.ActionResult{}, errors.New("not used")
 }
 
-func (g *countingGateway) ConfirmContact(context.Context, string, domain.Contact) error {
+func (g *countingGateway) ConfirmContact(context.Context, uuid.UUID, string, domain.Contact) error {
 	return errors.New("not used")
 }
 
@@ -446,7 +446,7 @@ func TestClaim_AnApprovalThatIsResolvedAlreadyIsWhatTheCardBecomes(t *testing.T)
 			r.reads(replyWith(&card))
 			claimed := claimOf(t, card, "claim-1", started)
 			r.saves("claim", card, claimed, nil)
-			r.actions.On(tc.method, mock.Anything, card).Run(func(mock.Arguments) { r.saw("service") }).
+			r.actions.On(tc.method, mock.Anything, userID, card).Run(func(mock.Arguments) { r.saw("service") }).
 				Return(domain.ActionResult{}, &domain.ActionError{Message: "approval already resolved: " + tc.resolved, Resolved: tc.resolved}).Once()
 			want := card
 			want.State, want.Result = tc.state, tc.result
@@ -479,7 +479,7 @@ func TestClaim_AResolvedApprovalThatTheCardCannotBecomeIsGivenBackWithTheReason(
 			claimed := claimOf(t, card, "claim-1", started)
 			r.saves("claim", card, claimed, nil)
 			refusal := &domain.ActionError{Message: "approval already resolved: " + tc.resolved, Resolved: tc.resolved}
-			r.actions.On(tc.method, mock.Anything, card).Return(domain.ActionResult{}, refusal).Once()
+			r.actions.On(tc.method, mock.Anything, userID, card).Return(domain.ActionResult{}, refusal).Once()
 			r.saves("release", claimed, card, nil)
 
 			got, err := tc.call(r)
@@ -498,7 +498,7 @@ func TestClaim_TheFinishIsSavedWithinATimeLimit(t *testing.T) {
 	r.reads(replyWith(&card))
 	claimed := claimOf(t, card, "claim-1", started)
 	r.saves("claim", card, claimed, nil)
-	r.actions.On("Approve", mock.Anything, card).Return(domain.ActionResult{Message: "paid"}, nil).Once()
+	r.actions.On("Approve", mock.Anything, userID, card).Return(domain.ActionResult{Message: "paid"}, nil).Once()
 	paid := card
 	paid.State, paid.Result = domain.InteractionPaid, "paid"
 	var left time.Duration
@@ -529,7 +529,7 @@ func TestClaim_EveryClaimHasAnIDOfItsOwn(t *testing.T) {
 			ids = append(ids, card.ClaimID)
 		}
 	}).Return(nil)
-	actions.On("Approve", mock.Anything, mock.Anything).Return(domain.ActionResult{Message: "paid"}, nil)
+	actions.On("Approve", mock.Anything, userID, mock.Anything).Return(domain.ActionResult{Message: "paid"}, nil)
 
 	for range 2 {
 		_, err := svc.Approve(t.Context(), userID, convID, replyID)
@@ -548,7 +548,7 @@ func TestNewService_NeedsNoLogger(t *testing.T) {
 	card := *cardIn(domain.InteractionPending)
 	msgs.On("Get", mock.Anything, userID, convID, replyID).Return(replyWith(&card), nil).Once()
 	msgs.On("SaveInteraction", mock.Anything, userID, convID, replyID, mock.Anything, mock.Anything).Return(nil).Once()
-	actions.On("Approve", mock.Anything, mock.Anything).Return(domain.ActionResult{Message: "paid"}, nil).Once()
+	actions.On("Approve", mock.Anything, userID, mock.Anything).Return(domain.ActionResult{Message: "paid"}, nil).Once()
 	msgs.On("SaveInteraction", mock.Anything, userID, convID, replyID, mock.Anything, mock.Anything).Return(errors.New("connection reset")).Once()
 
 	assert.NotPanics(t, func() { _, _ = svc.Approve(t.Context(), userID, convID, replyID) })

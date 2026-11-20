@@ -259,7 +259,7 @@ func TestRateLimit_AnswersToCards(t *testing.T) {
 
 	t.Run("confirming a contact from the picker is limited too", func(t *testing.T) {
 		h := answersHarness(t, 1)
-		h.cards.On("ConfirmCandidate", mock.Anything, "maria", 0).Return(domain.Candidates("maria")[0], nil).Once()
+		h.cards.On("ConfirmCandidate", mock.Anything, alice.ID, "maria", 0).Return(domain.Candidates("maria")[0], nil).Once()
 		form := url.Values{"q": {"maria"}, "choice": {"0"}}
 		require.Equal(t, http.StatusOK, h.as("tok", http.MethodPost, "/contacts/confirm", form, htmx).Code)
 
